@@ -99,6 +99,37 @@ function App() {
     setSavedQuestions(saved);
   }, [adminScreen]);
 
+  // Вспомогательная функция: строим массив ответов из сохранённого вопроса
+  const buildAnswersFromSavedQuestion = (q) => {
+    // Кол-во ответов, по умолчанию 4, но если сохранено меньше — используем меньше
+    const answersCountRaw = q.answers_count !== undefined && q.answers_count !== null
+      ? Number(q.answers_count)
+      : 4;
+    const answersCount = Number.isNaN(answersCountRaw) || answersCountRaw <= 0
+      ? 4
+      : answersCountRaw;
+
+    const answers = [];
+
+    for (let i = 0; i < answersCount; i++) {
+      const key = String.fromCharCode(97 + i); // 'a', 'b', 'c', ...
+      const text = q[`answer_${key}`];
+      const id = i + 1;
+
+      // Пропускаем пустые ответы, чтобы в тесте не было «3.» и «4.» без текста
+      if (!text || String(text).trim() === '') continue;
+
+      answers.push({
+        id,
+        text,
+        // Пока логика одна: один правильный ответ по букве в q.correct
+        correct: q.correct === key
+      });
+    }
+
+    return answers;
+  };
+
   // Function to get merged questions (static + saved from localStorage)
   const getMergedQuestions = (topicId) => {
     const staticQuestions = questionsData[topicId] || [];
@@ -109,12 +140,7 @@ function App() {
         id: q.id,
         text: q.question,
         image: q.image_url,
-        answers: [
-          { id: 1, text: q.answer_a, correct: q.correct === 'a' },
-          { id: 2, text: q.answer_b, correct: q.correct === 'b' },
-          { id: 3, text: q.answer_c, correct: q.correct === 'c' },
-          { id: 4, text: q.answer_d, correct: q.correct === 'd' }
-        ]
+        answers: buildAnswersFromSavedQuestion(q)
       }));
     return [...staticQuestions, ...savedForTopic];
   };
@@ -144,12 +170,7 @@ function App() {
           id: q.id,
           text: q.question,
           image: q.image_url,
-          answers: [
-            { id: 1, text: q.answer_a, correct: q.correct === 'a' },
-            { id: 2, text: q.answer_b, correct: q.correct === 'b' },
-            { id: 3, text: q.answer_c, correct: q.correct === 'c' },
-            { id: 4, text: q.answer_d, correct: q.correct === 'd' }
-          ],
+          answers: buildAnswersFromSavedQuestion(q),
           sourceTopicId: topic.id,
           sourceTopicName: topic.name
         });
@@ -584,29 +605,43 @@ function App() {
   }
 
   const saveTestResults = () => {
-    // ========== ЭКЗАМЕН: Используем сохраненные вопросы теста ==========
-    // Для экзамена используем testQuestions, для теста по теме - из selectedTopic
-    let questions = [];
-    if (isExamMode) {
-      // В режиме экзамена обязательно используем testQuestions
-      questions = testQuestions.length > 0 ? testQuestions : [];
-      if (questions.length === 0) {
-        console.error('Экзамен: нет вопросов для сохранения результатов');
-        alert('Ошибка: нет вопросов для сохранения результатов');
-        return;
+    try {
+      // ========== ЭКЗАМЕН: Используем сохраненные вопросы теста ==========
+      // Для экзамена используем testQuestions, для теста по теме - из selectedTopic
+      let questions = [];
+      if (isExamMode) {
+        // В режиме экзамена обязательно используем testQuestions
+        questions = testQuestions && testQuestions.length > 0 ? testQuestions : [];
+        if (questions.length === 0) {
+          console.error('Экзамен: нет вопросов для сохранения результатов');
+          alert('Ошибка: нет вопросов для сохранения результатов');
+          return;
+        }
+      } else {
+        // Для теста по теме используем вопросы из selectedTopic
+        if (!selectedTopic || !selectedTopic.id) {
+          console.error('Тест: selectedTopic не определен');
+          alert('Ошибка: не выбрана тема для сохранения результатов');
+          return;
+        }
+        try {
+          questions = getMergedQuestions(selectedTopic.id);
+        } catch (error) {
+          console.error('Ошибка при получении вопросов:', error);
+          alert('Ошибка при получении вопросов теста');
+          return;
+        }
+        if (!questions || questions.length === 0) {
+          console.error('Тест: нет вопросов для сохранения результатов');
+          alert('Ошибка: нет вопросов для сохранения результатов');
+          return;
+        }
       }
-    } else {
-      // Для теста по теме используем вопросы из selectedTopic
-      questions = selectedTopic ? getMergedQuestions(selectedTopic.id) : [];
-      if (questions.length === 0) {
-        console.error('Тест: нет вопросов для сохранения результатов');
-        alert('Ошибка: нет вопросов для сохранения результатов');
-        return;
-      }
-    }
     
     // Используем референс для получения актуальных ответов (синхронный доступ)
-    const currentUserAnswers = userAnswersRef.current.length > 0 ? userAnswersRef.current : userAnswers;
+    const currentUserAnswers = (userAnswersRef.current && Array.isArray(userAnswersRef.current) && userAnswersRef.current.length > 0) 
+      ? userAnswersRef.current 
+      : (Array.isArray(userAnswers) ? userAnswers : []);
     
     // Отладочная информация - проверяем состояние userAnswers
     console.log('saveTestResults - userAnswers state:', {
@@ -637,6 +672,12 @@ function App() {
     };
     
     questions.forEach((question, index) => {
+      // Проверяем, что вопрос существует и имеет ответы
+      if (!question || !question.answers || !Array.isArray(question.answers) || question.answers.length === 0) {
+        console.warn(`Question ${index + 1} не имеет ответов или некорректна:`, question);
+        return;
+      }
+      
       const userAnswer = currentUserAnswers[index];
       
       if (userAnswer && userAnswer.selectedAnswerId !== undefined && userAnswer.selectedAnswerId !== null) {
@@ -645,6 +686,7 @@ function App() {
         // Находим выбранный ответ в вопросе
         const userSelectedId = userAnswer.selectedAnswerId;
         const selectedAnswer = question.answers.find(a => {
+          if (!a || a.id === undefined || a.id === null) return false;
           const answerId = a.id;
           // Нормализуем и сравниваем
           const normalizedUser = normalizeId(userSelectedId);
@@ -690,7 +732,6 @@ function App() {
       percentage: questions.length > 0 ? Math.round((correctCount / questions.length) * 100) : 0
     });
     
-    const finalTime = Math.floor((Date.now() - testStartTime) / 1000);
     const percentage = questions.length > 0 ? Math.round((correctCount / questions.length) * 100) : 0;
     // ========== ЭКЗАМЕН: Для экзамена используем другой формат ID, для теста по теме - стандартный ==========
     const resultId = isExamMode 
@@ -712,13 +753,27 @@ function App() {
     };
     
     // Глубокое копирование вопросов и ответов для сохранения
-    const questionsCopy = questions.map(q => ({
-      ...q,
-      answers: q.answers.map(a => ({ ...a }))
-    }));
+    const questionsCopy = questions.map(q => {
+      if (!q || !q.answers || !Array.isArray(q.answers)) {
+        console.warn('Некорректный вопрос при копировании:', q);
+        return {
+          ...q,
+          answers: []
+        };
+      }
+      return {
+        ...q,
+        answers: q.answers.map(a => ({ ...a }))
+      };
+    });
     
-    // Глубокое копирование ответов пользователя
-    const userAnswersCopy = userAnswers.map(a => a ? { ...a } : null);
+    // Глубокое копирование ответов пользователя (используем currentUserAnswers вместо userAnswers)
+    const userAnswersCopy = Array.isArray(currentUserAnswers) 
+      ? currentUserAnswers.map(a => a ? { ...a } : null)
+      : [];
+    
+    // Проверяем, что testStartTime не null перед вычислением времени
+    const finalTime = testStartTime ? Math.floor((Date.now() - testStartTime) / 1000) : 0;
     
     const newResult = {
       id: resultId,
@@ -780,6 +835,13 @@ function App() {
       setScreen('examResult');
     } else {
       // Сохраняем результаты теста по теме (существующая логика)
+      // Проверяем, что selectedTopic существует перед использованием
+      if (!selectedTopic || !selectedTopic.id) {
+        console.error('Ошибка: selectedTopic не определен');
+        alert('Ошибка: не выбрана тема для сохранения результатов');
+        return;
+      }
+      
       const topicResults = results[selectedTopic.id] || [];
       const updatedResults = [newResult, ...topicResults].slice(0, 5);
       
@@ -791,6 +853,21 @@ function App() {
       setTestStartTime(null);
       setElapsedTime(0);
       setScreen('topicDetail');
+    }
+    } catch (error) {
+      console.error('Критическая ошибка в saveTestResults:', error);
+      alert('Произошла ошибка при сохранении результатов теста. Попробуйте еще раз.');
+      // Сбрасываем состояния даже при ошибке, чтобы пользователь мог продолжить работу
+      setTestStartTime(null);
+      setElapsedTime(0);
+      if (isExamMode) {
+        setIsExamMode(false);
+        setExamTimeLimit(null);
+        setExamTimeRemaining(null);
+        setScreen('examSelect');
+      } else {
+        setScreen('topics');
+      }
     }
   }
 
@@ -910,21 +987,33 @@ function App() {
       }))
     });
     
-    // Проверяем, все ли вопросы отвечены
-    setTimeout(() => {
-      const allAnswered = questions.every((q, idx) => 
-        updatedAnswers[idx] !== undefined && updatedAnswers[idx] !== null
-      );
-      
-      if (allAnswered) {
-        // Все вопросы отвечены - автоматически завершаем тест
-        setTimeout(() => {
-          if (confirm('Все вопросы отвечены! Завершить тест?')) {
-            saveTestResults();
-          }
-        }, 500);
-      }
-    }, 100);
+    // Автоматический переход к следующему вопросу
+    const isLastQuestion = currentQuestionIndex + 1 >= questions.length;
+    
+    if (!isLastQuestion) {
+      // Небольшая пауза, чтобы пользователь успел увидеть подсветку ответа
+      setTimeout(() => {
+        setCurrentQuestionIndex(prev => prev + 1);
+        setSelectedAnswer(null);
+        setIsAnswered(false);
+      }, 400);
+    } else {
+      // Если это был последний вопрос, проверяем, все ли вопросы отвечены,
+      // и при желании пользователя завершаем тест
+      setTimeout(() => {
+        const allAnswered = questions.every((q, idx) => 
+          updatedAnswers[idx] !== undefined && updatedAnswers[idx] !== null
+        );
+        
+        if (allAnswered) {
+          setTimeout(() => {
+            if (confirm('Все вопросы отвечены! Завершить тест?')) {
+              saveTestResults();
+            }
+          }, 400);
+        }
+      }, 150);
+    }
   }
 
   const handleNext = () => {
