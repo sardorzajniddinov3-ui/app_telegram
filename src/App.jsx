@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { SpeedInsights } from '@vercel/speed-insights/react'
 import './App.css'
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000';
@@ -3041,7 +3042,7 @@ function App() {
   }
 
   // Fallback - show topics if nothing else matches
-  return (
+  return (<>
     <div className="topics-container">
       <div className="topics-header">
         <h1 className="topics-title">Темы</h1>
@@ -3063,6 +3064,8 @@ function App() {
         })}
       </div>
     </div>
+    <SpeedInsights />
+  </>
   )
 }
 
