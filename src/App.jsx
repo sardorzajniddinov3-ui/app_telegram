@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import './App.css'
+import { initTelegramWebAppSafe } from './telegram'
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000';
 
@@ -92,6 +93,13 @@ function App() {
     phone: ''
   })
   const [usersList, setUsersList] = useState([]) // Список всех пользователей для админ-панели
+  const [dbActiveSubs, setDbActiveSubs] = useState([]) // Активные подписки из БД (backend)
+  const [dbSubsLoading, setDbSubsLoading] = useState(false)
+  const [dbSubsError, setDbSubsError] = useState(null)
+  const [grantForm, setGrantForm] = useState({ telegramId: '', days: '30' })
+  const [grantLoading, setGrantLoading] = useState(false)
+  const [grantMessage, setGrantMessage] = useState(null)
+  const [subscriptionInfo, setSubscriptionInfo] = useState(null) // /api/subscription/me
 
   // Load saved questions from localStorage and merge with questionsData
   useEffect(() => {
@@ -225,9 +233,9 @@ function App() {
       return;
     }
     
-    const tg = window.Telegram.WebApp;
-    const userId = tg.initDataUnsafe?.user?.id || `user_${Date.now()}`;
-    const telegramUsername = tg.initDataUnsafe?.user?.username || null;
+    const tgUser = initTelegramWebAppSafe();
+    const userId = tgUser?.id ? tgUser.id : Date.now();
+    const telegramUsername = tgUser?.username || null;
     
     const newUser = {
       userId: userId.toString(),
@@ -253,49 +261,151 @@ function App() {
     setUsersList(allUsers);
     setUserRole('user');
     setScreen('topics');
+    loadMySubscription();
   };
 
   useEffect(() => {
-    const tg = window.Telegram.WebApp;
-    tg.ready();
-    tg.expand();
-    
-    // Получаем ID пользователя из Telegram
-    const userId = tg.initDataUnsafe?.user?.id || null;
-    const telegramUsername = tg.initDataUnsafe?.user?.username || null;
-    
-    // Загружаем список всех пользователей
-    const allUsers = JSON.parse(localStorage.getItem('app_users') || '[]');
-    setUsersList(allUsers);
-    
-    // Проверка админ-режима (для разработки)
-    const devAdminMode = localStorage.getItem('dev_admin_mode');
-    if (devAdminMode === 'true') {
-      setUserRole('admin');
-      setScreen('topics'); // Начальная страница - темы
-      setLoading(false);
-      return;
-    }
-    
-    // Проверяем, зарегистрирован ли пользователь
-    if (userId) {
-      const existingUser = allUsers.find(u => u.userId === userId.toString());
-      if (existingUser) {
-        // Пользователь уже зарегистрирован - обновляем дату последнего визита
-        existingUser.lastVisit = new Date().toISOString();
-        localStorage.setItem('app_users', JSON.stringify(allUsers));
-        setUserData(existingUser);
-        setUserRole('user');
+    let timeoutId = null;
+    try {
+      const tgUser = initTelegramWebAppSafe();
+
+      // Получаем ID пользователя из Telegram (или фоллбек)
+      const userId = tgUser?.id ? String(tgUser.id) : null;
+      const telegramUsername = tgUser?.username || null;
+      void telegramUsername; // username сейчас используется ниже в регистрации; здесь оставляем для совместимости
+
+      // Если где-то произойдет ошибка/ранний return — лоадер все равно снимется
+      timeoutId = setTimeout(() => setLoading(false), 2500);
+
+      // Загружаем список всех пользователей
+      const allUsers = JSON.parse(localStorage.getItem('app_users') || '[]');
+      setUsersList(allUsers);
+
+      // Админка только для Telegram ID = 473842863
+      if (userId === '473842863') {
+        setUserRole('admin');
         setScreen('topics');
-        setLoading(false);
         return;
       }
+
+      // Проверяем, зарегистрирован ли пользователь
+      if (userId) {
+        const existingUser = allUsers.find(u => u.userId === userId.toString());
+        if (existingUser) {
+          existingUser.lastVisit = new Date().toISOString();
+          localStorage.setItem('app_users', JSON.stringify(allUsers));
+          setUserData(existingUser);
+          setUserRole('user');
+          setScreen('topics');
+          loadMySubscription();
+          return;
+        }
+      }
+
+      // Новый пользователь: просим регистрацию один раз
+      setScreen('registration');
+      setUserRole('user');
+    } catch (_) {
+      // Никогда не зависаем на лоадере
+      setScreen('registration');
+      setUserRole('user');
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId);
+      setLoading(false);
     }
-    
-    // Если пользователь не зарегистрирован - показываем форму регистрации
-    setScreen('registration');
-    setLoading(false);
   }, []);
+
+  const getUserHeaders = () => {
+    const tgUser = initTelegramWebAppSafe();
+    const headerUser = tgUser && tgUser.id ? tgUser : { id: 0 };
+    return {
+      'Content-Type': 'application/json',
+      'x-telegram-user': JSON.stringify(headerUser)
+    };
+  };
+
+  const loadMySubscription = async () => {
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/subscription/me`, {
+        method: 'GET',
+        headers: getUserHeaders()
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) return;
+      setSubscriptionInfo(data);
+    } catch {
+      // ignore
+    }
+  };
+
+  const hasActiveSubscription = () => {
+    const s = subscriptionInfo;
+    if (!s) return false;
+    const end = s.subscriptionExpiresAt ? new Date(s.subscriptionExpiresAt).getTime() : null;
+    return Boolean(s.active && end && end > Date.now());
+  };
+
+  const getAdminHeaders = () => {
+    const tgUser = initTelegramWebAppSafe();
+    const headerUser = tgUser && tgUser.id ? tgUser : { id: 0 };
+    return {
+      'Content-Type': 'application/json',
+      'x-telegram-user': JSON.stringify(headerUser)
+    };
+  };
+
+  const loadDbActiveSubscriptions = async () => {
+    setDbSubsLoading(true);
+    setDbSubsError(null);
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/admin/subscriptions/active`, {
+        method: 'GET',
+        headers: getAdminHeaders()
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data?.error || data?.message || `HTTP ${res.status}`);
+      }
+      setDbActiveSubs(Array.isArray(data.users) ? data.users : []);
+    } catch (e) {
+      setDbSubsError(e?.message || 'Ошибка загрузки подписок');
+      setDbActiveSubs([]);
+    } finally {
+      setDbSubsLoading(false);
+    }
+  };
+
+  const handleGrantSubscription = async (e) => {
+    e.preventDefault();
+    setGrantMessage(null);
+    const telegramId = Number(grantForm.telegramId);
+    const days = Number(grantForm.days);
+    if (!Number.isFinite(telegramId) || telegramId <= 0) {
+      setGrantMessage('Введите корректный Telegram ID');
+      return;
+    }
+    setGrantLoading(true);
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/admin/subscriptions/grant`, {
+        method: 'POST',
+        headers: getAdminHeaders(),
+        body: JSON.stringify({
+          telegramId,
+          days: Number.isFinite(days) && days > 0 ? days : 30
+        })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data?.error || data?.message || `HTTP ${res.status}`);
+      }
+      setGrantMessage(`Подписка выдана: до ${new Date(data.user.subscriptionExpiresAt).toLocaleString('ru-RU')}`);
+      await loadDbActiveSubscriptions();
+    } catch (e2) {
+      setGrantMessage(e2?.message || 'Ошибка выдачи подписки');
+    } finally {
+      setGrantLoading(false);
+    }
+  };
 
   const handleTopicClick = (topic) => {
     setSelectedTopic(topic)
@@ -531,6 +641,12 @@ function App() {
 
   // ========== ЭКЗАМЕН: Обработчик переключения режима (тема/экзамен) ==========
   const handleModeSwitch = (mode) => {
+    if (mode === 'exam' && userRole !== 'admin') {
+      if (!hasActiveSubscription()) {
+        alert('Экзамен доступен только при активной подписке.');
+        return;
+      }
+    }
     setActiveMode(mode);
     if (mode === 'topic') {
       setScreen('topics');
@@ -1997,6 +2113,89 @@ function App() {
                 })
               )}
             </div>
+
+            <div style={{ marginTop: '24px', paddingTop: '16px', borderTop: '1px solid #eee' }}>
+              <h3 style={{ margin: '0 0 10px' }}>Подписки (БД)</h3>
+
+              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '10px' }}>
+                <button
+                  type="button"
+                  className="admin-users-button"
+                  onClick={loadDbActiveSubscriptions}
+                  disabled={dbSubsLoading}
+                >
+                  {dbSubsLoading ? 'Загрузка...' : '↻ Обновить активные'}
+                </button>
+              </div>
+
+              {dbSubsError && (
+                <p style={{ color: '#f44336', margin: '8px 0' }}>
+                  {dbSubsError}
+                </p>
+              )}
+
+              <div className="admin-stats" style={{ marginTop: '10px' }}>
+                <p>Активных подписок в БД: {dbActiveSubs.length}</p>
+              </div>
+
+              {dbActiveSubs.length > 0 && (
+                <div style={{ display: 'grid', gap: '8px', marginTop: '10px' }}>
+                  {dbActiveSubs.map((u) => (
+                    <div key={String(u.telegramId)} className="admin-user-item">
+                      <div className="admin-user-info">
+                        <div className="admin-user-header">
+                          <span className="admin-user-name">
+                            {u.name && String(u.name).trim() ? u.name : 'Без имени'}
+                          </span>
+                          <span style={{ color: '#666' }}>ID: {String(u.telegramId)}</span>
+                        </div>
+                        <div className="admin-user-details">
+                          <p>
+                            <strong>Статус:</strong> {u.subscriptionStatus}
+                          </p>
+                          <p>
+                            <strong>До:</strong>{' '}
+                            {u.subscriptionExpiresAt
+                              ? new Date(u.subscriptionExpiresAt).toLocaleString('ru-RU')
+                              : '—'}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div style={{ marginTop: '16px' }}>
+                <h4 style={{ margin: '0 0 8px' }}>Выдать подписку</h4>
+                <form onSubmit={handleGrantSubscription} className="admin-form" style={{ maxWidth: '520px' }}>
+                  <div className="form-group">
+                    <label>Telegram ID *</label>
+                    <input
+                      value={grantForm.telegramId}
+                      onChange={(ev) => setGrantForm({ ...grantForm, telegramId: ev.target.value })}
+                      placeholder="например 473842863"
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Дней (по умолчанию 30)</label>
+                    <input
+                      value={grantForm.days}
+                      onChange={(ev) => setGrantForm({ ...grantForm, days: ev.target.value })}
+                      placeholder="30"
+                    />
+                  </div>
+                  <button type="submit" className="admin-submit-button" disabled={grantLoading}>
+                    {grantLoading ? 'Выдача...' : 'Выдать подписку'}
+                  </button>
+                  {grantMessage && (
+                    <p style={{ marginTop: '10px', color: grantMessage.startsWith('Подписка выдана') ? '#2e7d32' : '#f44336' }}>
+                      {grantMessage}
+                    </p>
+                  )}
+                </form>
+              </div>
+            </div>
           </div>
         </div>
       );
@@ -2040,6 +2239,8 @@ function App() {
                   const allUsers = JSON.parse(localStorage.getItem('app_users') || '[]');
                   setUsersList(allUsers);
                   setAdminScreen('users');
+                  // сразу подгружаем активные подписки из БД
+                  loadDbActiveSubscriptions();
                 }}
               >
                 👥 Пользователи
@@ -2082,6 +2283,45 @@ function App() {
               );
             })}
           </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Registration screen (shown only once for new users)
+  if (screen === 'registration') {
+    return (
+      <div className="topics-container">
+        <div className="topics-header">
+          <h1 className="topics-title">Регистрация</h1>
+        </div>
+
+        <div style={{ padding: '16px' }}>
+          <p style={{ marginBottom: '12px', color: '#666' }}>
+            Заполните данные один раз — дальше приложение будет открываться сразу.
+          </p>
+
+          <form onSubmit={handleRegistration} className="admin-form" style={{ maxWidth: '520px' }}>
+            <div className="form-group">
+              <label>Имя *</label>
+              <input
+                value={registrationForm.name}
+                onChange={(e) => setRegistrationForm({ ...registrationForm, name: e.target.value })}
+                placeholder="Ваше имя"
+              />
+            </div>
+            <div className="form-group">
+              <label>Телефон *</label>
+              <input
+                value={registrationForm.phone}
+                onChange={(e) => setRegistrationForm({ ...registrationForm, phone: e.target.value })}
+                placeholder="+998..."
+              />
+            </div>
+            <button type="submit" className="admin-submit-button">
+              Сохранить
+            </button>
+          </form>
         </div>
       </div>
     );
