@@ -177,6 +177,23 @@ button {
   margin: 0 auto;
 }
 
+.question-counter {
+  text-align: center;
+  font-size: 14px;
+  color: #666;
+  margin: 10px 0;
+  font-weight: 500;
+}
+
+.no-answers-message {
+  padding: 20px;
+  text-align: center;
+  color: #d32f2f;
+  background-color: #ffebee;
+  border-radius: 8px;
+  margin: 20px 0;
+}
+
 .quiz-topic-title {
   font-size: 20px;
   font-weight: 700;

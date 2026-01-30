@@ -230,7 +230,7 @@ function App() {
             }
           });
 
-          return {
+          const formatted = {
             id: q.id,
             topic_id: q.quiz_id, // Используем quiz_id как topic_id для совместимости
             question: q.question_text || q.question || '',
@@ -240,6 +240,27 @@ function App() {
             answers_count: sortedOptions.length || 4,
             created_at: q.created_at
           };
+
+          // Отладочная информация
+          if (sortedOptions.length === 0) {
+            console.warn('Вопрос без опций:', {
+              questionId: q.id,
+              questionText: q.question_text?.substring(0, 50),
+              optionsCount: sortedOptions.length
+            });
+          }
+
+          return formatted;
+        });
+        
+        console.log('Загружено вопросов из Supabase:', {
+          total: formattedQuestions.length,
+          withOptions: formattedQuestions.filter(q => {
+            const hasA = !!q.answer_a;
+            const hasB = !!q.answer_b;
+            return hasA || hasB;
+          }).length,
+          sample: formattedQuestions[0]
         });
         
         setSavedQuestions(formattedQuestions);
@@ -271,19 +292,42 @@ function App() {
 
     const answers = [];
 
+    // Отладочная информация
+    console.log('buildAnswersFromSavedQuestion:', {
+      questionId: q.id,
+      questionText: q.question?.substring(0, 50),
+      answersCount,
+      correct: q.correct,
+      hasAnswerA: !!q.answer_a,
+      hasAnswerB: !!q.answer_b,
+      hasAnswerC: !!q.answer_c,
+      hasAnswerD: !!q.answer_d
+    });
+
     for (let i = 0; i < answersCount; i++) {
       const key = String.fromCharCode(97 + i); // 'a', 'b', 'c', ...
       const text = q[`answer_${key}`];
       const id = i + 1;
 
       // Пропускаем пустые ответы, чтобы в тесте не было «3.» и «4.» без текста
-      if (!text || String(text).trim() === '') continue;
+      if (!text || String(text).trim() === '') {
+        console.warn(`Пропущен пустой ответ ${key} для вопроса ${q.id}`);
+        continue;
+      }
 
       answers.push({
         id,
         text,
         // Пока логика одна: один правильный ответ по букве в q.correct
         correct: q.correct === key
+      });
+    }
+
+    if (answers.length === 0) {
+      console.error('buildAnswersFromSavedQuestion: Нет вариантов ответов для вопроса', {
+        questionId: q.id,
+        questionText: q.question?.substring(0, 50),
+        q
       });
     }
 
@@ -3943,6 +3987,19 @@ function App() {
       : (selectedTopic ? getMergedQuestions(selectedTopic.id) : []);
     const question = questions[currentQuestionIndex]
 
+    // Отладочная информация
+    if (question) {
+      console.log('Текущий вопрос:', {
+        index: currentQuestionIndex,
+        totalQuestions: questions.length,
+        questionId: question.id,
+        questionText: question.text?.substring(0, 50),
+        hasAnswers: !!question.answers,
+        answersLength: question.answers?.length || 0,
+        answers: question.answers?.map(a => ({ id: a.id, text: a.text?.substring(0, 30), correct: a.correct }))
+      });
+    }
+
     if (!question) {
       return (
         <>
@@ -4000,8 +4057,14 @@ function App() {
         
         <div className="quiz-content-new">
           <h2 className="quiz-topic-title">
-            {isExamMode ? `Экзамен (${examQuestionCount} вопросов)` : (selectedTopic?.name || 'Тест')}
+            {isExamMode 
+              ? `Экзамен (${examQuestionCount} вопросов)` 
+              : `${selectedTopic?.name || 'Тест'} (${questions.length} вопросов)`}
           </h2>
+          
+          <div className="question-counter">
+            Вопрос {currentQuestionIndex + 1} из {questions.length}
+          </div>
           
           <div className="question-box">
             {question.image && (
@@ -4015,7 +4078,8 @@ function App() {
           </div>
           
           <div className="answers-list">
-            {question.answers.map((answer, index) => {
+            {question.answers && question.answers.length > 0 ? (
+              question.answers.map((answer, index) => {
               const answerNumber = index + 1;
               // Сравниваем с учетом возможных различий типов
               const isSelected = selectedAnswer !== null && 
@@ -4054,7 +4118,15 @@ function App() {
                   {answerNumber}. {answer.text}
                 </div>
               );
-            })}
+            }))
+            ) : (
+              <div className="no-answers-message">
+                <p>Варианты ответов не загружены. Пожалуйста, проверьте данные вопроса.</p>
+                <p style={{ fontSize: '12px', color: '#666', marginTop: '8px' }}>
+                  Отладочная информация: question.answers = {JSON.stringify(question.answers)}
+                </p>
+              </div>
+            )}
           </div>
         </div>
         
