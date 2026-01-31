@@ -404,13 +404,12 @@ button {
 .topics-container {
   min-height: 100vh;
   background-color: var(--bg-secondary, #f8f9fa);
-  padding: 20px 16px;
+  padding: 10px 16px 20px 16px;
   width: 100%;
   max-width: 100%;
   margin: 0 auto;
   display: flex;
   flex-direction: column;
-  animation: fadeInSlide 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 @keyframes fadeInSlide {
@@ -439,7 +438,6 @@ button {
   padding: 6px;
   border-radius: 12px;
   box-shadow: none;
-  animation: fadeInContent 0.25s cubic-bezier(0.4, 0, 0.2, 1) 0.02s both;
 }
 
 .mode-switch-button {
@@ -452,7 +450,6 @@ button {
   color: var(--text-secondary, #666666);
   border-radius: 10px;
   cursor: pointer;
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   min-height: 48px;
   display: flex;
   align-items: center;
@@ -468,12 +465,11 @@ button {
   background-color: #2196F3;
   color: #ffffff;
   box-shadow: 0 2px 8px rgba(33, 150, 243, 0.3);
-  transform: scale(1.02);
 }
 
 .topics-header {
-  margin-top: 60px;
-  margin-bottom: 24px;
+  margin-top: 0;
+  margin-bottom: 12px;
   animation: fadeInContent 0.3s cubic-bezier(0.4, 0, 0.2, 1) 0.08s both;
 }
 
@@ -481,10 +477,11 @@ button {
   font-size: 28px;
   font-weight: 700;
   color: var(--text-main, #1a1a1a);
-  margin: 0;
+  margin: 0 0 12px 0;
   text-align: left;
   line-height: 1.2;
   letter-spacing: -0.5px;
+  animation: fadeInContent 0.3s cubic-bezier(0.4, 0, 0.2, 1) 0.08s both;
 }
 
 .topics-list {
@@ -2178,9 +2175,8 @@ body[data-theme="dark"] .image-preview {
   align-items: stretch;
   justify-content: flex-start;
   min-height: 100vh;
-  padding: 20px 16px;
+  padding: 10px 16px 20px 16px;
   background-color: var(--bg-secondary, #f8f9fa);
-  animation: fadeInSlide 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 /* Контейнер выбора экзамена - полноразмерный */
@@ -2193,7 +2189,6 @@ body[data-theme="dark"] .image-preview {
   max-width: 100%;
   margin: 0;
   overflow: visible;
-  animation: fadeInContent 0.3s cubic-bezier(0.4, 0, 0.2, 1) 0.05s both;
 }
 
 @keyframes fadeInContent {
@@ -2209,6 +2204,7 @@ body[data-theme="dark"] .image-preview {
 
 /* Панель переключения внутри экзамена - унифицированный стиль */
 .exam-select-container .mode-switch-panel {
+  margin-top: 60px;
   margin-bottom: 24px;
   background-color: #f5f5f5;
   padding: 6px;
@@ -2216,7 +2212,6 @@ body[data-theme="dark"] .image-preview {
   display: flex;
   gap: 6px;
   border-radius: 12px;
-  animation: fadeInContent 0.25s cubic-bezier(0.4, 0, 0.2, 1) 0.02s both;
 }
 
 .exam-select-container .mode-switch-button {
@@ -2225,7 +2220,6 @@ body[data-theme="dark"] .image-preview {
   font-size: 16px;
   font-weight: 600;
   border: none;
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   background-color: transparent;
   color: #666666;
 }
@@ -2238,7 +2232,6 @@ body[data-theme="dark"] .image-preview {
   background-color: #2196F3;
   color: #ffffff;
   box-shadow: 0 2px 8px rgba(33, 150, 243, 0.3);
-  transform: scale(1.02);
 }
 
 /* Заголовок экзамена */
@@ -2719,8 +2712,8 @@ body[data-theme="dark"] .theme-toggle-button:hover {
 /* ========== СТИЛИ ДЛЯ БЕЙДЖА ПОДПИСКИ ========== */
 .subscription-status-badge {
   position: fixed;
-  top: 12px;
-  right: 12px;
+  top: 16px;
+  right: 16px;
   z-index: 9999;
   cursor: pointer;
   transition: transform 0.2s ease;
@@ -2743,6 +2736,19 @@ body[data-theme="dark"] .theme-toggle-button:hover {
   transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
+.subscription-badge-inactive {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
 .subscription-badge-icon {
   color: #ffffff;
   width: 18px;
@@ -2759,6 +2765,26 @@ body[data-theme="dark"] .theme-toggle-button:hover {
 body[data-theme="dark"] .subscription-badge-active {
   background: linear-gradient(135deg, #FFD700 0%, #FF8C00 100%);
   box-shadow: 0 2px 12px rgba(255, 215, 0, 0.5);
+}
+
+body[data-theme="dark"] .subscription-badge-inactive {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.3);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+/* Светлая тема для бейджа без подписки */
+.subscription-badge-inactive {
+  background: rgba(0, 0, 0, 0.1);
+  border-color: rgba(0, 0, 0, 0.2);
+}
+
+.subscription-badge-inactive .subscription-badge-icon {
+  color: #666666;
+}
+
+body[data-theme="dark"] .subscription-badge-inactive .subscription-badge-icon {
+  color: #ffffff;
 }
 
 /* ========== КНОПКА ПОДПИСКИ НА ЭКРАНЕ ЭКЗАМЕНА ========== */

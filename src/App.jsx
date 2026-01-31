@@ -1355,6 +1355,14 @@ function App() {
   };
 
   const handleTopicClick = (topic) => {
+    // Проверяем подписку для не-админов
+    if (userRole !== 'admin' && !isAdmin) {
+      if (!hasActiveSubscription()) {
+        alert('Для решения тестов необходима активная подписка. Пожалуйста, оформите подписку.');
+        setShowSubscriptionModal(true);
+        return;
+      }
+    }
     setSelectedTopic(topic)
     setScreen('topicDetail')
   }
@@ -1605,6 +1613,15 @@ function App() {
   }
 
   const handleStartTest = () => {
+    // Проверяем подписку для не-админов
+    if (userRole !== 'admin' && !isAdmin) {
+      if (!hasActiveSubscription()) {
+        alert('Для решения тестов необходима активная подписка. Пожалуйста, оформите подписку.');
+        setShowSubscriptionModal(true);
+        return;
+      }
+    }
+    
     const questions = getMergedQuestions(selectedTopic.id);
     setCurrentQuestionIndex(0)
     setSelectedAnswer(null)
@@ -1621,6 +1638,15 @@ function App() {
 
   // ========== ЭКЗАМЕН: Обработчик выбора количества вопросов ==========
   const handleExamQuestionCountSelect = (count) => {
+    // Проверяем подписку для не-админов
+    if (userRole !== 'admin' && !isAdmin) {
+      if (!hasActiveSubscription()) {
+        alert('Для прохождения экзамена необходима активная подписка. Пожалуйста, оформите подписку.');
+        setShowSubscriptionModal(true);
+        return;
+      }
+    }
+    
     setExamQuestionCount(count);
     
     // Собираем все вопросы из всех тем
@@ -2788,7 +2814,25 @@ function App() {
                 <path d="M12 18l-1-4 1-4 1 4-1 4z" />
               </svg>
             </div>
-          ) : null}
+          ) : (
+            <div className="subscription-badge-inactive">
+              <svg
+                className="subscription-badge-icon"
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                {/* Lock icon for no subscription */}
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+              </svg>
+            </div>
+          )}
         </div>
 
         {showSubscriptionModal && (
@@ -5039,11 +5083,14 @@ function App() {
 
   // Fallback - show topics if nothing else matches
   return (
-    <div className="topics-container">
-      <div className="topics-header">
-        <h1 className="topics-title">Темы</h1>
-      </div>
-      <div className="topics-list">
+    <>
+      <ThemeToggleButton />
+      <SubscriptionStatusBadge />
+      <div className="topics-container">
+        <div className="topics-header">
+          <h1 className="topics-title">Темы</h1>
+        </div>
+        <div className="topics-list">
         {topics.map((topic, index) => {
           // Используем questionCount из темы (загружено из Supabase)
           let questionCount = topic.questionCount || 0;
@@ -5072,8 +5119,9 @@ function App() {
             </button>
           )
         })}
+        </div>
       </div>
-    </div>
+    </>
   )
 }
 
