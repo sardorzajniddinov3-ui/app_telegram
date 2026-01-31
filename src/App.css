@@ -2625,3 +2625,285 @@ body[data-theme="dark"] .subscription-badge-active {
   background: linear-gradient(135deg, #28a745 0%, #218838 100%);
   box-shadow: 0 2px 8px rgba(40, 167, 69, 0.4);
 }
+
+/* ========== КНОПКА ПОДПИСКИ НА ЭКРАНЕ ЭКЗАМЕНА ========== */
+.exam-subscription-button-wrapper {
+  margin-bottom: 20px;
+  padding: 0 28px;
+}
+
+.exam-subscription-button {
+  width: 100%;
+  padding: 14px 20px;
+  background-color: var(--card-bg, #ffffff);
+  border: 2px solid var(--border-color, #e0e0e0);
+  border-radius: 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-color, #1a1a1a);
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.exam-subscription-button:hover {
+  background-color: var(--bg-secondary, #f5f5f5);
+  border-color: var(--button-primary, #2196F3);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.exam-subscription-icon {
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.exam-subscription-text {
+  font-weight: 600;
+}
+
+/* Темная тема для кнопки подписки */
+body[data-theme="dark"] .exam-subscription-button {
+  background-color: var(--card-bg, #2d2d2d);
+  border-color: var(--border-color, #424242);
+  color: var(--text-color, #ffffff);
+}
+
+body[data-theme="dark"] .exam-subscription-button:hover {
+  background-color: var(--bg-secondary, #333333);
+  border-color: var(--button-primary, #42a5f5);
+}
+
+/* ========== СТИЛИ ДЛЯ МОДАЛЬНОГО ОКНА ПОДПИСКИ ========== */
+.subscription-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100000;
+  padding: 20px;
+  animation: fadeIn 0.3s ease;
+}
+
+.subscription-modal-content {
+  background-color: var(--card-bg, #ffffff);
+  border-radius: 20px;
+  width: 100%;
+  max-width: 400px;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  animation: slideUp 0.3s ease;
+}
+
+.subscription-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--border-color, #e0e0e0);
+}
+
+.subscription-modal-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-color, #1a1a1a);
+  margin: 0;
+}
+
+.subscription-modal-close {
+  background: none;
+  border: none;
+  font-size: 24px;
+  color: var(--text-secondary, #666);
+  cursor: pointer;
+  padding: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: background-color 0.2s ease;
+}
+
+.subscription-modal-close:hover {
+  background-color: var(--bg-secondary, #f5f5f5);
+}
+
+.subscription-modal-body {
+  padding: 24px;
+}
+
+.subscription-status-card {
+  text-align: center;
+  padding: 30px 20px;
+  border-radius: 16px;
+  margin-bottom: 20px;
+}
+
+.subscription-status-card.active {
+  background-color: #e8f5e9;
+  border: 2px solid #18ec23;
+}
+
+.subscription-status-card.inactive {
+  background-color: #fff3e0;
+  border: 2px solid #ff9800;
+}
+
+.subscription-status-icon-large {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 20px;
+  font-size: 40px;
+  font-weight: 700;
+}
+
+.subscription-status-card.active .subscription-status-icon-large {
+  background-color: #18ec23;
+  color: #ffffff;
+}
+
+.subscription-status-card.inactive .subscription-status-icon-large {
+  background-color: #ff9800;
+  color: #ffffff;
+}
+
+.subscription-status-title {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-color, #1a1a1a);
+  margin: 0 0 20px 0;
+}
+
+.subscription-status-description {
+  font-size: 15px;
+  color: var(--text-secondary, #666);
+  line-height: 1.6;
+  margin: 0;
+}
+
+.subscription-details {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.subscription-detail-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  background-color: rgba(255, 255, 255, 0.5);
+  border-radius: 10px;
+}
+
+.subscription-detail-label {
+  font-size: 14px;
+  color: var(--text-secondary, #666);
+  font-weight: 500;
+}
+
+.subscription-detail-value {
+  font-size: 15px;
+  color: var(--text-color, #1a1a1a);
+  font-weight: 600;
+}
+
+.subscription-detail-value.highlight {
+  color: #18ec23;
+  font-weight: 700;
+}
+
+.subscription-renew-button,
+.subscription-purchase-button {
+  width: 100%;
+  padding: 16px;
+  font-size: 16px;
+  font-weight: 600;
+  color: #ffffff;
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  background: linear-gradient(135deg, #18ec23 0%, #15d31f 100%);
+  box-shadow: 0 4px 12px rgba(24, 236, 35, 0.3);
+}
+
+.subscription-renew-button:hover,
+.subscription-purchase-button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(24, 236, 35, 0.4);
+}
+
+.subscription-renew-button:active,
+.subscription-purchase-button:active {
+  transform: translateY(0);
+}
+
+/* Темная тема для модального окна */
+body[data-theme="dark"] .subscription-modal-content {
+  background-color: var(--card-bg, #2d2d2d);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+body[data-theme="dark"] .subscription-modal-header {
+  border-color: var(--border-color, #424242);
+}
+
+body[data-theme="dark"] .subscription-modal-title {
+  color: var(--text-color, #ffffff);
+}
+
+body[data-theme="dark"] .subscription-modal-close {
+  color: var(--text-secondary, #b0b0b0);
+}
+
+body[data-theme="dark"] .subscription-modal-close:hover {
+  background-color: var(--bg-secondary, #333333);
+}
+
+body[data-theme="dark"] .subscription-status-card.active {
+  background-color: rgba(40, 167, 69, 0.2);
+  border-color: #28a745;
+}
+
+body[data-theme="dark"] .subscription-status-card.inactive {
+  background-color: rgba(255, 152, 0, 0.2);
+  border-color: #ff9800;
+}
+
+body[data-theme="dark"] .subscription-status-title {
+  color: var(--text-color, #ffffff);
+}
+
+body[data-theme="dark"] .subscription-status-description {
+  color: var(--text-secondary, #b0b0b0);
+}
+
+body[data-theme="dark"] .subscription-detail-item {
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+body[data-theme="dark"] .subscription-detail-label {
+  color: var(--text-secondary, #b0b0b0);
+}
+
+body[data-theme="dark"] .subscription-detail-value {
+  color: var(--text-color, #ffffff);
+}

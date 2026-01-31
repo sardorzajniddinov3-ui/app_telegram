@@ -3834,6 +3834,28 @@ function App() {
         <SubscriptionStatusBadge />
         <div className="topics-container exam-container">
           <div className="exam-select-container">
+            {/* Кнопка подписки сверху */}
+            {userRole !== 'admin' && !loading && userRole !== null && (
+              <div className="exam-subscription-button-wrapper">
+                <button
+                  className="exam-subscription-button"
+                  onClick={() => setShowSubscriptionModal(true)}
+                >
+                  {hasActiveSubscription() ? (
+                    <>
+                      <span className="exam-subscription-icon">✓</span>
+                      <span className="exam-subscription-text">Подписка</span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="exam-subscription-icon">⚠</span>
+                      <span className="exam-subscription-text">Нет подписки</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            )}
+            
             {/* Панель переключения между Тема и Экзамен */}
             <div className="mode-switch-panel">
               <button
