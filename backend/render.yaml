@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: telegram-mini-app-backend
+    env: node
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: PORT
+        value: 3000
+      - key: RUN_MIGRATIONS
+        value: true
+      - key: DATABASE_URL
+        sync: false  # Установите вручную в панели Render
