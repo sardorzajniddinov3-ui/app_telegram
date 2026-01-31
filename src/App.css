@@ -425,6 +425,88 @@ body[data-theme="dark"] .answer-incorrect {
   flex-direction: column;
 }
 
+/* Логотип avto_GO */
+.app-logo {
+  text-align: center;
+  font-size: 24px;
+  font-weight: 700;
+  margin-top: 20px;
+  margin-bottom: 0;
+  padding: 0;
+  line-height: 1.2;
+  letter-spacing: -0.5px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+}
+
+.app-logo-text {
+  display: inline-block;
+}
+
+/* Анимация свечения - едва заметная */
+@keyframes glowAvto {
+  0%, 100% {
+    filter: drop-shadow(0 0 2px rgba(192, 192, 192, 0.3)) drop-shadow(0 0 3px rgba(192, 192, 192, 0.2));
+  }
+  50% {
+    filter: drop-shadow(0 0 3px rgba(192, 192, 192, 0.4)) drop-shadow(0 0 4px rgba(192, 192, 192, 0.3));
+  }
+}
+
+@keyframes glowGo {
+  0%, 100% {
+    filter: drop-shadow(0 0 2px rgba(34, 197, 94, 0.3)) drop-shadow(0 0 3px rgba(34, 197, 94, 0.2));
+  }
+  50% {
+    filter: drop-shadow(0 0 3px rgba(34, 197, 94, 0.4)) drop-shadow(0 0 4px rgba(34, 197, 94, 0.3));
+  }
+}
+
+@keyframes glowGoDark {
+  0%, 100% {
+    filter: drop-shadow(0 0 2px rgba(50, 205, 50, 0.3)) drop-shadow(0 0 3px rgba(50, 205, 50, 0.2));
+  }
+  50% {
+    filter: drop-shadow(0 0 3px rgba(50, 205, 50, 0.4)) drop-shadow(0 0 4px rgba(50, 205, 50, 0.3));
+  }
+}
+
+/* Светлый режим - более контрастные цвета */
+.app-logo-avto {
+  background: linear-gradient(135deg, #505050 0%, #303030 50%, #404040 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: glowAvto 3s ease-in-out infinite;
+}
+
+.app-logo-go {
+  background: linear-gradient(135deg, #22C55E 0%, #16A34A 50%, #15803D 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: glowGo 3s ease-in-out infinite;
+}
+
+/* Темный режим - более светлые цвета */
+body[data-theme="dark"] .app-logo-avto {
+  background: linear-gradient(135deg, #E0E0E0 0%, #B0B0B0 50%, #C0C0C0 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: glowAvto 3s ease-in-out infinite;
+}
+
+body[data-theme="dark"] .app-logo-go {
+  background: linear-gradient(135deg, #90EE90 0%, #32CD32 50%, #228B22 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: glowGoDark 3s ease-in-out infinite;
+}
+
 @keyframes fadeInSlide {
   from {
     opacity: 0;
@@ -445,7 +527,7 @@ body[data-theme="dark"] .answer-incorrect {
 .mode-switch-panel {
   display: flex;
   gap: 6px;
-  margin-top: 60px;
+  margin-top: 28px;
   margin-bottom: 24px;
   background-color: var(--bg-secondary, #f5f5f5);
   padding: 6px;
@@ -621,7 +703,7 @@ body[data-theme="dark"] .answer-incorrect {
   border: none;
   border-radius: 10px;
   cursor: pointer;
-  transition: all 0.3s ease;
+  transition: none;
   min-height: 44px;
   white-space: nowrap;
 }
@@ -2230,7 +2312,7 @@ body[data-theme="dark"] .image-preview {
 
 /* Панель переключения внутри экзамена - унифицированный стиль */
 .exam-select-container .mode-switch-panel {
-  margin-top: 60px;
+  margin-top: 28px;
   margin-bottom: 24px;
   background-color: #f5f5f5;
   padding: 6px;

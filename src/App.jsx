@@ -4356,27 +4356,13 @@ function App() {
         <SubscriptionStatusBadge />
         <div className="topics-container exam-container">
           <div className="exam-select-container">
-            {/* Кнопка подписки сверху */}
-            {userRole !== 'admin' && !loading && userRole !== null && (
-              <div className="exam-subscription-button-wrapper">
-                <button
-                  className="exam-subscription-button"
-                  onClick={() => setShowSubscriptionModal(true)}
-                >
-                  {hasActiveSubscription() ? (
-                    <>
-                      <span className="exam-subscription-icon">✓</span>
-                      <span className="exam-subscription-text">Подписка</span>
-                    </>
-                  ) : (
-                    <>
-                      <span className="exam-subscription-icon">⚠</span>
-                      <span className="exam-subscription-text">Нет подписки</span>
-                    </>
-                  )}
-                </button>
+            {/* Логотип avto_GO */}
+            <div className="app-logo">
+              <div className="app-logo-text">
+                <span className="app-logo-avto">avto_</span>
+                <span className="app-logo-go">GO</span>
               </div>
-            )}
+            </div>
             
             {/* Панель переключения между Тема и Экзамен */}
             <div className="mode-switch-panel">
@@ -4459,6 +4445,14 @@ function App() {
         <ThemeToggleButton />
         <SubscriptionStatusBadge />
         <div className="topics-container">
+          {/* Логотип avto_GO */}
+          <div className="app-logo">
+            <div className="app-logo-text">
+              <span className="app-logo-avto">avto_</span>
+              <span className="app-logo-go">GO</span>
+            </div>
+          </div>
+          
           {/* Панель переключения между Тема и Экзамен */}
           <div className="mode-switch-panel">
             <button
@@ -4548,8 +4542,6 @@ function App() {
 
     return (
       <>
-        <ThemeToggleButton />
-        <SubscriptionStatusBadge />
         <div className="topic-detail-container">
         {/* Панель переключения между Тема и Экзамен */}
         <div className="mode-switch-panel">
