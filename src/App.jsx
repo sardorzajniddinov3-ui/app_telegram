@@ -1196,6 +1196,11 @@ function App() {
       
       // Обновляем список активных подписок
       await loadSubscriptions();
+      
+      // Обновляем список пользователей, если мы на экране пользователей
+      if (adminScreen === 'users') {
+        await loadUsersFromSupabase();
+      }
     } catch (e) {
       const errorMsg = e?.message || e?.toString() || JSON.stringify(e) || 'Ошибка отзыва подписки';
       console.error('Ошибка отзыва подписки:', e);
@@ -3677,7 +3682,30 @@ function App() {
                       </div>
                       <div className="user-status">
                         {hasActiveSubscription ? (
-                          <span className="subscription-badge active">PRO</span>
+                          <>
+                            <span className="subscription-badge active">PRO</span>
+                            <button
+                              className="user-revoke-button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleRevokeSubscription(user.userId);
+                              }}
+                              style={{
+                                marginTop: '8px',
+                                padding: '6px 12px',
+                                fontSize: '12px',
+                                fontWeight: '600',
+                                backgroundColor: '#f44336',
+                                color: '#ffffff',
+                                border: 'none',
+                                borderRadius: '6px',
+                                cursor: 'pointer',
+                                whiteSpace: 'nowrap'
+                              }}
+                            >
+                              🗑️ Забрать
+                            </button>
+                          </>
                         ) : (
                           <span className="subscription-badge inactive">—</span>
                         )}
@@ -3833,24 +3861,103 @@ function App() {
               )}
             </div>
 
-            <div style={{ marginBottom: '24px' }}>
-              <h4 style={{ margin: '0 0 8px' }}>Добавить администратора</h4>
-              <form onSubmit={handleAddAdmin} className="admin-form" style={{ maxWidth: '520px' }}>
+            <div style={{ 
+              marginBottom: '32px', 
+              padding: '24px', 
+              backgroundColor: 'var(--card-bg, #ffffff)', 
+              borderRadius: '16px', 
+              border: '2px solid var(--border-color, #e0e0e0)',
+              boxShadow: '0 4px 12px rgba(0, 0, 0, 0.08)'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
+                <div style={{ 
+                  width: '48px', 
+                  height: '48px', 
+                  borderRadius: '12px', 
+                  backgroundColor: '#2196F3', 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  justifyContent: 'center',
+                  fontSize: '24px'
+                }}>
+                  👑
+                </div>
+                <div>
+                  <h3 style={{ margin: '0 0 4px', fontSize: '20px', fontWeight: '700', color: 'var(--text-color, #1a1a1a)' }}>
+                    Добавить администратора
+                  </h3>
+                  <p style={{ margin: 0, fontSize: '14px', color: 'var(--text-secondary, #666)' }}>
+                    Введите Telegram ID пользователя для выдачи прав администратора
+                  </p>
+                </div>
+              </div>
+              <form onSubmit={handleAddAdmin} className="admin-form" style={{ maxWidth: '100%' }}>
                 <div className="form-group">
-                  <label>Telegram ID *</label>
+                  <label style={{ fontSize: '15px', fontWeight: '600', marginBottom: '8px', display: 'block', color: 'var(--text-color, #1a1a1a)' }}>
+                    Telegram ID *
+                  </label>
                   <input
                     value={adminForm.telegramId}
                     onChange={(ev) => setAdminForm({ ...adminForm, telegramId: ev.target.value })}
                     placeholder="например 123456789"
+                    style={{
+                      width: '100%',
+                      padding: '14px 16px',
+                      fontSize: '16px',
+                      border: '2px solid var(--input-border, #E0E0E0)',
+                      borderRadius: '12px',
+                      backgroundColor: 'var(--input-bg, #F5F5F5)',
+                      color: 'var(--text-color, #1a1a1a)',
+                      transition: 'all 0.3s ease',
+                      boxSizing: 'border-box'
+                    }}
+                    onFocus={(e) => {
+                      e.target.style.borderColor = '#2196F3';
+                      e.target.style.backgroundColor = 'var(--bg-card, #ffffff)';
+                    }}
+                    onBlur={(e) => {
+                      e.target.style.borderColor = 'var(--input-border, #E0E0E0)';
+                      e.target.style.backgroundColor = 'var(--input-bg, #F5F5F5)';
+                    }}
                   />
                 </div>
-                <button type="submit" className="admin-submit-button" disabled={adminFormLoading}>
-                  {adminFormLoading ? 'Добавление...' : 'Добавить администратора'}
+                <button 
+                  type="submit" 
+                  className="admin-submit-button" 
+                  disabled={adminFormLoading}
+                  style={{
+                    marginTop: '16px',
+                    width: '100%',
+                    padding: '16px',
+                    fontSize: '17px',
+                    fontWeight: '700',
+                    backgroundColor: adminFormLoading ? '#90CAF9' : '#2196F3',
+                    color: '#ffffff',
+                    border: 'none',
+                    borderRadius: '12px',
+                    cursor: adminFormLoading ? 'not-allowed' : 'pointer',
+                    transition: 'all 0.3s ease',
+                    boxShadow: adminFormLoading ? 'none' : '0 4px 12px rgba(33, 150, 243, 0.3)'
+                  }}
+                >
+                  {adminFormLoading ? '⏳ Добавление...' : '✨ Добавить администратора'}
                 </button>
                 {adminFormMessage && (
-                  <p style={{ marginTop: '10px', color: adminFormMessage.startsWith('Администратор успешно') ? '#2e7d32' : '#f44336' }}>
-                    {adminFormMessage}
-                  </p>
+                  <div style={{ 
+                    marginTop: '16px', 
+                    padding: '12px 16px', 
+                    borderRadius: '10px',
+                    backgroundColor: adminFormMessage.startsWith('Администратор успешно') ? '#E8F5E9' : '#FFEBEE',
+                    border: `2px solid ${adminFormMessage.startsWith('Администратор успешно') ? '#4CAF50' : '#f44336'}`,
+                    color: adminFormMessage.startsWith('Администратор успешно') ? '#2e7d32' : '#f44336',
+                    fontSize: '14px',
+                    fontWeight: '600',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px'
+                  }}>
+                    {adminFormMessage.startsWith('Администратор успешно') ? '✅' : '❌'} {adminFormMessage}
+                  </div>
                 )}
               </form>
             </div>
@@ -3860,45 +3967,178 @@ function App() {
             ) : adminsList.length === 0 ? (
               <p>Нет администраторов</p>
             ) : (
-              <div className="admin-users-list">
+              <div className="admin-users-list" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                 {adminsList.map((admin) => {
                   const isMainAdminUser = Number(admin.telegramId) === 473842863;
                   const isCurrentUser = currentUserId && Number(admin.telegramId) === currentUserId;
                   const canDelete = !isMainAdminUser && !isCurrentUser;
 
                   return (
-                    <div key={admin.telegramId} className="admin-user-card">
-                      <div className="admin-user-content">
-                        <div className="admin-user-header">
-                          <span className="admin-user-name">
-                            ID: {String(admin.telegramId)}
-                            {isMainAdminUser && ' (Главный админ)'}
-                            {isCurrentUser && ' (Вы)'}
-                          </span>
+                    <div 
+                      key={admin.telegramId} 
+                      style={{
+                        padding: '20px',
+                        backgroundColor: isMainAdminUser 
+                          ? 'linear-gradient(135deg, #FFD700 0%, #FFA500 100%)' 
+                          : isCurrentUser
+                          ? 'var(--card-bg, #ffffff)'
+                          : 'var(--card-bg, #ffffff)',
+                        background: isMainAdminUser 
+                          ? 'linear-gradient(135deg, rgba(255, 215, 0, 0.15) 0%, rgba(255, 165, 0, 0.15) 100%)' 
+                          : 'var(--card-bg, #ffffff)',
+                        border: isMainAdminUser 
+                          ? '2px solid #FFD700' 
+                          : isCurrentUser
+                          ? '2px solid #2196F3'
+                          : '2px solid var(--border-color, #e0e0e0)',
+                        borderRadius: '16px',
+                        boxShadow: '0 4px 12px rgba(0, 0, 0, 0.08)',
+                        transition: 'all 0.3s ease'
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '16px' }}>
+                        <div style={{
+                          width: '56px',
+                          height: '56px',
+                          borderRadius: '14px',
+                          backgroundColor: isMainAdminUser 
+                            ? '#FFD700' 
+                            : isCurrentUser
+                            ? '#2196F3'
+                            : '#9E9E9E',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontSize: '28px',
+                          flexShrink: 0,
+                          boxShadow: '0 4px 8px rgba(0, 0, 0, 0.15)'
+                        }}>
+                          {isMainAdminUser ? '👑' : isCurrentUser ? '👤' : '🛡️'}
                         </div>
-                        <div className="admin-user-details">
-                          <p>
-                            <strong>Добавлен:</strong>{' '}
-                            {admin.createdAt
-                              ? new Date(admin.createdAt).toLocaleString('ru-RU')
-                              : '—'}
-                          </p>
-                          {admin.createdBy && (
-                            <p>
-                              <strong>Добавил:</strong> ID {String(admin.createdBy)}
-                            </p>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ 
+                            display: 'flex', 
+                            alignItems: 'center', 
+                            gap: '12px', 
+                            marginBottom: '12px',
+                            flexWrap: 'wrap'
+                          }}>
+                            <h3 style={{ 
+                              margin: 0, 
+                              fontSize: '18px', 
+                              fontWeight: '700', 
+                              color: 'var(--text-color, #1a1a1a)',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '8px'
+                            }}>
+                              ID: {String(admin.telegramId)}
+                              {isMainAdminUser && (
+                                <span style={{
+                                  padding: '4px 10px',
+                                  backgroundColor: '#FFD700',
+                                  color: '#1a1a1a',
+                                  borderRadius: '8px',
+                                  fontSize: '12px',
+                                  fontWeight: '700'
+                                }}>
+                                  👑 Главный админ
+                                </span>
+                              )}
+                              {isCurrentUser && (
+                                <span style={{
+                                  padding: '4px 10px',
+                                  backgroundColor: '#2196F3',
+                                  color: '#ffffff',
+                                  borderRadius: '8px',
+                                  fontSize: '12px',
+                                  fontWeight: '700'
+                                }}>
+                                  Вы
+                                </span>
+                              )}
+                            </h3>
+                          </div>
+                          <div style={{ 
+                            display: 'flex', 
+                            flexDirection: 'column', 
+                            gap: '8px',
+                            marginBottom: '12px'
+                          }}>
+                            <div style={{ 
+                              display: 'flex', 
+                              alignItems: 'center', 
+                              gap: '8px',
+                              fontSize: '14px',
+                              color: 'var(--text-secondary, #666)'
+                            }}>
+                              <span style={{ fontWeight: '600', color: 'var(--text-color, #1a1a1a)' }}>📅 Добавлен:</span>
+                              <span>{admin.createdAt
+                                ? new Date(admin.createdAt).toLocaleString('ru-RU', {
+                                    day: '2-digit',
+                                    month: '2-digit',
+                                    year: 'numeric',
+                                    hour: '2-digit',
+                                    minute: '2-digit'
+                                  })
+                                : '—'}</span>
+                            </div>
+                            {admin.createdBy && (
+                              <div style={{ 
+                                display: 'flex', 
+                                alignItems: 'center', 
+                                gap: '8px',
+                                fontSize: '14px',
+                                color: 'var(--text-secondary, #666)'
+                              }}>
+                                <span style={{ fontWeight: '600', color: 'var(--text-color, #1a1a1a)' }}>👤 Добавил:</span>
+                                <span style={{
+                                  padding: '4px 10px',
+                                  backgroundColor: 'var(--bg-secondary, #f5f5f5)',
+                                  borderRadius: '8px',
+                                  fontFamily: 'monospace',
+                                  fontWeight: '600',
+                                  color: 'var(--text-color, #1a1a1a)'
+                                }}>
+                                  ID {String(admin.createdBy)}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                          {canDelete && (
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveAdmin(admin.telegramId)}
+                              style={{
+                                padding: '10px 16px',
+                                fontSize: '14px',
+                                fontWeight: '600',
+                                backgroundColor: '#f44336',
+                                color: '#ffffff',
+                                border: 'none',
+                                borderRadius: '10px',
+                                cursor: 'pointer',
+                                transition: 'all 0.3s ease',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                width: 'fit-content'
+                              }}
+                              onMouseEnter={(e) => {
+                                e.target.style.backgroundColor = '#d32f2f';
+                                e.target.style.transform = 'translateY(-2px)';
+                                e.target.style.boxShadow = '0 4px 8px rgba(244, 67, 54, 0.3)';
+                              }}
+                              onMouseLeave={(e) => {
+                                e.target.style.backgroundColor = '#f44336';
+                                e.target.style.transform = 'translateY(0)';
+                                e.target.style.boxShadow = 'none';
+                              }}
+                            >
+                              🗑️ Удалить
+                            </button>
                           )}
                         </div>
-                        {canDelete && (
-                          <button
-                            type="button"
-                            className="admin-delete-button"
-                            onClick={() => handleRemoveAdmin(admin.telegramId)}
-                            style={{ marginTop: '8px' }}
-                          >
-                            🗑️ Удалить
-                          </button>
-                        )}
                       </div>
                     </div>
                   );
@@ -4042,11 +4282,55 @@ function App() {
                 className="registration-input"
                 value={registrationForm.phone}
                 onChange={(e) => {
-                  const value = e.target.value.replace(/\D/g, '');
-                  setRegistrationForm({ ...registrationForm, phone: value });
+                  let value = e.target.value;
+                  
+                  // Разрешаем только цифры и + в начале
+                  if (value.startsWith('+')) {
+                    // Если начинается с +, разрешаем цифры после него
+                    const digits = value.slice(1).replace(/\D/g, '');
+                    value = '+' + digits;
+                  } else {
+                    // Если не начинается с +, разрешаем только цифры
+                    value = value.replace(/\D/g, '');
+                  }
+                  
+                  // Форматируем номер с разделителями
+                  let formatted = value;
+                  if (value.startsWith('+')) {
+                    const digits = value.slice(1);
+                    if (digits.length > 0) {
+                      // Формат: +998 90 123 45 67
+                      if (digits.length <= 3) {
+                        formatted = '+' + digits;
+                      } else if (digits.length <= 5) {
+                        formatted = '+' + digits.slice(0, 3) + ' ' + digits.slice(3);
+                      } else if (digits.length <= 8) {
+                        formatted = '+' + digits.slice(0, 3) + ' ' + digits.slice(3, 5) + ' ' + digits.slice(5);
+                      } else if (digits.length <= 10) {
+                        formatted = '+' + digits.slice(0, 3) + ' ' + digits.slice(3, 5) + ' ' + digits.slice(5, 8) + ' ' + digits.slice(8);
+                      } else {
+                        formatted = '+' + digits.slice(0, 3) + ' ' + digits.slice(3, 5) + ' ' + digits.slice(5, 8) + ' ' + digits.slice(8, 10) + ' ' + digits.slice(10, 12);
+                      }
+                    }
+                  } else if (value.length > 0) {
+                    // Формат без +: 998 90 123 45 67
+                    if (value.length <= 3) {
+                      formatted = value;
+                    } else if (value.length <= 5) {
+                      formatted = value.slice(0, 3) + ' ' + value.slice(3);
+                    } else if (value.length <= 8) {
+                      formatted = value.slice(0, 3) + ' ' + value.slice(3, 5) + ' ' + value.slice(5);
+                    } else if (value.length <= 10) {
+                      formatted = value.slice(0, 3) + ' ' + value.slice(3, 5) + ' ' + value.slice(5, 8) + ' ' + value.slice(8);
+                    } else {
+                      formatted = value.slice(0, 3) + ' ' + value.slice(3, 5) + ' ' + value.slice(5, 8) + ' ' + value.slice(8, 10) + ' ' + value.slice(10, 12);
+                    }
+                  }
+                  
+                  setRegistrationForm({ ...registrationForm, phone: formatted });
                 }}
-                inputMode="numeric"
-                placeholder="998901234567"
+                inputMode="tel"
+                placeholder="+998 90 123 45 67"
                 required
               />
             </div>
@@ -5214,6 +5498,22 @@ function App() {
       <ThemeToggleButton />
       <SubscriptionStatusBadge />
       <div className="topics-container">
+        {/* Панель переключения между Тема и Экзамен */}
+        <div className="mode-switch-panel">
+          <button
+            className={`mode-switch-button ${activeMode === 'topic' ? 'active' : ''}`}
+            onClick={() => handleModeSwitch('topic')}
+          >
+            Тема
+          </button>
+          <button
+            className={`mode-switch-button ${activeMode === 'exam' ? 'active' : ''}`}
+            onClick={() => handleModeSwitch('exam')}
+          >
+            Экзамен
+          </button>
+        </div>
+        
         <div className="topics-header">
           <h1 className="topics-title">Темы</h1>
         </div>

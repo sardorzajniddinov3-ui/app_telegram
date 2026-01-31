@@ -433,7 +433,7 @@ body[data-theme="dark"] .answer-incorrect {
   to {
     opacity: 1;
     transform: translateY(0);
-  }
+}
 }
 
 /* Для экрана экзамена - белый фон контейнера */
@@ -457,10 +457,10 @@ body[data-theme="dark"] .answer-incorrect {
   flex: 1;
   padding: 12px 16px;
   font-size: 16px;
-  font-weight: 600;
+  font-weight: 700;
   border: none;
   background-color: transparent;
-  color: var(--text-secondary, #666666);
+  color: #1a1a1a;
   border-radius: 10px;
   cursor: pointer;
   min-height: 48px;
@@ -1292,7 +1292,7 @@ body[data-theme="dark"] .registration-icon {
 
   .registration-title {
     font-size: 24px;
-  }
+}
 
   .registration-icon {
     width: 70px;
@@ -1699,7 +1699,7 @@ body[data-theme="dark"] .registration-icon {
     width: 44px;
     height: 44px;
     font-size: 16px;
-  }
+}
 }
 
 /* ========== СТИЛИ ДЛЯ УПРАВЛЕНИЯ ТЕМАМИ ========== */
@@ -2175,7 +2175,7 @@ body[data-theme="dark"] .topic-action-button:hover {
 body[data-theme="dark"] .answer-item-form {
   background-color: var(--card-bg, #2d2d2d);
   border-color: var(--border-color, #424242);
-}
+  }
 
 body[data-theme="dark"] .answer-input {
   background-color: #333333;
@@ -2186,7 +2186,7 @@ body[data-theme="dark"] .answer-input {
 body[data-theme="dark"] .answer-input:focus {
   background-color: #3a3a3a;
   border-color: #2196F3;
-}
+  }
 
 body[data-theme="dark"] .image-preview {
   border-color: var(--border-color, #424242);
@@ -2221,7 +2221,7 @@ body[data-theme="dark"] .image-preview {
   from {
     opacity: 0;
     transform: translateY(15px);
-  }
+}
   to {
     opacity: 1;
     transform: translateY(0);
@@ -2244,10 +2244,10 @@ body[data-theme="dark"] .image-preview {
   border-radius: 10px;
   min-height: 48px;
   font-size: 16px;
-  font-weight: 600;
+  font-weight: 700;
   border: none;
   background-color: transparent;
-  color: #666666;
+  color: #1a1a1a;
 }
 
 .exam-select-container .mode-switch-button:not(.active):hover {
@@ -2522,7 +2522,7 @@ body[data-theme="dark"] .topic-number,
 body[data-theme="dark"] .topic-name,
 body[data-theme="dark"] .topic-count {
   color: var(--topic-item-text, #ffffff);
-}
+  }
 
 body[data-theme="dark"] .topic-total-questions {
   color: var(--text-secondary, #98989E);
@@ -2542,7 +2542,7 @@ body[data-theme="dark"] .results-section {
 
 body[data-theme="dark"] .result-id {
   color: var(--button-primary, #42a5f5);
-}
+  }
 
 body[data-theme="dark"] .result-title {
   color: var(--text-main, #ffffff);
