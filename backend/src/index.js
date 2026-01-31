@@ -6,7 +6,7 @@ const { createApp } = require('./app');
 
 async function main() {
   // Читаем PORT из переменных окружения (Railway автоматически устанавливает его)
-  const PORT = process.env.PORT ? Number(process.env.PORT) : 3000;
+  const PORT = process.env.PORT || 3000;
   const databaseUrl = process.env.DATABASE_URL;
   const runMigrations = String(process.env.RUN_MIGRATIONS || '').toLowerCase() === 'true';
 
@@ -46,8 +46,7 @@ async function main() {
 
   // Запускаем сервер на 0.0.0.0 для Railway (принимает соединения извне)
   const server = app.listen(PORT, '0.0.0.0', () => {
-    console.log(`✅ Server is running on port ${PORT}`);
-    console.log(`🌐 Health check: http://0.0.0.0:${PORT}/health`);
+    console.log(`Server started on port ${PORT}`);
   });
 
   // Обработка ошибок сервера

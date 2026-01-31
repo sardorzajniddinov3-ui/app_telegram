@@ -5,15 +5,7 @@
   "type": "commonjs",
   "main": "src/index.js",
   "scripts": {
-    "start": "node src/index.js",
-    "dev": "nodemon src/index.js",
-    "migrate": "node src/db/migrate.js",
-    "test": "jest --runInBand",
-    "pm2:start": "pm2 start ecosystem.config.js",
-    "pm2:stop": "pm2 stop telegram-mini-app-backend",
-    "pm2:restart": "pm2 restart telegram-mini-app-backend",
-    "pm2:logs": "pm2 logs telegram-mini-app-backend",
-    "pm2:status": "pm2 status"
+    "start": "node src/index.js"
   },
   "dependencies": {
     "cors": "^2.8.5",
