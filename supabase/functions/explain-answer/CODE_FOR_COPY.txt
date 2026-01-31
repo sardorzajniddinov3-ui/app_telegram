@@ -1,0 +1,118 @@
+// Supabase Edge Function для объяснения ошибок через Google Gemini API
+// Скопируйте весь этот код в редактор функции в Supabase Dashboard
+
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+
+const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent'
+
+serve(async (req) => {
+  // Разрешаем CORS
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', {
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+      },
+    })
+  }
+
+  try {
+    // Получаем API ключ из переменных окружения
+    const geminiApiKey = Deno.env.get('GEMINI_API_KEY')
+    if (!geminiApiKey) {
+      return new Response(
+        JSON.stringify({ error: 'GEMINI_API_KEY не настроен' }),
+        {
+          status: 500,
+          headers: {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
+          },
+        }
+      )
+    }
+
+    // Парсим тело запроса
+    const { question, wrongAnswer, correctAnswer } = await req.json()
+
+    if (!question || !wrongAnswer || !correctAnswer) {
+      return new Response(
+        JSON.stringify({ error: 'Необходимы question, wrongAnswer и correctAnswer' }),
+        {
+          status: 400,
+          headers: {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
+          },
+        }
+      )
+    }
+
+    // Формируем промпт для ИИ
+    const prompt = `Объясни кратко (2 предложения), почему ответ '${wrongAnswer}' неверный для вопроса '${question}', и почему правильный '${correctAnswer}'. Будь вежливым автоинструктором.`
+
+    // Отправляем запрос к Google Gemini API
+    const geminiResponse = await fetch(
+      `${GEMINI_API_URL}?key=${geminiApiKey}`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          contents: [{
+            parts: [{
+              text: prompt
+            }]
+          }]
+        }),
+      }
+    )
+
+    if (!geminiResponse.ok) {
+      const errorText = await geminiResponse.text()
+      console.error('Ошибка Gemini API:', errorText)
+      return new Response(
+        JSON.stringify({ error: 'Ошибка при обращении к Gemini API', details: errorText }),
+        {
+          status: 500,
+          headers: {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
+          },
+        }
+      )
+    }
+
+    const geminiData = await geminiResponse.json()
+    
+    // Извлекаем текст объяснения из ответа Gemini
+    const explanation = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text || 
+                       'Не удалось получить объяснение. Попробуйте позже.'
+
+    return new Response(
+      JSON.stringify({ explanation }),
+      {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+        },
+      }
+    )
+  } catch (error) {
+    console.error('Ошибка в функции explain-answer:', error)
+    return new Response(
+      JSON.stringify({ error: 'Внутренняя ошибка сервера', details: error.message }),
+      {
+        status: 500,
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+        },
+      }
+    )
+  }
+})

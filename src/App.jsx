@@ -107,6 +107,64 @@ function App() {
   const [dbSubsError, setDbSubsError] = useState(null)
   const [grantForm, setGrantForm] = useState({ telegramId: '', days: '30' })
   const [grantLoading, setGrantLoading] = useState(false)
+  
+  // ========== ИИ-ОБЪЯСНЕНИЕ ОШИБОК: Состояния ==========
+  const [explanations, setExplanations] = useState({}) // { questionId: { explanation: string, loading: boolean, error: string } }
+  
+  // ========== ИИ-ОБЪЯСНЕНИЕ ОШИБОК: Функция для получения объяснения ==========
+  const getExplanation = async (questionId, question, wrongAnswer, correctAnswer) => {
+    // Если объяснение уже загружено, не запрашиваем снова
+    if (explanations[questionId]?.explanation) {
+      return;
+    }
+    
+    // Устанавливаем состояние загрузки
+    setExplanations(prev => ({
+      ...prev,
+      [questionId]: { loading: true, explanation: null, error: null }
+    }));
+    
+    try {
+      console.log('Запрос объяснения для вопроса:', { questionId, question, wrongAnswer, correctAnswer });
+      
+      const { data, error } = await supabase.functions.invoke('explain-answer', {
+        body: {
+          question: question,
+          wrongAnswer: wrongAnswer,
+          correctAnswer: correctAnswer
+        }
+      });
+      
+      console.log('Ответ от функции:', { data, error });
+      
+      if (error) {
+        console.error('Ошибка от Supabase:', error);
+        throw new Error(error.message || JSON.stringify(error));
+      }
+      
+      if (!data || !data.explanation) {
+        console.error('Нет данных или объяснения в ответе:', data);
+        throw new Error('Функция вернула пустой ответ');
+      }
+      
+      // Сохраняем объяснение
+      setExplanations(prev => ({
+        ...prev,
+        [questionId]: { loading: false, explanation: data.explanation, error: null }
+      }));
+    } catch (err) {
+      console.error('Ошибка при получении объяснения:', err);
+      const errorMessage = err?.message || err?.toString() || 'Неизвестная ошибка';
+      setExplanations(prev => ({
+        ...prev,
+        [questionId]: { 
+          loading: false, 
+          explanation: null, 
+          error: `Ошибка: ${errorMessage}. Проверьте, что функция explain-answer создана в Supabase Dashboard.` 
+        }
+      }));
+    }
+  };
   const [grantMessage, setGrantMessage] = useState(null)
   const [subscriptionInfo, setSubscriptionInfo] = useState(null) // /api/subscription/me
   const [showSubscriptionModal, setShowSubscriptionModal] = useState(false) // Модальное окно подписки
@@ -1633,6 +1691,7 @@ function App() {
     userAnswersRef.current = [] // Сбрасываем референс
     setTestQuestions(questions) // Сохраняем вопросы теста
     setIsExamMode(false) // Это тест по теме, не экзамен
+    setExplanations({}) // Очищаем объяснения при перезапуске теста
     setScreen('quiz')
   }
 
@@ -1682,6 +1741,7 @@ function App() {
     userAnswersRef.current = [];
     setTestQuestions(examQuestions);
     setIsExamMode(true); // Устанавливаем флаг экзамена
+    setExplanations({}); // Очищаем объяснения при перезапуске экзамена
     setScreen('quiz'); // Используем тот же экран quiz
   }
 
@@ -4803,12 +4863,45 @@ function App() {
                       showMarker = true;
                     }
                     
+                    // Определяем правильный ответ для объяснения
+                    const correctAnswerObj = question.answers.find(a => a.correct === true);
+                    const wrongAnswerText = isSelected && !isCorrect ? answer.text : null;
+                    const correctAnswerText = correctAnswerObj ? correctAnswerObj.text : null;
+                    const questionId = question.id || `q-${index}`;
+                    const explanationData = explanations[questionId];
+                    // ИИ-объяснение отключено для экзаменов (examFullReview - это экран просмотра результатов экзамена)
+                    const showExplanationButton = false; // Отключено для экзаменов
+                    
                     return (
-                      <div key={answer.id || answerIndex} className={answerClass}>
-                        {showMarker && <span className={`answer-marker ${isCorrect ? 'correct' : ''}`}>{markerText}: </span>}
-                        {answerIndex + 1}. {answer.text}
-                        {isCorrect && <span className="correct-icon"> ✓</span>}
-                        {isSelected && !isCorrect && <span className="incorrect-icon"> ✗</span>}
+                      <div key={answer.id || answerIndex}>
+                        <div className={answerClass}>
+                          {showMarker && <span className={`answer-marker ${isCorrect ? 'correct' : ''}`}>{markerText}: </span>}
+                          {answerIndex + 1}. {answer.text}
+                          {isCorrect && <span className="correct-icon"> ✓</span>}
+                          {isSelected && !isCorrect && <span className="incorrect-icon"> ✗</span>}
+                        </div>
+                        {/* Кнопка и блок объяснения для неправильного ответа */}
+                        {showExplanationButton && (
+                          <div className="explanation-block">
+                            {!explanationData && (
+                              <button
+                                className="explanation-button"
+                                onClick={() => getExplanation(questionId, question.text, wrongAnswerText, correctAnswerText)}
+                              >
+                                🤖 Почему это неправильно?
+                              </button>
+                            )}
+                            {explanationData?.loading && (
+                              <div className="explanation-loading">Загрузка объяснения...</div>
+                            )}
+                            {explanationData?.error && (
+                              <div className="explanation-error">{explanationData.error}</div>
+                            )}
+                            {explanationData?.explanation && (
+                              <div className="explanation-text">{explanationData.explanation}</div>
+                            )}
+                          </div>
+                        )}
                       </div>
                     );
                   })}
@@ -5006,17 +5099,49 @@ function App() {
                 answerClass += ' answer-selected';
               }
               
+              // Определяем правильный ответ для объяснения
+              const correctAnswerObj = question.answers.find(a => a.correct === true);
+              const wrongAnswerText = (isAnswered || isTimeExpired) && isSelected && !isCorrect ? answer.text : null;
+              const correctAnswerText = correctAnswerObj ? correctAnswerObj.text : null;
+              const questionId = question.id || `q-${currentQuestionIndex}`;
+              const explanationData = explanations[questionId];
+              // ИИ-объяснение отключено в режиме экзамена
+              const showExplanationButton = !isExamMode && (isAnswered || isTimeExpired) && isSelected && !isCorrect && wrongAnswerText && correctAnswerText;
+              
               return (
-                <div
-                  key={answer.id}
-                  className={answerClass}
-                  onClick={() => !isDisabled && handleAnswerClick(answer.id)}
-                  style={{ 
-                    cursor: isDisabled ? 'not-allowed' : 'pointer',
-                    opacity: isTimeExpired ? 0.6 : 1
-                  }}
-                >
-                  {answerNumber}. {answer.text}
+                <div key={answer.id}>
+                  <div
+                    className={answerClass}
+                    onClick={() => !isDisabled && handleAnswerClick(answer.id)}
+                    style={{ 
+                      cursor: isDisabled ? 'not-allowed' : 'pointer',
+                      opacity: isTimeExpired ? 0.6 : 1
+                    }}
+                  >
+                    {answerNumber}. {answer.text}
+                  </div>
+                  {/* Кнопка и блок объяснения для неправильного ответа */}
+                  {showExplanationButton && (
+                    <div className="explanation-block">
+                      {!explanationData && (
+                        <button
+                          className="explanation-button"
+                          onClick={() => getExplanation(questionId, question.text, wrongAnswerText, correctAnswerText)}
+                        >
+                          🤖 Почему это неправильно?
+                        </button>
+                      )}
+                      {explanationData?.loading && (
+                        <div className="explanation-loading">Загрузка объяснения...</div>
+                      )}
+                      {explanationData?.error && (
+                        <div className="explanation-error">{explanationData.error}</div>
+                      )}
+                      {explanationData?.explanation && (
+                        <div className="explanation-text">{explanationData.explanation}</div>
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             }))}
@@ -5068,6 +5193,8 @@ function App() {
                   setCurrentQuestionIndex(index);
                   setSelectedAnswer(targetAnswer ? targetAnswer.selectedAnswerId : null);
                   setIsAnswered(targetAnswer ? true : false);
+                  // Очищаем объяснения при переходе к другому вопросу
+                  setExplanations({});
                 }}
               >
                 {index + 1}
