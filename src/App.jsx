@@ -30,7 +30,21 @@ function App() {
   const [userRole, setUserRole] = useState(null)
   const [loading, setLoading] = useState(true)
   const [screen, setScreen] = useState('topics') // 'topics', 'topicDetail', 'quiz', 'admin', 'fullReview', 'examSelect', 'examResult', 'examFullReview', 'registration'
+  // Загружаем сохраненную тему из localStorage при инициализации
+  const getSavedTheme = () => {
+    try {
+      const saved = localStorage.getItem('app_theme');
+      if (saved === 'light' || saved === 'dark') {
+        return saved;
+      }
+    } catch (e) {
+      console.error('Ошибка чтения темы из localStorage:', e);
+    }
+    return null;
+  };
+
   const [isDarkMode, setIsDarkMode] = useState(false) // Состояние темы
+  const [manualTheme, setManualTheme] = useState(getSavedTheme) // Ручное переключение темы (null = авто, 'light' или 'dark')
   const [isAdmin, setIsAdmin] = useState(false) // Состояние админ-доступа из таблицы admins
   const [selectedTopic, setSelectedTopic] = useState(null)
   const [selectedResult, setSelectedResult] = useState(null) // Выбранный результат для просмотра
@@ -590,11 +604,27 @@ function App() {
     }
   };
 
+  // Применяем сохраненную тему сразу при первой загрузке
+  useEffect(() => {
+    if (manualTheme !== null) {
+      document.body.setAttribute('data-theme', manualTheme);
+      setIsDarkMode(manualTheme === 'dark');
+    }
+  }, []); // Только при первой загрузке
+
   // Определение и применение темы Telegram
   // ========== УПРАВЛЕНИЕ ТЕМНОЙ ТЕМОЙ ==========
   useEffect(() => {
     // Функция для применения темы
     const applyTheme = () => {
+      // Если тема установлена вручную (включая сохраненную из localStorage), используем её
+      if (manualTheme !== null) {
+        document.body.setAttribute('data-theme', manualTheme);
+        setIsDarkMode(manualTheme === 'dark');
+        return;
+      }
+
+      // Иначе определяем автоматически из Telegram
       const tg = window.Telegram?.WebApp;
       let theme = 'light'; // По умолчанию светлая тема
       
@@ -666,7 +696,7 @@ function App() {
         }
       };
     }
-  }, []);
+  }, [manualTheme]); // Добавляем manualTheme в зависимости
 
   useEffect(() => {
     let timeoutId = null;
@@ -2654,6 +2684,80 @@ function App() {
     }
   }, [adminScreen, editingQuestion]);
 
+  // Функция для переключения темы вручную
+  const toggleTheme = () => {
+    let newTheme;
+    if (manualTheme === null) {
+      // Если был авто-режим, переключаем на противоположный текущему
+      newTheme = isDarkMode ? 'light' : 'dark';
+    } else {
+      // Переключаем между light и dark
+      newTheme = manualTheme === 'dark' ? 'light' : 'dark';
+    }
+    
+    // Сохраняем выбранную тему в localStorage
+    try {
+      localStorage.setItem('app_theme', newTheme);
+    } catch (e) {
+      console.error('Ошибка сохранения темы в localStorage:', e);
+    }
+    
+    setManualTheme(newTheme);
+    document.body.setAttribute('data-theme', newTheme);
+    setIsDarkMode(newTheme === 'dark');
+  };
+
+  // Компонент переключения темы
+  const ThemeToggleButton = () => {
+    return (
+      <button
+        className="theme-toggle-button"
+        onClick={toggleTheme}
+        title={isDarkMode ? 'Переключить на светлую тему' : 'Переключить на темную тему'}
+        aria-label={isDarkMode ? 'Переключить на светлую тему' : 'Переключить на темную тему'}
+      >
+        <div className="theme-icon-container">
+          {/* Sun icon */}
+          <svg
+            className={`theme-icon theme-icon-sun ${isDarkMode ? 'hidden' : 'visible'}`}
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <circle cx="12" cy="12" r="5" />
+            <line x1="12" y1="1" x2="12" y2="3" />
+            <line x1="12" y1="21" x2="12" y2="23" />
+            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
+            <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
+            <line x1="1" y1="12" x2="3" y2="12" />
+            <line x1="21" y1="12" x2="23" y2="12" />
+            <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
+            <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+          </svg>
+          {/* Moon icon */}
+          <svg
+            className={`theme-icon theme-icon-moon ${isDarkMode ? 'visible' : 'hidden'}`}
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+          </svg>
+        </div>
+      </button>
+    );
+  };
+
   // Компонент статуса подписки (глобальный)
   const SubscriptionStatusBadge = () => {
     if (userRole === 'admin' || loading || userRole === null) return null;
@@ -2668,7 +2772,21 @@ function App() {
         >
           {isActive ? (
             <div className="subscription-badge-active">
-              <span className="subscription-badge-icon">✓</span>
+              <svg
+                className="subscription-badge-icon"
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                {/* Crown icon */}
+                <path d="M5 16L3 5l5.5 5L12 4l3.5 6L21 5l-2 11H5z" />
+                <path d="M12 18l-1-4 1-4 1 4-1 4z" />
+              </svg>
             </div>
           ) : null}
         </div>
@@ -2687,7 +2805,22 @@ function App() {
                 {isActive ? (
                   <>
                     <div className="subscription-status-card active">
-                      <div className="subscription-status-icon-large">✓</div>
+                      <div className="subscription-status-icon-large">
+                        <svg
+                          width="48"
+                          height="48"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          {/* Crown icon */}
+                          <path d="M5 16L3 5l5.5 5L12 4l3.5 6L21 5l-2 11H5z" />
+                          <path d="M12 18l-1-4 1-4 1 4-1 4z" />
+                        </svg>
+                      </div>
                       <h3 className="subscription-status-title">Подписка активна</h3>
                       <div className="subscription-details">
                         <div className="subscription-detail-item">
@@ -3596,6 +3729,28 @@ function App() {
               )}
             </div>
 
+            <div style={{ marginBottom: '24px' }}>
+              <h4 style={{ margin: '0 0 8px' }}>Добавить администратора</h4>
+              <form onSubmit={handleAddAdmin} className="admin-form" style={{ maxWidth: '520px' }}>
+                <div className="form-group">
+                  <label>Telegram ID *</label>
+                  <input
+                    value={adminForm.telegramId}
+                    onChange={(ev) => setAdminForm({ ...adminForm, telegramId: ev.target.value })}
+                    placeholder="например 123456789"
+                  />
+                </div>
+                <button type="submit" className="admin-submit-button" disabled={adminFormLoading}>
+                  {adminFormLoading ? 'Добавление...' : 'Добавить администратора'}
+                </button>
+                {adminFormMessage && (
+                  <p style={{ marginTop: '10px', color: adminFormMessage.startsWith('Администратор успешно') ? '#2e7d32' : '#f44336' }}>
+                    {adminFormMessage}
+                  </p>
+                )}
+              </form>
+            </div>
+
             {adminsLoading && adminsList.length === 0 ? (
               <p>Загрузка администраторов...</p>
             ) : adminsList.length === 0 ? (
@@ -3646,28 +3801,6 @@ function App() {
                 })}
               </div>
             )}
-
-            <div style={{ marginTop: '24px' }}>
-              <h4 style={{ margin: '0 0 8px' }}>Добавить администратора</h4>
-              <form onSubmit={handleAddAdmin} className="admin-form" style={{ maxWidth: '520px' }}>
-                <div className="form-group">
-                  <label>Telegram ID *</label>
-                  <input
-                    value={adminForm.telegramId}
-                    onChange={(ev) => setAdminForm({ ...adminForm, telegramId: ev.target.value })}
-                    placeholder="например 123456789"
-                  />
-                </div>
-                <button type="submit" className="admin-submit-button" disabled={adminFormLoading}>
-                  {adminFormLoading ? 'Добавление...' : 'Добавить администратора'}
-                </button>
-                {adminFormMessage && (
-                  <p style={{ marginTop: '10px', color: adminFormMessage.startsWith('Администратор успешно') ? '#2e7d32' : '#f44336' }}>
-                    {adminFormMessage}
-                  </p>
-                )}
-              </form>
-            </div>
           </div>
         </div>
       );
@@ -3831,6 +3964,7 @@ function App() {
     
     return (
       <>
+        <ThemeToggleButton />
         <SubscriptionStatusBadge />
         <div className="topics-container exam-container">
           <div className="exam-select-container">
@@ -3934,6 +4068,7 @@ function App() {
   if (screen === 'topics') {
     return (
       <>
+        <ThemeToggleButton />
         <SubscriptionStatusBadge />
         <div className="topics-container">
           {/* Панель переключения между Тема и Экзамен */}
@@ -4025,6 +4160,7 @@ function App() {
 
     return (
       <>
+        <ThemeToggleButton />
         <SubscriptionStatusBadge />
         <div className="topic-detail-container">
         {/* Панель переключения между Тема и Экзамен */}
@@ -4210,16 +4346,18 @@ function App() {
     });
 
     return (
-      <div className="full-review-container">
-        <div className="full-review-header">
-          <button className="back-button" onClick={() => {
-            setSelectedResult(null);
-            setScreen('topicDetail');
-          }}>
-            ← Назад
-          </button>
-          <h2 className="full-review-title">{selectedTopic.name}</h2>
-        </div>
+      <>
+        <ThemeToggleButton />
+        <div className="full-review-container">
+          <div className="full-review-header">
+            <button className="back-button" onClick={() => {
+              setSelectedResult(null);
+              setScreen('topicDetail');
+            }}>
+              ← Назад
+            </button>
+            <h2 className="full-review-title">{selectedTopic.name}</h2>
+          </div>
         
         <div className="full-review-result-info">
           {userData?.name && (
@@ -4361,7 +4499,8 @@ function App() {
             );
           })}
         </div>
-      </div>
+        </div>
+      </>
     );
   }
 
@@ -4371,23 +4510,28 @@ function App() {
     
     if (!examResult) {
       return (
-        <div className="topics-container">
-          <div className="topics-header">
-            <button className="back-button" onClick={() => {
-              setSelectedExamResult(null);
-              setScreen('examSelect');
-            }}>
-              ← Назад
-            </button>
-            <h1 className="topics-title">Результаты экзамена</h1>
+        <>
+          <ThemeToggleButton />
+          <div className="topics-container">
+            <div className="topics-header">
+              <button className="back-button" onClick={() => {
+                setSelectedExamResult(null);
+                setScreen('examSelect');
+              }}>
+                ← Назад
+              </button>
+              <h1 className="topics-title">Результаты экзамена</h1>
+            </div>
+            <p>Нет данных для отображения</p>
           </div>
-          <p>Нет данных для отображения</p>
-        </div>
+        </>
       );
     }
 
     return (
-      <div className="topic-detail-container">
+      <>
+        <ThemeToggleButton />
+        <div className="topic-detail-container">
         {/* Панель переключения между Тема и Экзамен */}
         <div className="mode-switch-panel">
           <button
@@ -4484,7 +4628,8 @@ function App() {
             Полный обзор
           </button>
         </div>
-      </div>
+        </div>
+      </>
     );
   }
 
@@ -4494,18 +4639,21 @@ function App() {
     
     if (!reviewResult || !reviewResult.questions || !reviewResult.userAnswers) {
       return (
-        <div className="topic-detail-container">
-          <div className="topic-detail-header">
-            <button className="back-button" onClick={() => {
-              setSelectedExamResult(null);
-              setScreen('examResult');
-            }}>
-              ← Назад
-            </button>
-            <h2 className="topic-detail-title">Результаты экзамена</h2>
+        <>
+          <ThemeToggleButton />
+          <div className="topic-detail-container">
+            <div className="topic-detail-header">
+              <button className="back-button" onClick={() => {
+                setSelectedExamResult(null);
+                setScreen('examResult');
+              }}>
+                ← Назад
+              </button>
+              <h2 className="topic-detail-title">Результаты экзамена</h2>
+            </div>
+            <p>Нет данных для просмотра</p>
           </div>
-          <p>Нет данных для просмотра</p>
-        </div>
+        </>
       );
     }
 
@@ -4513,16 +4661,18 @@ function App() {
     const userAnswers = reviewResult.userAnswers;
 
     return (
-      <div className="full-review-container">
-        <div className="full-review-header">
-          <button className="back-button" onClick={() => {
-            setSelectedExamResult(null);
-            setScreen('examResult');
-          }}>
-            ← Назад
-          </button>
-          <h2 className="full-review-title">Результаты экзамена</h2>
-        </div>
+      <>
+        <ThemeToggleButton />
+        <div className="full-review-container">
+          <div className="full-review-header">
+            <button className="back-button" onClick={() => {
+              setSelectedExamResult(null);
+              setScreen('examResult');
+            }}>
+              ← Назад
+            </button>
+            <h2 className="full-review-title">Результаты экзамена</h2>
+          </div>
         
         <div className="full-review-result-info">
           {userData?.name && (
@@ -4623,7 +4773,8 @@ function App() {
             );
           })}
         </div>
-      </div>
+        </div>
+      </>
     );
   }
 
