@@ -528,23 +528,49 @@ function App() {
         await loadTopicsFromSupabase();
         await loadQuestionsFromSupabase();
 
-        // Проверяем админ-доступ через API
+        // Проверяем админ-доступ
+        const MAIN_ADMIN_TELEGRAM_ID = 473842863; // Главный админ
+        const userIdNumber = userId ? Number(userId) : null;
+        
+        // Проверяем, является ли пользователь главным админом
+        if (userIdNumber === MAIN_ADMIN_TELEGRAM_ID) {
+          console.log('✅ Главный администратор обнаружен (ID: 473842863)');
+          setUserRole('admin');
+          setScreen('topics');
+          setLoading(false);
+          if (timeoutId) clearTimeout(timeoutId);
+          return;
+        }
+        
+        // Проверяем админ-доступ через API для других пользователей
         if (userId) {
           try {
+            console.log('🔍 Проверка админ-доступа для userId:', userId);
+            console.log('🔗 Backend URL:', BACKEND_URL);
             const checkRes = await fetch(`${BACKEND_URL}/api/admin/check`, {
               method: 'GET',
               headers: getUserHeaders()
             });
+            console.log('📡 Ответ от /api/admin/check:', checkRes.status, checkRes.statusText);
             const checkData = await checkRes.json().catch(() => ({}));
+            console.log('📦 Данные ответа:', checkData);
             if (checkData.isAdmin === true) {
+              console.log('✅ Пользователь является администратором');
               setUserRole('admin');
               setScreen('topics');
+              setLoading(false);
+              if (timeoutId) clearTimeout(timeoutId);
               return;
+            } else {
+              console.log('❌ Пользователь НЕ является администратором');
             }
           } catch (err) {
-            console.error('Ошибка проверки админ-доступа:', err);
+            console.error('❌ Ошибка проверки админ-доступа:', err);
+            console.error('Детали ошибки:', err.message);
             // Продолжаем как обычный пользователь
           }
+        } else {
+          console.log('⚠️ userId отсутствует, пропускаем проверку админ-доступа');
         }
 
         // Проверяем, зарегистрирован ли пользователь в Supabase
