@@ -31,6 +31,7 @@ function App() {
   const [loading, setLoading] = useState(true)
   const [screen, setScreen] = useState('topics') // 'topics', 'topicDetail', 'quiz', 'admin', 'fullReview', 'examSelect', 'examResult', 'examFullReview', 'registration'
   const [isDarkMode, setIsDarkMode] = useState(false) // Состояние темы
+  const [isAdmin, setIsAdmin] = useState(false) // Состояние админ-доступа из таблицы admins
   const [selectedTopic, setSelectedTopic] = useState(null)
   const [selectedResult, setSelectedResult] = useState(null) // Выбранный результат для просмотра
   const [selectedExamResult, setSelectedExamResult] = useState(null) // Выбранный результат экзамена для просмотра
@@ -101,6 +102,9 @@ function App() {
   const [adminForm, setAdminForm] = useState({ telegramId: '' }) // Форма добавления админа
   const [adminFormLoading, setAdminFormLoading] = useState(false)
   const [adminFormMessage, setAdminFormMessage] = useState(null)
+  const [userSearchQuery, setUserSearchQuery] = useState('') // Поиск пользователей
+  const [selectedUser, setSelectedUser] = useState(null) // Выбранный пользователь для модального окна
+  const [showUserModal, setShowUserModal] = useState(false) // Показать модальное окно пользователя
 
   // ========== ФУНКЦИИ ДЛЯ РАБОТЫ С SUPABASE (ТЕМЫ И ВОПРОСЫ) ==========
   
@@ -587,35 +591,80 @@ function App() {
   };
 
   // Определение и применение темы Telegram
+  // ========== УПРАВЛЕНИЕ ТЕМНОЙ ТЕМОЙ ==========
   useEffect(() => {
+    // Функция для применения темы
     const applyTheme = () => {
-      const colorScheme = getTelegramColorScheme();
-      const dark = colorScheme === 'dark';
-      setIsDarkMode(dark);
+      const tg = window.Telegram?.WebApp;
+      let theme = 'light'; // По умолчанию светлая тема
       
-      // Применяем класс к body
-      if (dark) {
-        document.body.classList.add('dark-theme');
-        document.body.classList.remove('light-theme');
+      if (tg) {
+        // Используем colorScheme из Telegram WebApp
+        const colorScheme = tg.colorScheme || getTelegramColorScheme();
+        theme = colorScheme === 'dark' ? 'dark' : 'light';
+        
+        // Также можно использовать themeParams для более точной настройки
+        if (tg.themeParams?.bg_color) {
+          // Если фон темный, считаем темной темой
+          const bgColor = tg.themeParams.bg_color;
+          // Проверяем яркость цвета (простая эвристика)
+          if (bgColor.startsWith('#') && bgColor.length === 7) {
+            const r = parseInt(bgColor.substr(1, 2), 16);
+            const g = parseInt(bgColor.substr(3, 2), 16);
+            const b = parseInt(bgColor.substr(5, 2), 16);
+            const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+            if (brightness < 128) {
+              theme = 'dark';
+            }
+          }
+        }
       } else {
-        document.body.classList.add('light-theme');
-        document.body.classList.remove('dark-theme');
+        // Fallback: используем системную тему
+        if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+          theme = 'dark';
+        }
       }
+      
+      // Устанавливаем атрибут data-theme на body
+      document.body.setAttribute('data-theme', theme);
+      setIsDarkMode(theme === 'dark');
+      
+      console.log('Тема применена:', theme);
     };
 
-    // Применяем тему сразу
+    // Применяем тему сразу при загрузке
     applyTheme();
 
-    // Слушаем изменения темы Telegram
+    // Инициализируем Telegram WebApp
     const tg = window.Telegram?.WebApp;
     if (tg) {
-      // Telegram WebApp может обновлять тему динамически
-      const checkTheme = () => applyTheme();
+      tg.ready();
+      tg.expand();
       
-      // Проверяем тему периодически (на случай изменения в Telegram)
-      const intervalId = setInterval(checkTheme, 1000);
+      // Слушаем изменения темы через событие themeChanged
+      if (tg.onEvent) {
+        tg.onEvent('themeChanged', applyTheme);
+      }
       
-      return () => clearInterval(intervalId);
+      // Также слушаем изменения системной темы (fallback)
+      const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+      if (mediaQuery.addEventListener) {
+        mediaQuery.addEventListener('change', applyTheme);
+      } else if (mediaQuery.addListener) {
+        // Для старых браузеров
+        mediaQuery.addListener(applyTheme);
+      }
+      
+      return () => {
+        if (tg.offEvent) {
+          tg.offEvent('themeChanged', applyTheme);
+        }
+        if (mediaQuery.removeEventListener) {
+          mediaQuery.removeEventListener('change', applyTheme);
+        } else if (mediaQuery.removeListener) {
+          mediaQuery.removeListener(applyTheme);
+        }
+      };
     }
   }, []);
 
@@ -640,60 +689,15 @@ function App() {
         await loadTopicsFromSupabase();
         await loadQuestionsFromSupabase();
 
-        // Проверяем админ-доступ
-        const MAIN_ADMIN_TELEGRAM_ID = 473842863; // Главный админ
-        const ADDITIONAL_ADMIN_ID = 1769624468253; // Дополнительный админ
-        const userIdNumber = userId ? Number(userId) : null;
-        
-        // Проверяем, является ли пользователь главным админом
-        if (userIdNumber === MAIN_ADMIN_TELEGRAM_ID) {
-          console.log('✅ Главный администратор обнаружен (ID: 473842863)');
+        // Проверяем админ-доступ через таблицу admins в Supabase
+        const adminStatus = await checkAdminStatus(userId);
+        if (adminStatus) {
+          console.log('✅ Пользователь является администратором (из таблицы admins)');
           setUserRole('admin');
           setScreen('topics');
           setLoading(false);
           if (timeoutId) clearTimeout(timeoutId);
           return;
-        }
-        
-        // Проверяем, является ли пользователь дополнительным админом
-        if (userIdNumber === ADDITIONAL_ADMIN_ID) {
-          console.log('✅ Администратор обнаружен (ID: 1769624468253)');
-          setUserRole('admin');
-          setScreen('topics');
-          setLoading(false);
-          if (timeoutId) clearTimeout(timeoutId);
-          return;
-        }
-        
-        // Проверяем админ-доступ через API для других пользователей
-        if (userId) {
-          try {
-            console.log('🔍 Проверка админ-доступа для userId:', userId);
-            console.log('🔗 Backend URL:', BACKEND_URL);
-            const checkRes = await fetch(`${BACKEND_URL}/api/admin/check`, {
-              method: 'GET',
-              headers: getUserHeaders()
-            });
-            console.log('📡 Ответ от /api/admin/check:', checkRes.status, checkRes.statusText);
-            const checkData = await checkRes.json().catch(() => ({}));
-            console.log('📦 Данные ответа:', checkData);
-            if (checkData.isAdmin === true) {
-              console.log('✅ Пользователь является администратором');
-              setUserRole('admin');
-              setScreen('topics');
-              setLoading(false);
-              if (timeoutId) clearTimeout(timeoutId);
-              return;
-            } else {
-              console.log('❌ Пользователь НЕ является администратором');
-            }
-          } catch (err) {
-            console.error('❌ Ошибка проверки админ-доступа:', err);
-            console.error('Детали ошибки:', err.message);
-            // Продолжаем как обычный пользователь
-          }
-        } else {
-          console.log('⚠️ userId отсутствует, пропускаем проверку админ-доступа');
         }
 
         // Проверяем, зарегистрирован ли пользователь в Supabase
@@ -1059,6 +1063,117 @@ function App() {
     }
   };
 
+  // Функция для отзыва (забирания) подписки
+  const handleRevokeSubscription = async (telegramId) => {
+    if (!confirm(`Забрать подписку у пользователя с ID ${telegramId}?`)) {
+      return;
+    }
+
+    try {
+      const telegramIdAsNumber = Math.floor(Number(telegramId));
+      
+      if (!Number.isFinite(telegramIdAsNumber) || telegramIdAsNumber <= 0) {
+        alert('Некорректный ID пользователя');
+        return;
+      }
+
+      console.log('Отзыв подписки для пользователя:', telegramIdAsNumber);
+
+      // Устанавливаем дату окончания подписки в прошлое (вчера)
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      const yesterdayISO = yesterday.toISOString();
+
+      const { data, error } = await supabase
+        .from('subscriptions')
+        .update({
+          end_date: yesterdayISO
+        })
+        .eq('telegram_id', telegramIdAsNumber)
+        .select()
+        .single();
+
+      if (error) {
+        // Если ошибка - "не найдено", значит подписки уже нет
+        if (error.code === 'PGRST116') {
+          alert('Подписка не найдена или уже отозвана');
+          await loadSubscriptions();
+          return;
+        }
+        throw new Error(error.message || JSON.stringify(error));
+      }
+
+      console.log('Подписка отозвана в Supabase:', data);
+      alert(`Подписка успешно отозвана у пользователя ${telegramIdAsNumber}`);
+      
+      // Обновляем список активных подписок
+      await loadSubscriptions();
+    } catch (e) {
+      const errorMsg = e?.message || e?.toString() || JSON.stringify(e) || 'Ошибка отзыва подписки';
+      console.error('Ошибка отзыва подписки:', e);
+      alert('Ошибка отзыва подписки: ' + errorMsg);
+    }
+  };
+
+  // ========== ПРОВЕРКА АДМИН-СТАТУСА ==========
+  const checkAdminStatus = async (userId) => {
+    if (!userId) {
+      setIsAdmin(false);
+      return false;
+    }
+
+    const userIdNumber = Number(userId);
+    if (!Number.isFinite(userIdNumber) || userIdNumber <= 0) {
+      setIsAdmin(false);
+      return false;
+    }
+
+    // Проверяем главного админа (запасной вариант)
+    const MAIN_ADMIN_TELEGRAM_ID = 473842863;
+    if (userIdNumber === MAIN_ADMIN_TELEGRAM_ID) {
+      console.log('✅ Главный администратор обнаружен (ID: 473842863)');
+      setIsAdmin(true);
+      return true;
+    }
+
+    try {
+      // Проверяем в таблице admins
+      const telegramIdAsNumber = Math.floor(userIdNumber);
+      console.log('🔍 Проверка админ-статуса в Supabase для пользователя:', telegramIdAsNumber);
+
+      const { data, error } = await supabase
+        .from('admins')
+        .select('*')
+        .eq('telegram_id', telegramIdAsNumber)
+        .single();
+
+      if (error) {
+        // Если ошибка - "не найдено", это нормально (не админ)
+        if (error.code === 'PGRST116') {
+          console.log('❌ Пользователь не найден в таблице admins');
+          setIsAdmin(false);
+          return false;
+        }
+        console.error('Ошибка проверки админ-статуса из Supabase:', error);
+        setIsAdmin(false);
+        return false;
+      }
+
+      if (data) {
+        console.log('✅ Пользователь найден в таблице admins:', data);
+        setIsAdmin(true);
+        return true;
+      }
+
+      setIsAdmin(false);
+      return false;
+    } catch (err) {
+      console.error('Ошибка проверки админ-статуса:', err);
+      setIsAdmin(false);
+      return false;
+    }
+  };
+
   // Функции для управления администраторами
   const loadAdmins = async () => {
     setAdminsLoading(true);
@@ -1154,6 +1269,16 @@ function App() {
       setAdminFormMessage('Администратор успешно добавлен');
       setAdminForm({ telegramId: '' });
       await loadAdmins();
+      
+      // Если добавлен текущий пользователь, обновляем его админ-статус
+      const tgUser = initTelegramWebAppSafe();
+      const currentUserId = tgUser?.id ? String(tgUser.id) : null;
+      if (currentUserId && Number(currentUserId) === telegramIdAsNumber) {
+        const adminStatus = await checkAdminStatus(currentUserId);
+        if (adminStatus) {
+          setUserRole('admin');
+        }
+      }
     } catch (e2) {
       const errorMessage = e2?.message || e2?.toString() || JSON.stringify(e2) || 'Ошибка добавления администратора';
       console.error('Ошибка добавления администратора:', e2);
@@ -1512,15 +1637,27 @@ function App() {
         return;
       }
     }
-    setActiveMode(mode);
+    
+    // Сначала устанавливаем режим, затем переключаем экран
     if (mode === 'topic') {
+      setActiveMode('topic');
       setScreen('topics');
       setIsExamMode(false);
     } else if (mode === 'exam') {
+      setActiveMode('exam');
       setScreen('examSelect');
       setIsExamMode(false);
     }
   }
+
+  // Синхронизация activeMode с текущим экраном
+  useEffect(() => {
+    if (screen === 'topics') {
+      setActiveMode('topic');
+    } else if (screen === 'examSelect') {
+      setActiveMode('exam');
+    }
+  }, [screen]);
 
   const handleBackToTopics = () => {
     if (isExamMode) {
@@ -2528,27 +2665,12 @@ function App() {
         <div
           className="subscription-status-badge"
           onClick={() => setShowSubscriptionModal(true)}
-          style={{
-            position: 'fixed',
-            top: '16px',
-            right: '16px',
-            zIndex: 99999,
-            display: 'block',
-            visibility: 'visible',
-            opacity: 1
-          }}
         >
           {isActive ? (
             <div className="subscription-badge-active">
               <span className="subscription-badge-icon">✓</span>
-              <span className="subscription-badge-text">Подписка</span>
             </div>
-          ) : (
-            <div className="subscription-badge-inactive">
-              <span className="subscription-badge-icon">⚠</span>
-              <span className="subscription-badge-text">Нет подписки</span>
-            </div>
-          )}
+          ) : null}
         </div>
 
         {showSubscriptionModal && (
@@ -2627,7 +2749,7 @@ function App() {
   }
 
   // Show admin panel only for admin users (when screen is 'admin')
-  if (userRole === 'admin' && screen === 'admin') {
+  if ((userRole === 'admin' || isAdmin) && screen === 'admin') {
     // Экран управления темами
     if (adminScreen === 'addTopic') {
       return (
@@ -3036,40 +3158,36 @@ function App() {
                 <div className="answers-list">
                   {safeQuestionForm.answers.map((answer, index) => (
                     <div key={answer.id} className="answer-item-form">
-                      <div className="answer-input-wrapper">
-                        <label className="answer-label">
-                          {String.fromCharCode(65 + index)}. 
+                      <div className="answer-letter">{String.fromCharCode(65 + index)}.</div>
+                      <div className="answer-content">
+                        <input
+                          type="text"
+                          value={answer.text}
+                          onChange={(e) => handleAnswerChange(index, 'text', e.target.value)}
+                          className="answer-input"
+                          placeholder={`Вариант ответа ${String.fromCharCode(65 + index)}`}
+                          required
+                        />
+                        <label className="correct-answer-checkbox">
                           <input
-                            type="text"
-                            value={answer.text}
-                            onChange={(e) => handleAnswerChange(index, 'text', e.target.value)}
-                            className="form-input answer-input"
-                            placeholder={`Вариант ответа ${String.fromCharCode(65 + index)}`}
-                            required
+                            type="radio"
+                            name="correctAnswer"
+                            checked={safeQuestionForm.correct === answer.id}
+                            onChange={() => handleFormChange('correct', answer.id)}
                           />
+                          <span>Правильный</span>
                         </label>
-                        <div className="answer-actions">
-                          <label className="correct-answer-checkbox">
-                            <input
-                              type="radio"
-                              name="correctAnswer"
-                              checked={safeQuestionForm.correct === answer.id}
-                              onChange={() => handleFormChange('correct', answer.id)}
-                            />
-                            <span>Правильный</span>
-                          </label>
-                          {safeQuestionForm.answers.length > 2 && (
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveAnswer(index)}
-                              className="remove-answer-button"
-                              title="Удалить вариант ответа"
-                            >
-                              ✕
-                            </button>
-                          )}
-                        </div>
                       </div>
+                      {safeQuestionForm.answers.length > 2 && (
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveAnswer(index)}
+                          className="remove-answer-button"
+                          title="Удалить вариант ответа"
+                        >
+                          ✕
+                        </button>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -3108,7 +3226,7 @@ function App() {
                       className="image-file-input"
                       id="image-upload"
                     />
-                    <label htmlFor="image-upload" className="image-upload-label">
+                    <label htmlFor="image-upload" className="image-upload-button">
                       📷 Выбрать изображение из галереи
                     </label>
                   </div>
@@ -3126,7 +3244,62 @@ function App() {
 
     // Экран просмотра пользователей
     if (adminScreen === 'users') {
-      const allUsers = usersList;
+      // Функция для получения инициалов
+      const getInitials = (name) => {
+        if (!name) return '?';
+        const parts = name.trim().split(' ');
+        if (parts.length >= 2) {
+          return (parts[0][0] + parts[1][0]).toUpperCase();
+        }
+        return name.substring(0, 2).toUpperCase();
+      };
+
+      // Функция для получения цвета аватарки
+      const getAvatarColor = (userId) => {
+        const colors = [
+          '#2196F3', '#4CAF50', '#FF9800', '#9C27B0', '#F44336',
+          '#00BCD4', '#8BC34A', '#FF5722', '#673AB7', '#E91E63'
+        ];
+        const index = parseInt(userId) % colors.length;
+        return colors[Math.abs(index)];
+      };
+
+      // Фильтрация пользователей по поисковому запросу
+      const filteredUsers = usersList.filter(user => {
+        if (!userSearchQuery.trim()) return true;
+        const query = userSearchQuery.toLowerCase();
+        return (
+          user.name?.toLowerCase().includes(query) ||
+          user.userId?.toString().includes(query) ||
+          user.phone?.includes(query) ||
+          user.telegramUsername?.toLowerCase().includes(query)
+        );
+      });
+
+      // Функция для открытия модального окна пользователя
+      const handleUserClick = (user) => {
+        setSelectedUser(user);
+        setShowUserModal(true);
+      };
+
+      // Функция для копирования ID
+      const handleCopyId = (userId) => {
+        navigator.clipboard.writeText(userId.toString());
+        alert('ID скопирован в буфер обмена');
+      };
+
+      // Функция для выдачи подписки из модального окна
+      const handleGrantFromModal = async () => {
+        if (!selectedUser) return;
+        const days = prompt('Введите количество дней подписки:', '30');
+        if (!days || isNaN(Number(days))) return;
+        
+        setGrantForm({ telegramId: selectedUser.userId, days: days });
+        // Имитируем отправку формы
+        const fakeEvent = { preventDefault: () => {} };
+        await handleGrantSubscription(fakeEvent);
+        setShowUserModal(false);
+      };
       
       return (
         <div className="admin-container">
@@ -3141,9 +3314,64 @@ function App() {
               <h1 className="admin-title">Пользователи</h1>
             </div>
 
-            <div className="admin-stats">
-              <p>Всего пользователей: {allUsers.length}</p>
-              <p>С активной подпиской: {allUsers.filter(u => u.subscription?.active && new Date(u.subscription.endDate) > new Date()).length}</p>
+            <div className="admin-stats" style={{ marginBottom: '16px' }}>
+              <p>Всего: {usersList.length} | С подпиской: {usersList.filter(u => {
+                const hasActive = u.subscription?.active && u.subscription.endDate && new Date(u.subscription.endDate) > new Date();
+                return hasActive;
+              }).length}</p>
+            </div>
+
+            {/* Форма выдачи подписки - перемещена наверх */}
+            <div style={{ marginBottom: '24px', padding: '20px', backgroundColor: 'var(--card-bg, #ffffff)', borderRadius: '12px', border: '1px solid var(--border-color, #e0e0e0)' }}>
+              <h3 style={{ margin: '0 0 16px', fontSize: '18px', fontWeight: '600' }}>Выдать подписку</h3>
+              <form onSubmit={handleGrantSubscription} className="admin-form" style={{ maxWidth: '100%' }}>
+                <div className="form-group">
+                  <label>Telegram ID *</label>
+                  <input
+                    value={grantForm.telegramId}
+                    onChange={(ev) => setGrantForm({ ...grantForm, telegramId: ev.target.value })}
+                    placeholder="например 473842863"
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Дней (по умолчанию 30)</label>
+                  <input
+                    value={grantForm.days}
+                    onChange={(ev) => setGrantForm({ ...grantForm, days: ev.target.value })}
+                    placeholder="30"
+                  />
+                </div>
+                <button type="submit" className="admin-submit-button" disabled={grantLoading}>
+                  {grantLoading ? 'Выдача...' : 'Выдать подписку'}
+                </button>
+                {grantMessage && (
+                  <p style={{ marginTop: '10px', color: grantMessage.startsWith('Подписка выдана') ? '#2e7d32' : '#f44336' }}>
+                    {grantMessage}
+                  </p>
+                )}
+              </form>
+            </div>
+
+            {/* Поиск */}
+            <div style={{ marginBottom: '16px' }}>
+              <input
+                type="text"
+                placeholder="🔍 Поиск по имени, ID, телефону..."
+                value={userSearchQuery}
+                onChange={(e) => setUserSearchQuery(e.target.value)}
+                className="user-search-input"
+                style={{
+                  width: '100%',
+                  padding: '12px 16px',
+                  fontSize: '16px',
+                  border: 'none',
+                  borderRadius: '12px',
+                  backgroundColor: 'var(--input-bg)',
+                  color: 'var(--text-color)',
+                  border: '1px solid var(--border-color)',
+                  outline: 'none'
+                }}
+              />
             </div>
 
             <div style={{ marginBottom: '16px', display: 'flex', gap: '10px', alignItems: 'center' }}>
@@ -3154,7 +3382,7 @@ function App() {
                 disabled={usersLoading}
                 style={{ maxWidth: '200px' }}
               >
-                {usersLoading ? 'Загрузка...' : '↻ Обновить список'}
+                {usersLoading ? 'Загрузка...' : '↻ Обновить'}
               </button>
               {usersError && (
                 <p style={{ color: '#f44336', margin: 0, fontSize: '14px' }}>
@@ -3163,66 +3391,59 @@ function App() {
               )}
             </div>
 
-            <div className="admin-users-list">
+            {/* Компактный список пользователей */}
+            <div className="users-list-telegram">
               {usersLoading ? (
-                <p style={{ padding: '20px', textAlign: 'center', color: '#666' }}>
+                <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-secondary)' }}>
                   Загрузка пользователей...
-                </p>
-              ) : allUsers.length === 0 ? (
-                <p style={{ padding: '20px', textAlign: 'center', color: '#666' }}>
-                  Пользователей пока нет
-                </p>
+                </div>
+              ) : filteredUsers.length === 0 ? (
+                <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-secondary)' }}>
+                  {userSearchQuery ? 'Пользователи не найдены' : 'Пользователей пока нет'}
+                </div>
               ) : (
-                allUsers.map((user, index) => {
+                filteredUsers.map((user) => {
                   const hasActiveSubscription = user.subscription?.active && 
                     user.subscription.endDate && 
                     new Date(user.subscription.endDate) > new Date();
-                  const subscriptionEndDate = user.subscription?.endDate 
-                    ? new Date(user.subscription.endDate).toLocaleDateString('ru-RU')
-                    : null;
-                  const subscriptionStartDate = user.subscription?.startDate 
-                    ? new Date(user.subscription.startDate).toLocaleDateString('ru-RU')
-                    : null;
-                  const lastVisit = user.lastVisit 
-                    ? new Date(user.lastVisit).toLocaleDateString('ru-RU', { 
-                        year: 'numeric', 
-                        month: '2-digit', 
-                        day: '2-digit',
-                        hour: '2-digit',
-                        minute: '2-digit'
-                      })
-                    : null;
+                  const avatarColor = getAvatarColor(user.userId);
+                  const initials = getInitials(user.name);
 
                   return (
-                    <div key={user.userId} className="admin-user-item">
-                      <div className="admin-user-info">
-                        <div className="admin-user-header">
-                          <span className="admin-user-number">{index + 1}.</span>
-                          <span className="admin-user-name">{user.name}</span>
-                          {hasActiveSubscription && (
-                            <span className="admin-user-subscription-badge">✓ Подписка активна</span>
-                          )}
-                        </div>
-                        <div className="admin-user-details">
-                          <p><strong>ID:</strong> {user.userId}</p>
-                          <p><strong>Телефон:</strong> {user.phone}</p>
-                          {user.telegramUsername && (
-                            <p><strong>Telegram:</strong> @{user.telegramUsername}</p>
-                          )}
-                          <p><strong>Регистрация:</strong> {new Date(user.registrationDate).toLocaleDateString('ru-RU')}</p>
-                          <p><strong>Последний визит:</strong> {lastVisit || 'Не заходил'}</p>
-                          {user.subscription?.active ? (
-                            <>
-                              <p><strong>Подписка оформлена:</strong> {subscriptionStartDate || 'Не указано'}</p>
-                              <p><strong>Подписка до:</strong> {subscriptionEndDate || 'Не указано'}</p>
-                              {subscriptionEndDate && new Date(user.subscription.endDate) <= new Date() && (
-                                <p style={{ color: '#f44336', fontWeight: 'bold' }}>⚠ Подписка истекла</p>
-                              )}
-                            </>
+                    <div
+                      key={user.userId}
+                      className="user-list-item"
+                      onClick={() => handleUserClick(user)}
+                    >
+                      <div className="user-avatar" style={{ backgroundColor: avatarColor }}>
+                        {initials}
+                      </div>
+                      <div className="user-info">
+                        <div className="user-name">{user.name || 'Без имени'}</div>
+                        <div className="user-id">ID: {user.userId}</div>
+                        {/* Статус подписки внутри элемента */}
+                        <div className="user-subscription-status" style={{ marginTop: '6px', fontSize: '13px' }}>
+                          {hasActiveSubscription ? (
+                            <span style={{ color: '#4CAF50', fontWeight: '600' }}>
+                              ✓ Подписка активна до {new Date(user.subscription.endDate).toLocaleDateString('ru-RU', {
+                                day: '2-digit',
+                                month: '2-digit',
+                                year: 'numeric'
+                              })}
+                            </span>
                           ) : (
-                            <p style={{ color: '#999' }}>Нет активной подписки</p>
+                            <span style={{ color: 'var(--text-secondary)', fontWeight: '500' }}>
+                              Подписка неактивна
+                            </span>
                           )}
                         </div>
+                      </div>
+                      <div className="user-status">
+                        {hasActiveSubscription ? (
+                          <span className="subscription-badge active">PRO</span>
+                        ) : (
+                          <span className="subscription-badge inactive">—</span>
+                        )}
                       </div>
                     </div>
                   );
@@ -3230,88 +3451,106 @@ function App() {
               )}
             </div>
 
-            <div style={{ marginTop: '24px', paddingTop: '16px', borderTop: '1px solid #eee' }}>
-              <h3 style={{ margin: '0 0 10px' }}>Подписки (БД)</h3>
+            {/* Модальное окно пользователя */}
+            {showUserModal && selectedUser && (
+              <div className="user-modal-overlay" onClick={() => setShowUserModal(false)}>
+                <div className="user-modal-content" onClick={(e) => e.stopPropagation()}>
+                  <div className="user-modal-header">
+                    <div className="user-modal-avatar-large" style={{ backgroundColor: getAvatarColor(selectedUser.userId) }}>
+                      {getInitials(selectedUser.name)}
+                    </div>
+                    <h2 className="user-modal-name">{selectedUser.name || 'Без имени'}</h2>
+                    <button className="user-modal-close" onClick={() => setShowUserModal(false)}>✕</button>
+                  </div>
 
-              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '10px' }}>
-                <button
-                  type="button"
-                  className="admin-users-button"
-                  onClick={loadSubscriptions}
-                  disabled={dbSubsLoading}
-                >
-                  {dbSubsLoading ? 'Загрузка...' : '↻ Обновить активные'}
-                </button>
-              </div>
-
-              {dbSubsError && (
-                <p style={{ color: '#f44336', margin: '8px 0' }}>
-                  {dbSubsError}
-                </p>
-              )}
-
-              <div className="admin-stats" style={{ marginTop: '10px' }}>
-                <p>Активных подписок в БД: {dbActiveSubs.length}</p>
-              </div>
-
-              {dbActiveSubs.length > 0 && (
-                <div style={{ display: 'grid', gap: '8px', marginTop: '10px' }}>
-                  {dbActiveSubs.map((u) => (
-                    <div key={String(u.telegramId)} className="admin-user-item">
-                      <div className="admin-user-info">
-                        <div className="admin-user-header">
-                          <span className="admin-user-name">
-                            {u.name && String(u.name).trim() ? u.name : 'Без имени'}
-                          </span>
-                          <span style={{ color: '#666' }}>ID: {String(u.telegramId)}</span>
-                        </div>
-                        <div className="admin-user-details">
-                          <p>
-                            <strong>Статус:</strong> {u.subscriptionStatus}
-                          </p>
-                          <p>
-                            <strong>До:</strong>{' '}
-                            {u.subscriptionExpiresAt
-                              ? new Date(u.subscriptionExpiresAt).toLocaleString('ru-RU')
-                              : '—'}
-                          </p>
-                        </div>
+                  <div className="user-modal-body">
+                    <div className="user-detail-grid">
+                      <div className="user-detail-item">
+                        <span className="user-detail-label">Telegram ID</span>
+                        <span className="user-detail-value">{selectedUser.userId}</span>
+                      </div>
+                      <div className="user-detail-item">
+                        <span className="user-detail-label">Телефон</span>
+                        <span className="user-detail-value">{selectedUser.phone || 'Не указан'}</span>
+                      </div>
+                      <div className="user-detail-item">
+                        <span className="user-detail-label">Дата регистрации</span>
+                        <span className="user-detail-value">
+                          {new Date(selectedUser.registrationDate).toLocaleDateString('ru-RU', {
+                            day: '2-digit',
+                            month: '2-digit',
+                            year: 'numeric'
+                          })}
+                        </span>
+                      </div>
+                      <div className="user-detail-item">
+                        <span className="user-detail-label">Последний визит</span>
+                        <span className="user-detail-value">
+                          {selectedUser.lastVisit 
+                            ? new Date(selectedUser.lastVisit).toLocaleDateString('ru-RU', {
+                                day: '2-digit',
+                                month: '2-digit',
+                                year: 'numeric',
+                                hour: '2-digit',
+                                minute: '2-digit'
+                              })
+                            : 'Не заходил'}
+                        </span>
+                      </div>
+                      <div className="user-detail-item">
+                        <span className="user-detail-label">Статус подписки</span>
+                        <span className="user-detail-value">
+                          {selectedUser.subscription?.active && 
+                           selectedUser.subscription.endDate && 
+                           new Date(selectedUser.subscription.endDate) > new Date() ? (
+                            <span style={{ color: '#4CAF50', fontWeight: '600' }}>
+                              Активна до {new Date(selectedUser.subscription.endDate).toLocaleDateString('ru-RU', {
+                                day: '2-digit',
+                                month: '2-digit',
+                                year: 'numeric'
+                              })}
+                            </span>
+                          ) : (
+                            <span style={{ color: 'var(--text-secondary)' }}>Неактивна</span>
+                          )}
+                        </span>
                       </div>
                     </div>
-                  ))}
-                </div>
-              )}
+                  </div>
 
-              <div style={{ marginTop: '16px' }}>
-                <h4 style={{ margin: '0 0 8px' }}>Выдать подписку</h4>
-                <form onSubmit={handleGrantSubscription} className="admin-form" style={{ maxWidth: '520px' }}>
-                  <div className="form-group">
-                    <label>Telegram ID *</label>
-                    <input
-                      value={grantForm.telegramId}
-                      onChange={(ev) => setGrantForm({ ...grantForm, telegramId: ev.target.value })}
-                      placeholder="например 473842863"
-                    />
+                  <div className="user-modal-actions">
+                    <button
+                      className="user-action-button secondary"
+                      onClick={() => handleCopyId(selectedUser.userId)}
+                    >
+                      📋 Копировать ID
+                    </button>
+                    <button
+                      className="user-action-button primary"
+                      onClick={handleGrantFromModal}
+                    >
+                      ✨ Выдать подписку
+                    </button>
+                    {selectedUser.subscription?.active && 
+                     selectedUser.subscription.endDate && 
+                     new Date(selectedUser.subscription.endDate) > new Date() && (
+                      <button
+                        className="user-action-button danger"
+                        onClick={() => {
+                          if (confirm('Забрать подписку у этого пользователя?')) {
+                            handleRevokeSubscription(selectedUser.userId);
+                            setShowUserModal(false);
+                          }
+                        }}
+                      >
+                        🗑️ Забрать подписку
+                      </button>
+                    )}
                   </div>
-                  <div className="form-group">
-                    <label>Дней (по умолчанию 30)</label>
-                    <input
-                      value={grantForm.days}
-                      onChange={(ev) => setGrantForm({ ...grantForm, days: ev.target.value })}
-                      placeholder="30"
-                    />
-                  </div>
-                  <button type="submit" className="admin-submit-button" disabled={grantLoading}>
-                    {grantLoading ? 'Выдача...' : 'Выдать подписку'}
-                  </button>
-                  {grantMessage && (
-                    <p style={{ marginTop: '10px', color: grantMessage.startsWith('Подписка выдана') ? '#2e7d32' : '#f44336' }}>
-                      {grantMessage}
-                    </p>
-                  )}
-                </form>
+                </div>
               </div>
-            </div>
+            )}
+
           </div>
         </div>
       );
@@ -3516,7 +3755,7 @@ function App() {
                       <span className="admin-topic-number">{index + 1}.</span>
                       <span className="admin-topic-name">{topic.name}</span>
                       <span className="admin-topic-count">
-                        {questionCount} вопросов
+                        {questionCount}
                       </span>
                     </div>
                   </div>
@@ -3565,8 +3804,12 @@ function App() {
                 type="tel"
                 className="registration-input"
                 value={registrationForm.phone}
-                onChange={(e) => setRegistrationForm({ ...registrationForm, phone: e.target.value })}
-                placeholder="+998 90 123 45 67"
+                onChange={(e) => {
+                  const value = e.target.value.replace(/\D/g, '');
+                  setRegistrationForm({ ...registrationForm, phone: value });
+                }}
+                inputMode="numeric"
+                placeholder="998901234567"
                 required
               />
             </div>
@@ -3589,79 +3832,77 @@ function App() {
     return (
       <>
         <SubscriptionStatusBadge />
-        <div className="topics-container">
-        {/* Панель переключения между Тема и Экзамен */}
-        <div className="mode-switch-panel">
-          <button
-            className={`mode-switch-button ${activeMode === 'topic' ? 'active' : ''}`}
-            onClick={() => handleModeSwitch('topic')}
-          >
-            Тема
-          </button>
-          <button
-            className={`mode-switch-button ${activeMode === 'exam' ? 'active' : ''}`}
-            onClick={() => handleModeSwitch('exam')}
-          >
-            Экзамен
-          </button>
-        </div>
-        
-        <div className="topics-header">
-          <h1 className="topics-title">Экзамен</h1>
-        </div>
-        
-        <div className="exam-select-container">
-          <p className="exam-description">
-            Выберите количество вопросов для экзамена. Вопросы будут выбраны случайным образом из всех тем.
-          </p>
-          {totalQuestionsAvailable > 0 && (
-            <p className="exam-available-questions">
-              Доступно вопросов: {totalQuestionsAvailable}
-            </p>
-          )}
-          
-          <div className="exam-options-list">
-            <button
-              className="exam-option-button"
-              onClick={() => handleExamQuestionCountSelect(20)}
-              disabled={totalQuestionsAvailable < 20}
-            >
-              <span className="exam-option-count">20 вопросов</span>
-              {totalQuestionsAvailable < 20 && (
-                <span className="exam-option-disabled">(недостаточно вопросов)</span>
-              )}
-            </button>
-            
-            <button
-              className="exam-option-button"
-              onClick={() => handleExamQuestionCountSelect(50)}
-              disabled={totalQuestionsAvailable < 50}
-            >
-              <span className="exam-option-count">50 вопросов</span>
-              {totalQuestionsAvailable < 50 && (
-                <span className="exam-option-disabled">(недостаточно вопросов)</span>
-              )}
-            </button>
-            
-            <button
-              className="exam-option-button"
-              onClick={() => handleExamQuestionCountSelect(100)}
-              disabled={totalQuestionsAvailable < 100}
-            >
-              <span className="exam-option-count">100 вопросов</span>
-              {totalQuestionsAvailable < 100 && (
-                <span className="exam-option-disabled">(недостаточно вопросов)</span>
-              )}
-            </button>
-          </div>
-          
-          {totalQuestionsAvailable === 0 && (
-            <div className="exam-no-questions">
-              <p>Нет доступных вопросов для экзамена.</p>
-              <p>Пожалуйста, добавьте вопросы в разделе "Тема".</p>
+        <div className="topics-container exam-container">
+          <div className="exam-select-container">
+            {/* Панель переключения между Тема и Экзамен */}
+            <div className="mode-switch-panel">
+              <button
+                className={`mode-switch-button ${activeMode === 'topic' ? 'active' : ''}`}
+                onClick={() => handleModeSwitch('topic')}
+              >
+                Тема
+              </button>
+              <button
+                className={`mode-switch-button ${activeMode === 'exam' ? 'active' : ''}`}
+                onClick={() => handleModeSwitch('exam')}
+              >
+                Экзамен
+              </button>
             </div>
-          )}
-        </div>
+            
+            <h1 className="exam-title">Экзамен</h1>
+            
+            <p className="exam-description">
+              Выберите количество вопросов для экзамена. Вопросы будут выбраны случайным образом из всех тем.
+            </p>
+            {totalQuestionsAvailable > 0 && (
+              <p className="exam-available-questions">
+                Доступно вопросов: {totalQuestionsAvailable}
+              </p>
+            )}
+            
+            <div className="exam-options-list">
+              <button
+                className="exam-option-button"
+                onClick={() => handleExamQuestionCountSelect(20)}
+                disabled={totalQuestionsAvailable < 20}
+              >
+                <span className="exam-option-count">20 вопросов</span>
+                {totalQuestionsAvailable < 20 && (
+                  <span className="exam-option-disabled">(недостаточно вопросов)</span>
+                )}
+              </button>
+              
+              <button
+                className="exam-option-button"
+                onClick={() => handleExamQuestionCountSelect(50)}
+                disabled={totalQuestionsAvailable < 50}
+              >
+                <span className="exam-option-count">50 вопросов</span>
+                {totalQuestionsAvailable < 50 && (
+                  <span className="exam-option-disabled">(недостаточно вопросов)</span>
+                )}
+              </button>
+              
+              <button
+                className="exam-option-button"
+                onClick={() => handleExamQuestionCountSelect(100)}
+                disabled={totalQuestionsAvailable < 100}
+              >
+                <span className="exam-option-count">100 вопросов</span>
+                {totalQuestionsAvailable < 100 && (
+                  <span className="exam-option-disabled">(недостаточно вопросов)</span>
+                )}
+              </button>
+            </div>
+            
+            {totalQuestionsAvailable === 0 && (
+              <div className="exam-no-questions">
+                <p>Нет доступных вопросов для экзамена.</p>
+                <p>Пожалуйста, добавьте вопросы в разделе "Тема".</p>
+              </div>
+            )}
+          </div>
         </div>
       </>
     );
@@ -3673,25 +3914,25 @@ function App() {
       <>
         <SubscriptionStatusBadge />
         <div className="topics-container">
-        {/* Панель переключения между Тема и Экзамен */}
-        <div className="mode-switch-panel">
-          <button
-            className={`mode-switch-button ${activeMode === 'topic' ? 'active' : ''}`}
-            onClick={() => handleModeSwitch('topic')}
-          >
-            Тема
-          </button>
-          <button
-            className={`mode-switch-button ${activeMode === 'exam' ? 'active' : ''}`}
-            onClick={() => handleModeSwitch('exam')}
-          >
-            Экзамен
-          </button>
-        </div>
-        
-        <div className="topics-header">
-          <h1 className="topics-title">Темы</h1>
-          {userRole === 'admin' && (
+          {/* Панель переключения между Тема и Экзамен */}
+          <div className="mode-switch-panel">
+            <button
+              className={`mode-switch-button ${activeMode === 'topic' ? 'active' : ''}`}
+              onClick={() => handleModeSwitch('topic')}
+            >
+              Тема
+            </button>
+            <button
+              className={`mode-switch-button ${activeMode === 'exam' ? 'active' : ''}`}
+              onClick={() => handleModeSwitch('exam')}
+            >
+              Экзамен
+            </button>
+          </div>
+          
+          <div className="topics-header">
+            <h1 className="topics-title">Темы</h1>
+          {(userRole === 'admin' || isAdmin) && (
             <button
               onClick={() => {
                 setScreen('admin');
@@ -3790,7 +4031,7 @@ function App() {
 
         {latestResult ? (
           <div className="results-section">
-            <div className="result-id"><span>●</span> {latestResult.id}</div>
+            <div className="result-id"><span>●</span> {userData?.name || 'Пользователь'}</div>
             <div className="result-header">
               <h3 className="result-title">результаты теста</h3>
               <div className="progress-circle">
@@ -3861,7 +4102,7 @@ function App() {
                 {topicResults.slice(1).map((result, index) => (
                   <div key={result.id} className="history-item">
                     <div className="history-item-info">
-                      <span className="history-id">{result.id}</span>
+                      <span className="history-id">{userData?.name || 'Пользователь'}</span>
                       <span className="history-score">{result.correct}/{result.total} ({result.percentage || Math.round((result.correct / result.total) * 100)}%)</span>
                       <span className="history-time">{result.timeFormatted}</span>
                       <span className="history-date">{result.dateTime}</span>
@@ -3959,8 +4200,8 @@ function App() {
         </div>
         
         <div className="full-review-result-info">
-          {reviewResult.id && (
-            <div className="review-result-id">ID: {reviewResult.id}</div>
+          {userData?.name && (
+            <div className="review-result-id">{userData.name}</div>
           )}
           <div className="review-result-stats">
             <div className="review-stat-item">
@@ -4020,21 +4261,6 @@ function App() {
                   />
                 )}
                 <h3 className="review-question-text">{question.text}</h3>
-                
-                {/* Визуальная отладка - показываем сохраненный ответ */}
-                {userAnswer && (
-                  <div style={{ 
-                    padding: '10px', 
-                    marginBottom: '10px', 
-                    backgroundColor: '#f0f0f0', 
-                    borderRadius: '5px',
-                    fontSize: '12px',
-                    color: '#666'
-                  }}>
-                    <strong>Отладка:</strong> Сохраненный ID ответа: <code>{String(userAnswer.selectedAnswerId)}</code> (тип: {typeof userAnswer.selectedAnswerId})<br/>
-                    Доступные ID ответов: {question.answers.map(a => `${a.id}(${typeof a.id})`).join(', ')}
-                  </div>
-                )}
                 
                 <div className="review-answers">
                   {question.answers.map((answer, answerIndex) => {
@@ -4167,7 +4393,7 @@ function App() {
         </div>
 
         <div className="results-section">
-          <div className="result-id"><span>●</span> {examResult.id}</div>
+          <div className="result-id"><span>●</span> {userData?.name || 'Пользователь'}</div>
           <div className="result-header">
             <h3 className="result-title">результаты экзамена</h3>
             <div className="progress-circle">
@@ -4277,8 +4503,8 @@ function App() {
         </div>
         
         <div className="full-review-result-info">
-          {reviewResult.id && (
-            <div className="review-result-id">ID: {reviewResult.id}</div>
+          {userData?.name && (
+            <div className="review-result-id">{userData.name}</div>
           )}
           <div className="review-result-stats">
             <div className="review-stat-item">

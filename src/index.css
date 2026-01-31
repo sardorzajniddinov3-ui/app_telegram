@@ -13,6 +13,12 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* Поддержка темной темы через data-theme */
+[data-theme="dark"] {
+  color: var(--text-color, #ffffff);
+  background-color: var(--bg-color, #181818);
+}
+
 a {
   font-weight: 500;
   color: #646cff;
