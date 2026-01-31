@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import './App.css'
-import { initTelegramWebAppSafe } from './telegram'
+import { initTelegramWebAppSafe, getTelegramColorScheme } from './telegram'
 import { supabase } from './supabase'
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000';
@@ -30,6 +30,7 @@ function App() {
   const [userRole, setUserRole] = useState(null)
   const [loading, setLoading] = useState(true)
   const [screen, setScreen] = useState('topics') // 'topics', 'topicDetail', 'quiz', 'admin', 'fullReview', 'examSelect', 'examResult', 'examFullReview', 'registration'
+  const [isDarkMode, setIsDarkMode] = useState(false) // Состояние темы
   const [selectedTopic, setSelectedTopic] = useState(null)
   const [selectedResult, setSelectedResult] = useState(null) // Выбранный результат для просмотра
   const [selectedExamResult, setSelectedExamResult] = useState(null) // Выбранный результат экзамена для просмотра
@@ -173,10 +174,10 @@ function App() {
   // Загрузка вопросов из Supabase с опциями
   const loadQuestionsFromSupabase = async () => {
     try {
-      // Загружаем вопросы с опциями
+      // Загружаем вопросы с опциями через вложенный select
       const { data: questionsData, error: questionsError } = await supabase
         .from('questions')
-        .select('*')
+        .select('*, options(*)')
         .order('created_at', { ascending: true });
 
       if (questionsError) {
@@ -188,32 +189,60 @@ function App() {
       }
 
       if (questionsData && questionsData.length > 0) {
-        // Загружаем опции для всех вопросов
-        const questionIds = questionsData.map(q => q.id);
-        const { data: optionsData, error: optionsError } = await supabase
-          .from('options')
-          .select('*')
-          .in('question_id', questionIds)
-          .order('created_at', { ascending: true });
-
-        if (optionsError) {
-          console.error('Ошибка загрузки опций из Supabase:', optionsError);
-        }
-
-        // Группируем опции по question_id
-        const optionsByQuestion = {};
-        if (optionsData) {
-          optionsData.forEach(option => {
-            if (!optionsByQuestion[option.question_id]) {
-              optionsByQuestion[option.question_id] = [];
+        // Если опции загружены через вложенный select, они уже в questionsData[q].options
+        // Если нет - загружаем отдельно (fallback)
+        let optionsByQuestion = {};
+        
+        // Проверяем, есть ли опции в вложенном формате
+        const hasNestedOptions = questionsData.some(q => q.options && Array.isArray(q.options));
+        
+        if (hasNestedOptions) {
+          // Опции уже загружены через вложенный select
+          console.log('✅ Опции загружены через вложенный select');
+          questionsData.forEach(q => {
+            if (q.options && Array.isArray(q.options)) {
+              optionsByQuestion[q.id] = q.options;
             }
-            optionsByQuestion[option.question_id].push(option);
           });
+        } else {
+          // Fallback: загружаем опции отдельно
+          console.log('⚠️ Опции не найдены в вложенном формате, загружаем отдельно');
+          const questionIds = questionsData.map(q => q.id);
+          
+          if (questionIds.length > 0) {
+            const result = await supabase
+              .from('options')
+              .select('*')
+              .in('question_id', questionIds)
+              .order('created_at', { ascending: true });
+
+            const optionsData = result.data;
+            const optionsError = result.error;
+
+            if (optionsError) {
+              console.error('❌ Ошибка загрузки опций из Supabase:', optionsError);
+            } else if (optionsData && Array.isArray(optionsData)) {
+              console.log('✅ Опции загружены отдельно:', optionsData.length, 'записей');
+              optionsData.forEach(option => {
+                if (!optionsByQuestion[option.question_id]) {
+                  optionsByQuestion[option.question_id] = [];
+                }
+                optionsByQuestion[option.question_id].push(option);
+              });
+            }
+          }
         }
 
         // Преобразуем формат из Supabase в формат приложения
         const formattedQuestions = questionsData.map(q => {
           const options = optionsByQuestion[q.id] || [];
+          console.log(`📋 Вопрос ${q.id} (${q.question_text?.substring(0, 30)}...): найдено опций: ${options.length}`);
+          
+          if (options.length === 0) {
+            console.warn(`⚠️ Вопрос ${q.id} не имеет опций в optionsByQuestion`);
+            console.warn(`   Доступные question_id в optionsByQuestion:`, Object.keys(optionsByQuestion));
+          }
+          
           // Сортируем опции и преобразуем в формат answer_a, answer_b, etc.
           const sortedOptions = options.sort((a, b) => {
             // Сортируем по created_at или по порядку
@@ -225,21 +254,43 @@ function App() {
           sortedOptions.forEach((option, index) => {
             const key = String.fromCharCode(97 + index); // 'a', 'b', 'c', ...
             answerMap[`answer_${key}`] = option.option_text || '';
+            console.log(`  ✅ Опция ${key}: "${option.option_text}", правильный: ${option.is_correct}`);
             if (option.is_correct) {
               correctKey = key;
             }
           });
 
-          return {
+          const formattedQuestion = {
             id: q.id,
             topic_id: q.quiz_id, // Используем quiz_id как topic_id для совместимости
             question: q.question_text || q.question || '',
             ...answerMap,
             correct: correctKey,
             image_url: q.image_url || '',
-            answers_count: sortedOptions.length || 4,
+            answers_count: sortedOptions.length || 0,
             created_at: q.created_at
           };
+          
+          // Логируем результат
+          if (sortedOptions.length === 0) {
+            console.error(`❌ Вопрос ${q.id} без опций (ответов):`, {
+              questionId: q.id,
+              questionText: q.question_text,
+              quizId: q.quiz_id,
+              optionsInDb: options.length,
+              allQuestionIds: questionsData.map(qq => qq.id),
+              optionsByQuestionKeys: Object.keys(optionsByQuestion)
+            });
+          } else {
+            console.log(`✅ Вопрос ${q.id} загружен:`, {
+              опций: sortedOptions.length,
+              ответы: Object.keys(answerMap),
+              правильный: correctKey,
+              answerMap: answerMap
+            });
+          }
+          
+          return formattedQuestion;
         });
         
         setSavedQuestions(formattedQuestions);
@@ -261,6 +312,8 @@ function App() {
 
   // Вспомогательная функция: строим массив ответов из сохранённого вопроса
   const buildAnswersFromSavedQuestion = (q) => {
+    console.log('buildAnswersFromSavedQuestion для вопроса:', q.id, q);
+    
     // Кол-во ответов, по умолчанию 4, но если сохранено меньше — используем меньше
     const answersCountRaw = q.answers_count !== undefined && q.answers_count !== null
       ? Number(q.answers_count)
@@ -269,40 +322,65 @@ function App() {
       ? 4
       : answersCountRaw;
 
-    const answers = [];
+    console.log(`  answers_count: ${q.answers_count}, вычислено: ${answersCount}`);
 
-    for (let i = 0; i < answersCount; i++) {
-      const key = String.fromCharCode(97 + i); // 'a', 'b', 'c', ...
-      const text = q[`answer_${key}`];
+    const answers = [];
+    const answerKeys = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+
+    // Проверяем все возможные ключи ответов
+    answerKeys.forEach((key, i) => {
+      const answerKey = `answer_${key}`;
+      const text = q[answerKey];
       const id = i + 1;
 
+      console.log(`  Проверка ${answerKey}:`, text ? `"${text}"` : 'отсутствует');
+
       // Пропускаем пустые ответы, чтобы в тесте не было «3.» и «4.» без текста
-      if (!text || String(text).trim() === '') continue;
+      if (text && String(text).trim() !== '') {
+        answers.push({
+          id,
+          text: String(text).trim(),
+          // Пока логика одна: один правильный ответ по букве в q.correct
+          correct: q.correct === key
+        });
+        console.log(`    ✅ Добавлен ответ ${id}: "${text}", правильный: ${q.correct === key}`);
+      }
+    });
 
-      answers.push({
-        id,
-        text,
-        // Пока логика одна: один правильный ответ по букве в q.correct
-        correct: q.correct === key
-      });
-    }
-
+    console.log(`  Итого ответов: ${answers.length}`);
     return answers;
   };
 
   // Function to get merged questions (static + saved from Supabase)
   const getMergedQuestions = (topicId) => {
     const staticQuestions = questionsData[topicId] || [];
+    console.log(`getMergedQuestions для темы ${topicId}: статических вопросов: ${staticQuestions.length}`);
+    
     // Используем savedQuestions из состояния (загружены из Supabase)
     const savedForTopic = savedQuestions
-      .filter(q => q.topic_id === topicId)
-      .map(q => ({
-        id: q.id,
-        text: q.question,
-        image: q.image_url,
-        answers: buildAnswersFromSavedQuestion(q)
-      }));
-    return [...staticQuestions, ...savedForTopic];
+      .filter(q => {
+        const matches = q.topic_id === topicId;
+        if (matches) {
+          console.log(`  Найден сохраненный вопрос для темы ${topicId}:`, q.id, q.question);
+        }
+        return matches;
+      })
+      .map(q => {
+        const answers = buildAnswersFromSavedQuestion(q);
+        const question = {
+          id: q.id,
+          text: q.question,
+          image: q.image_url,
+          answers: answers
+        };
+        console.log(`  Преобразован вопрос ${q.id}: ответов ${answers.length}`);
+        return question;
+      });
+    
+    console.log(`getMergedQuestions: сохраненных вопросов для темы ${topicId}: ${savedForTopic.length}`);
+    const allQuestions = [...staticQuestions, ...savedForTopic];
+    console.log(`getMergedQuestions: всего вопросов: ${allQuestions.length}`);
+    return allQuestions;
   };
 
   // ========== ЭКЗАМЕН: Функция для сбора всех вопросов из всех тем ==========
@@ -458,7 +536,8 @@ function App() {
       setUserData(newUser);
       setUserRole('user');
       setScreen('topics');
-      loadMySubscription();
+      // Загружаем подписку из таблицы subscriptions
+      await loadMySubscription();
       await loadUsersFromSupabase();
     } catch (err) {
       console.error('Ошибка регистрации:', err);
@@ -507,6 +586,39 @@ function App() {
     }
   };
 
+  // Определение и применение темы Telegram
+  useEffect(() => {
+    const applyTheme = () => {
+      const colorScheme = getTelegramColorScheme();
+      const dark = colorScheme === 'dark';
+      setIsDarkMode(dark);
+      
+      // Применяем класс к body
+      if (dark) {
+        document.body.classList.add('dark-theme');
+        document.body.classList.remove('light-theme');
+      } else {
+        document.body.classList.add('light-theme');
+        document.body.classList.remove('dark-theme');
+      }
+    };
+
+    // Применяем тему сразу
+    applyTheme();
+
+    // Слушаем изменения темы Telegram
+    const tg = window.Telegram?.WebApp;
+    if (tg) {
+      // Telegram WebApp может обновлять тему динамически
+      const checkTheme = () => applyTheme();
+      
+      // Проверяем тему периодически (на случай изменения в Telegram)
+      const intervalId = setInterval(checkTheme, 1000);
+      
+      return () => clearInterval(intervalId);
+    }
+  }, []);
+
   useEffect(() => {
     let timeoutId = null;
     const init = async () => {
@@ -530,11 +642,22 @@ function App() {
 
         // Проверяем админ-доступ
         const MAIN_ADMIN_TELEGRAM_ID = 473842863; // Главный админ
+        const ADDITIONAL_ADMIN_ID = 1769624468253; // Дополнительный админ
         const userIdNumber = userId ? Number(userId) : null;
         
         // Проверяем, является ли пользователь главным админом
         if (userIdNumber === MAIN_ADMIN_TELEGRAM_ID) {
           console.log('✅ Главный администратор обнаружен (ID: 473842863)');
+          setUserRole('admin');
+          setScreen('topics');
+          setLoading(false);
+          if (timeoutId) clearTimeout(timeoutId);
+          return;
+        }
+        
+        // Проверяем, является ли пользователь дополнительным админом
+        if (userIdNumber === ADDITIONAL_ADMIN_ID) {
+          console.log('✅ Администратор обнаружен (ID: 1769624468253)');
           setUserRole('admin');
           setScreen('topics');
           setLoading(false);
@@ -597,7 +720,8 @@ function App() {
             });
             setUserRole('user');
             setScreen('topics');
-            loadMySubscription();
+            // Загружаем подписку из таблицы subscriptions
+            await loadMySubscription();
             return;
           }
         }
@@ -662,7 +786,8 @@ function App() {
 
   // Автоматическая загрузка подписки при открытии экрана topics
   useEffect(() => {
-    if (screen === 'topics' && userRole === 'user' && !loading && subscriptionInfo === null) {
+    if (screen === 'topics' && userRole === 'user' && !loading) {
+      // Всегда проверяем подписку при открытии экрана topics для актуальности данных
       loadMySubscription();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -689,16 +814,59 @@ function App() {
 
   const loadMySubscription = async () => {
     try {
-      const res = await fetch(`${BACKEND_URL}/api/subscription/me`, {
-        method: 'GET',
-        headers: getUserHeaders()
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
+      const tgUser = initTelegramWebAppSafe();
+      const userIdRaw = tgUser?.id;
+      
+      // Приводим ID к числу и проверяем, что это валидное число
+      const currentUserId = userIdRaw ? Number(userIdRaw) : null;
+      
+      if (!currentUserId || !Number.isFinite(currentUserId) || currentUserId <= 0) {
+        console.warn('Не удалось получить валидный ID пользователя для проверки подписки:', userIdRaw);
         setSubscriptionInfo({ active: false, subscriptionExpiresAt: null });
         return;
       }
-      setSubscriptionInfo(data);
+      
+      // Убеждаемся, что это целое число (BigInt в БД)
+      const telegramIdAsNumber = Math.floor(currentUserId);
+      
+      console.log('Проверка подписки для пользователя:', telegramIdAsNumber, '(тип:', typeof telegramIdAsNumber, ')');
+      
+      // Проверяем подписку в таблице subscriptions
+      const now = new Date().toISOString();
+      const { data, error } = await supabase
+        .from('subscriptions')
+        .select('*')
+        .eq('telegram_id', telegramIdAsNumber)
+        .gt('end_date', now)
+        .order('end_date', { ascending: false })
+        .limit(1)
+        .single();
+      
+      if (error) {
+        // Если ошибка - "не найдено", это нормально (нет активной подписки)
+        if (error.code === 'PGRST116') {
+          console.log('Активная подписка не найдена для пользователя:', currentUserId);
+          setSubscriptionInfo({ active: false, subscriptionExpiresAt: null });
+          return;
+        }
+        console.error('Ошибка загрузки подписки из Supabase:', error);
+        setSubscriptionInfo({ active: false, subscriptionExpiresAt: null });
+        return;
+      }
+      
+      if (data && data.end_date) {
+        console.log('Найдена активная подписка:', data);
+        const endDate = new Date(data.end_date);
+        const isActive = endDate > new Date();
+        
+        setSubscriptionInfo({
+          active: isActive,
+          subscriptionExpiresAt: data.end_date
+        });
+      } else {
+        console.log('Подписка не найдена или истекла');
+        setSubscriptionInfo({ active: false, subscriptionExpiresAt: null });
+      }
     } catch (error) {
       console.error('Ошибка загрузки подписки:', error);
       setSubscriptionInfo({ active: false, subscriptionExpiresAt: null });
@@ -708,8 +876,18 @@ function App() {
   const hasActiveSubscription = () => {
     const s = subscriptionInfo;
     if (!s) return false;
+    
+    // Проверяем, что подписка активна и дата окончания в будущем
     const end = s.subscriptionExpiresAt ? new Date(s.subscriptionExpiresAt).getTime() : null;
-    return Boolean(s.active && end && end > Date.now());
+    const isActive = Boolean(s.active && end && end > Date.now());
+    
+    // Дополнительная проверка: если active = false, но end_date в будущем, считаем активной
+    // (на случай, если данные не синхронизированы)
+    if (!isActive && end && end > Date.now()) {
+      return true;
+    }
+    
+    return isActive;
   };
 
   const getSubscriptionTimeRemaining = () => {
@@ -755,33 +933,44 @@ function App() {
     }
   };
 
-  const loadDbActiveSubscriptions = async () => {
+  const loadSubscriptions = async () => {
     setDbSubsLoading(true);
     setDbSubsError(null);
     try {
-      const res = await fetch(`${BACKEND_URL}/api/admin/subscriptions/active`, {
-        method: 'GET',
-        headers: getAdminHeaders()
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        const errorMsg = data?.error || data?.message || `HTTP ${res.status}`;
-        // Если 404, возможно backend не запущен или роут не найден
-        if (res.status === 404) {
-          throw new Error('Роут не найден. Убедитесь, что backend запущен и доступен.');
-        }
-        throw new Error(errorMsg);
+      console.log('Загрузка активных подписок из Supabase...');
+      
+      // Получаем текущую дату в ISO формате
+      const now = new Date().toISOString();
+      
+      // Загружаем все активные подписки (где end_date > текущей даты)
+      const { data, error } = await supabase
+        .from('subscriptions')
+        .select('*')
+        .gt('end_date', now)
+        .order('end_date', { ascending: true });
+
+      if (error) {
+        console.error('Ошибка загрузки подписок из Supabase:', error);
+        throw new Error(error.message || JSON.stringify(error));
       }
-      setDbActiveSubs(Array.isArray(data.users) ? data.users : []);
+
+      console.log('Активные подписки из Supabase:', data);
+      
+      // Преобразуем данные в формат, который ожидает компонент
+      const formattedSubs = (data || []).map(sub => ({
+        telegramId: sub.telegram_id || sub.user_id,
+        name: sub.name || 'Без имени',
+        subscriptionStatus: 'active',
+        subscriptionExpiresAt: sub.end_date || sub.expires_at
+      }));
+      
+      setDbActiveSubs(formattedSubs);
     } catch (e) {
-      const errorMsg = e?.message || 'Ошибка загрузки подписок';
-      // Проверяем, не является ли это ошибкой сети
-      if (errorMsg.includes('Failed to fetch') || errorMsg.includes('NetworkError')) {
-        setDbSubsError('Ошибка подключения к серверу. Убедитесь, что backend запущен.');
-      } else {
-        setDbSubsError(errorMsg);
-      }
+      const errorMsg = e?.message || e?.toString() || JSON.stringify(e) || 'Ошибка загрузки подписок';
+      console.error('Ошибка загрузки подписок:', e);
+      setDbSubsError(errorMsg);
       setDbActiveSubs([]);
+      alert('Ошибка загрузки подписок: ' + errorMsg);
     } finally {
       setDbSubsLoading(false);
     }
@@ -796,35 +985,75 @@ function App() {
       setGrantMessage('Введите корректный Telegram ID');
       return;
     }
+    
+    const subscriptionDays = Number.isFinite(days) && days > 0 ? days : 30;
+    
     setGrantLoading(true);
     try {
-      const res = await fetch(`${BACKEND_URL}/api/admin/subscriptions/grant`, {
-        method: 'POST',
-        headers: getAdminHeaders(),
-        body: JSON.stringify({
-          telegramId,
-          days: Number.isFinite(days) && days > 0 ? days : 30
-        })
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        const errorMsg = data?.error || data?.message || `HTTP ${res.status}`;
-        // Если 404, возможно backend не запущен или роут не найден
-        if (res.status === 404) {
-          throw new Error('Роут не найден. Убедитесь, что backend запущен и доступен.');
+      console.log('Выдача подписки в Supabase:', { telegramId, days: subscriptionDays });
+      
+      // Вычисляем дату окончания подписки
+      const endDate = new Date();
+      endDate.setDate(endDate.getDate() + subscriptionDays);
+      const endDateISO = endDate.toISOString();
+      
+      // Убеждаемся, что telegramId - это целое число (BigInt в БД)
+      const telegramIdAsNumber = Math.floor(telegramId);
+      console.log('Выдача подписки для пользователя:', telegramIdAsNumber, '(тип:', typeof telegramIdAsNumber, ')');
+      
+      // Проверяем, есть ли уже подписка у пользователя
+      const { data: existing, error: checkError } = await supabase
+        .from('subscriptions')
+        .select('*')
+        .eq('telegram_id', telegramIdAsNumber)
+        .single();
+      
+      let result;
+      if (existing && !checkError) {
+        // Обновляем существующую подписку
+        console.log('Обновление существующей подписки');
+        const { data, error } = await supabase
+          .from('subscriptions')
+          .update({
+            end_date: endDateISO
+          })
+          .eq('telegram_id', telegramIdAsNumber)
+          .select()
+          .single();
+        
+        if (error) {
+          throw new Error(error.message || JSON.stringify(error));
         }
-        throw new Error(errorMsg);
-      }
-      setGrantMessage(`Подписка выдана: до ${new Date(data.user.subscriptionExpiresAt).toLocaleString('ru-RU')}`);
-      await loadDbActiveSubscriptions();
-    } catch (e2) {
-      const errorMsg = e2?.message || 'Ошибка выдачи подписки';
-      // Проверяем, не является ли это ошибкой сети
-      if (errorMsg.includes('Failed to fetch') || errorMsg.includes('NetworkError')) {
-        setGrantMessage('Ошибка подключения к серверу. Убедитесь, что backend запущен.');
+        result = data;
       } else {
-        setGrantMessage(errorMsg);
+        // Создаем новую подписку
+        console.log('Создание новой подписки');
+        const { data, error } = await supabase
+          .from('subscriptions')
+          .insert({
+            telegram_id: telegramIdAsNumber,
+            end_date: endDateISO
+          })
+          .select()
+          .single();
+        
+        if (error) {
+          throw new Error(error.message || JSON.stringify(error));
+        }
+        result = data;
       }
+      
+      console.log('Подписка выдана в Supabase:', result);
+      const endDateFormatted = new Date(result.end_date).toLocaleString('ru-RU');
+      setGrantMessage(`Подписка выдана: до ${endDateFormatted}`);
+      
+      // Обновляем список активных подписок
+      await loadSubscriptions();
+    } catch (e2) {
+      const errorMsg = e2?.message || e2?.toString() || JSON.stringify(e2) || 'Ошибка выдачи подписки';
+      console.error('Ошибка выдачи подписки:', e2);
+      setGrantMessage(errorMsg);
+      alert('Ошибка выдачи подписки: ' + errorMsg);
     } finally {
       setGrantLoading(false);
     }
@@ -835,18 +1064,33 @@ function App() {
     setAdminsLoading(true);
     setAdminsError(null);
     try {
-      const res = await fetch(`${BACKEND_URL}/api/admin/admins`, {
-        method: 'GET',
-        headers: getAdminHeaders()
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(data?.error || data?.message || `HTTP ${res.status}`);
+      console.log('Загрузка администраторов из Supabase...');
+      const { data, error } = await supabase
+        .from('admins')
+        .select('*')
+        .order('created_at', { ascending: true });
+
+      if (error) {
+        console.error('Ошибка загрузки администраторов из Supabase:', error);
+        throw new Error(error.message || JSON.stringify(error));
       }
-      setAdminsList(Array.isArray(data.admins) ? data.admins : []);
+
+      console.log('Данные администраторов из Supabase:', data);
+      
+      // Преобразуем данные в формат, который ожидает компонент
+      const formattedAdmins = (data || []).map(admin => ({
+        telegramId: admin.telegram_id,
+        createdAt: admin.created_at,
+        createdBy: admin.created_by
+      }));
+      
+      setAdminsList(formattedAdmins);
     } catch (e) {
-      setAdminsError(e?.message || 'Ошибка загрузки администраторов');
+      const errorMessage = e?.message || e?.toString() || JSON.stringify(e) || 'Ошибка загрузки администраторов';
+      console.error('Ошибка загрузки администраторов:', e);
+      setAdminsError(errorMessage);
       setAdminsList([]);
+      alert('Ошибка загрузки администраторов: ' + errorMessage);
     } finally {
       setAdminsLoading(false);
     }
@@ -860,22 +1104,61 @@ function App() {
       setAdminFormMessage('Введите корректный Telegram ID');
       return;
     }
+    
+    // Получаем текущего пользователя для created_by
+    const tgUser = initTelegramWebAppSafe();
+    const currentUserIdRaw = tgUser?.id;
+    const currentUserId = currentUserIdRaw ? Number(currentUserIdRaw) : null;
+    const createdBy = (currentUserId && Number.isFinite(currentUserId) && currentUserId > 0) 
+      ? Math.floor(currentUserId) 
+      : 473842863; // Используем главного админа как fallback
+    
+    // Убеждаемся, что telegramId - это целое число (BigInt в БД)
+    const telegramIdAsNumber = Math.floor(telegramId);
+    
     setAdminFormLoading(true);
     try {
-      const res = await fetch(`${BACKEND_URL}/api/admin/admins`, {
-        method: 'POST',
-        headers: getAdminHeaders(),
-        body: JSON.stringify({ telegramId })
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(data?.error || data?.message || `HTTP ${res.status}`);
+      console.log('Добавление администратора в Supabase:', telegramIdAsNumber, '(тип:', typeof telegramIdAsNumber, ')');
+      
+      // Проверяем, не является ли уже админом
+      const { data: existing, error: checkError } = await supabase
+        .from('admins')
+        .select('telegram_id')
+        .eq('telegram_id', telegramIdAsNumber)
+        .single();
+      
+      if (checkError && checkError.code !== 'PGRST116') { // PGRST116 = not found, это нормально
+        throw new Error(checkError.message || 'Ошибка проверки существующего администратора');
       }
+      
+      if (existing) {
+        throw new Error('Пользователь уже является администратором');
+      }
+      
+      // Добавляем администратора
+      const { data, error } = await supabase
+        .from('admins')
+        .insert({
+          telegram_id: telegramIdAsNumber,
+          created_by: createdBy
+        })
+        .select()
+        .single();
+      
+      if (error) {
+        console.error('Ошибка добавления администратора в Supabase:', error);
+        throw new Error(error.message || JSON.stringify(error));
+      }
+      
+      console.log('Администратор добавлен в Supabase:', data);
       setAdminFormMessage('Администратор успешно добавлен');
       setAdminForm({ telegramId: '' });
       await loadAdmins();
     } catch (e2) {
-      setAdminFormMessage(e2?.message || 'Ошибка добавления администратора');
+      const errorMessage = e2?.message || e2?.toString() || JSON.stringify(e2) || 'Ошибка добавления администратора';
+      console.error('Ошибка добавления администратора:', e2);
+      setAdminFormMessage(errorMessage);
+      alert('Ошибка добавления администратора: ' + errorMessage);
     } finally {
       setAdminFormLoading(false);
     }
@@ -886,17 +1169,33 @@ function App() {
       return;
     }
     try {
-      const res = await fetch(`${BACKEND_URL}/api/admin/admins/${telegramId}`, {
-        method: 'DELETE',
-        headers: getAdminHeaders()
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(data?.error || data?.message || `HTTP ${res.status}`);
+      // Убеждаемся, что telegramId - это целое число (BigInt в БД)
+      const telegramIdAsNumber = Math.floor(Number(telegramId));
+      
+      if (!Number.isFinite(telegramIdAsNumber) || telegramIdAsNumber <= 0) {
+        alert('Некорректный ID администратора');
+        return;
       }
+      
+      console.log('Удаление администратора из Supabase:', telegramIdAsNumber, '(тип:', typeof telegramIdAsNumber, ')');
+      
+      const { data, error } = await supabase
+        .from('admins')
+        .delete()
+        .eq('telegram_id', telegramIdAsNumber)
+        .select();
+      
+      if (error) {
+        console.error('Ошибка удаления администратора из Supabase:', error);
+        throw new Error(error.message || JSON.stringify(error));
+      }
+      
+      console.log('Администратор удален из Supabase:', data);
       await loadAdmins();
     } catch (e) {
-      alert(e?.message || 'Ошибка удаления администратора');
+      const errorMessage = e?.message || e?.toString() || JSON.stringify(e) || 'Ошибка удаления администратора';
+      console.error('Ошибка удаления администратора:', e);
+      alert('Ошибка удаления администратора: ' + errorMessage);
     }
   };
 
@@ -1835,17 +2134,29 @@ function App() {
     const answersMap = {};
     questionForm.answers.forEach((answer, index) => {
       const key = String.fromCharCode(97 + index); // a, b, c, d, e...
-      answersMap[`answer_${key}`] = answer.text.trim();
+      const answerText = answer.text ? answer.text.trim() : '';
+      if (answerText) {
+        answersMap[`answer_${key}`] = answerText;
+      }
     });
     
-    return {
+    const questionData = {
       question: questionForm.text.trim(),
       ...answersMap,
       correct: questionForm.correct,
       image_url: imageUrl,
       topic_id: questionForm.topicId,
-      answers_count: questionForm.answers.length
+      answers_count: questionForm.answers.filter(a => a.text && a.text.trim()).length
     };
+    
+    console.log('buildQuestionData: созданы данные вопроса:', {
+      question: questionData.question,
+      answersMap: answersMap,
+      correct: questionData.correct,
+      answers_count: questionData.answers_count
+    });
+    
+    return questionData;
   };
 
   // Функция для сохранения вопроса в Supabase (с опциями)
@@ -1853,13 +2164,33 @@ function App() {
     console.log('Сохранение вопроса в Supabase:', questionData);
 
     try {
+      // Проверяем и преобразуем topic_id
+      let quizId = questionData.topic_id;
+      
+      // Если topic_id это число, но база ожидает UUID, нужно найти UUID темы
+      if (typeof quizId === 'number' || (typeof quizId === 'string' && /^\d+$/.test(quizId))) {
+        console.warn('⚠️ topic_id это число, но база может ожидать UUID. Ищем тему...');
+        // Ищем тему по ID
+        const topic = topics.find(t => t.id === quizId || String(t.id) === String(quizId));
+        if (topic) {
+          quizId = topic.id; // Используем ID темы как есть (может быть UUID)
+          console.log('✅ Найдена тема, используем ID:', quizId, typeof quizId);
+        } else {
+          console.error('❌ Тема не найдена для topic_id:', questionData.topic_id);
+          alert('Ошибка: Тема не найдена. Пожалуйста, выберите тему из списка.');
+          return;
+        }
+      }
+      
       // Подготавливаем данные для таблицы questions
       const questionSupabaseData = {
-        quiz_id: questionData.topic_id, // topic_id используется как quiz_id
+        quiz_id: quizId, // Используем правильный ID (UUID или число)
         question_text: questionData.question,
         image_url: questionData.image_url || null,
         explanation: null // Можно добавить позже
       };
+      
+      console.log('Данные для сохранения вопроса:', questionSupabaseData);
 
       let questionId;
       if (editingQuestion) {
@@ -1902,35 +2233,106 @@ function App() {
       // Сохраняем опции (ответы)
       const optionsToInsert = [];
       const answerKeys = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+      
+      console.log('🔍 Проверка данных вопроса для сохранения опций:', {
+        questionId: questionId,
+        questionDataKeys: Object.keys(questionData),
+        answerKeys: answerKeys.map(key => ({
+          key: key,
+          value: questionData[`answer_${key}`],
+          exists: questionData.hasOwnProperty(`answer_${key}`),
+          isCorrect: questionData.correct === key
+        }))
+      });
+      
       answerKeys.forEach((key, index) => {
         const answerText = questionData[`answer_${key}`];
-        if (answerText && answerText.trim()) {
-          optionsToInsert.push({
+        if (answerText && String(answerText).trim() !== '') {
+          const option = {
             question_id: questionId,
-            option_text: answerText.trim(),
+            option_text: String(answerText).trim(),
             is_correct: questionData.correct === key
-          });
+          };
+          optionsToInsert.push(option);
+          console.log(`  ✅ Добавлена опция ${key}:`, option);
+        } else {
+          console.log(`  ⚠️ Опция ${key} пустая или отсутствует`);
         }
       });
 
+      console.log('💾 Сохранение опций для вопроса:', questionId, 'Количество опций:', optionsToInsert.length);
+      console.log('📦 Опции для сохранения:', JSON.stringify(optionsToInsert, null, 2));
+
       if (optionsToInsert.length > 0) {
-        const { error: optionsError } = await supabase
+        const { data: insertedOptions, error: optionsError } = await supabase
           .from('options')
-          .insert(optionsToInsert);
+          .insert(optionsToInsert)
+          .select();
 
         if (optionsError) {
-          console.error('Ошибка сохранения опций в Supabase:', optionsError);
+          console.error('❌ Ошибка сохранения опций в Supabase:', optionsError);
+          console.error('Детали ошибки:', {
+            message: optionsError.message,
+            details: optionsError.details,
+            hint: optionsError.hint,
+            code: optionsError.code
+          });
           alert('Вопрос сохранен, но произошла ошибка при сохранении ответов: ' + optionsError.message);
+        } else {
+          console.log('✅ Опции успешно сохранены:', insertedOptions);
+          console.log('📊 Сохранено опций:', insertedOptions ? insertedOptions.length : 0);
+          if (insertedOptions && insertedOptions.length > 0) {
+            console.log('📋 Сохраненные опции:', insertedOptions.map(opt => ({
+              id: opt.id,
+              question_id: opt.question_id,
+              option_text: opt.option_text,
+              is_correct: opt.is_correct
+            })));
+            
+            // Проверяем, что опции действительно сохранены в базе
+            const { data: verifyOptions, error: verifyError } = await supabase
+              .from('options')
+              .select('*')
+              .eq('question_id', questionId);
+            
+            if (verifyError) {
+              console.error('❌ Ошибка проверки сохраненных опций:', verifyError);
+            } else {
+              console.log('✅ Проверка: в базе данных найдено опций для вопроса:', verifyOptions ? verifyOptions.length : 0);
+              if (verifyOptions && verifyOptions.length > 0) {
+                console.log('📋 Опции в базе данных:', verifyOptions.map(opt => ({
+                  id: opt.id,
+                  question_id: opt.question_id,
+                  option_text: opt.option_text,
+                  is_correct: opt.is_correct
+                })));
+              } else {
+                console.error('❌ КРИТИЧЕСКАЯ ОШИБКА: Опции не найдены в базе данных после сохранения!');
+              }
+            }
+          }
         }
+      } else {
+        console.error('❌ Нет опций для сохранения для вопроса:', questionId);
+        console.error('🔍 Данные вопроса:', questionData);
+        console.error('📝 Форма вопроса:', {
+          answers: questionForm.answers,
+          correct: questionForm.correct
+        });
+        alert('Ошибка: Вопрос сохранен, но варианты ответов не были найдены! Проверьте консоль для деталей.');
       }
 
-      console.log('Вопрос успешно сохранен в Supabase:', questionId);
+      console.log('✅ Вопрос успешно сохранен в Supabase:', questionId);
+      
+      // Небольшая задержка, чтобы база данных успела обработать запрос
+      await new Promise(resolve => setTimeout(resolve, 500));
       
       // Перезагружаем вопросы из Supabase
+      console.log('🔄 Перезагрузка вопросов из Supabase...');
       await loadQuestionsFromSupabase();
       
       // Обновляем количество вопросов в квизе
-      await updateTopicQuestionCount(questionData.topic_id);
+      await updateTopicQuestionCount(quizId);
       
       alert(editingQuestion ? 'Вопрос успешно обновлен!' : 'Вопрос успешно добавлен!');
       resetQuestionForm();
@@ -2603,7 +3005,11 @@ function App() {
                 <label>Тема</label>
                 <select
                   value={safeQuestionForm.topicId}
-                  onChange={(e) => handleFormChange('topicId', parseInt(e.target.value))}
+                  onChange={(e) => {
+                    // Сохраняем значение как есть (может быть UUID или число)
+                    const topicId = e.target.value;
+                    handleFormChange('topicId', topicId);
+                  }}
                   className="form-input"
                 >
                   {topics && topics.length > 0 ? topics.map(topic => (
@@ -2798,6 +3204,7 @@ function App() {
                           )}
                         </div>
                         <div className="admin-user-details">
+                          <p><strong>ID:</strong> {user.userId}</p>
                           <p><strong>Телефон:</strong> {user.phone}</p>
                           {user.telegramUsername && (
                             <p><strong>Telegram:</strong> @{user.telegramUsername}</p>
@@ -2830,7 +3237,7 @@ function App() {
                 <button
                   type="button"
                   className="admin-users-button"
-                  onClick={loadDbActiveSubscriptions}
+                  onClick={loadSubscriptions}
                   disabled={dbSubsLoading}
                 >
                   {dbSubsLoading ? 'Загрузка...' : '↻ Обновить активные'}
@@ -3065,7 +3472,7 @@ function App() {
                   await loadUsersFromSupabase();
                   setAdminScreen('users');
                   // сразу подгружаем активные подписки из БД
-                  loadDbActiveSubscriptions();
+                  loadSubscriptions();
                 }}
               >
                 👥 Пользователи
@@ -3314,10 +3721,21 @@ function App() {
         </div>
         <div className="topics-list">
           {topics.map((topic, index) => {
-            const staticCount = questionsData[topic.id]?.length || 0;
-            const saved = JSON.parse(localStorage.getItem('dev_questions') || '[]');
-            const savedCount = saved.filter(q => q.topic_id === topic.id).length;
-            const questionCount = staticCount + savedCount;
+            // Используем questionCount из темы (загружено из Supabase)
+            let questionCount = topic.questionCount || 0;
+            
+            // Если questionCount не установлен, вычисляем из savedQuestions
+            if (!questionCount || questionCount === 0) {
+              const staticCount = questionsData[topic.id]?.length || 0;
+              const savedCount = savedQuestions.filter(q => {
+                // Сравниваем topic_id с учетом возможных различий типов (UUID vs число)
+                return q.topic_id === topic.id || 
+                       String(q.topic_id) === String(topic.id) ||
+                       (Number(q.topic_id) === Number(topic.id) && !isNaN(Number(q.topic_id)) && !isNaN(Number(topic.id)));
+              }).length;
+              questionCount = staticCount + savedCount;
+            }
+            
             return (
               <button
                 key={topic.id}
@@ -3964,9 +4382,81 @@ function App() {
   if (screen === 'quiz') {
     // ========== ЭКЗАМЕН: Используем сохраненные вопросы теста ==========
     // Для экзамена используем testQuestions, для теста по теме - из selectedTopic
-    const questions = testQuestions.length > 0 
+    let questions = testQuestions.length > 0 
       ? testQuestions 
       : (selectedTopic ? getMergedQuestions(selectedTopic.id) : []);
+    
+    // Преобразуем вопросы, если у них нет массива answers
+    questions = questions.map((q, qIndex) => {
+      console.log(`Преобразование вопроса ${qIndex + 1}/${questions.length}:`, q.id, {
+        hasAnswers: !!q.answers,
+        answersLength: q.answers ? q.answers.length : 0,
+        hasAnswerA: !!q.answer_a,
+        hasAnswerB: !!q.answer_b,
+        question: q.question || q.text
+      });
+      
+      // Если у вопроса уже есть массив answers, возвращаем как есть
+      if (q.answers && Array.isArray(q.answers) && q.answers.length > 0) {
+        console.log(`  ✅ Вопрос ${q.id} уже имеет ${q.answers.length} ответов`);
+        return q;
+      }
+      
+      // Если у вопроса есть answer_a, answer_b и т.д., преобразуем в массив answers
+      const answerKeys = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+      const hasAnswerFields = answerKeys.some(key => {
+        const value = q[`answer_${key}`];
+        return value && String(value).trim() !== '';
+      });
+      
+      console.log(`  Проверка полей answer_*: ${hasAnswerFields ? 'найдены' : 'не найдены'}`);
+      
+      if (hasAnswerFields) {
+        const answers = [];
+        
+        answerKeys.forEach((key, index) => {
+          const answerText = q[`answer_${key}`];
+          if (answerText && String(answerText).trim() !== '') {
+            answers.push({
+              id: index + 1,
+              text: String(answerText).trim(),
+              correct: q.correct === key
+            });
+            console.log(`    Ответ ${key}: "${answerText}", правильный: ${q.correct === key}`);
+          }
+        });
+        
+        if (answers.length > 0) {
+          console.log(`  ✅ Преобразованы ответы для вопроса ${q.id}: ${answers.length} ответов`);
+          return {
+            ...q,
+            answers: answers,
+            text: q.question || q.text || ''
+          };
+        } else {
+          console.warn(`  ⚠️ Поля answer_* найдены, но все пустые для вопроса ${q.id}`);
+        }
+      }
+      
+      // Если ничего не найдено, возвращаем вопрос как есть (может быть ошибка)
+      console.error(`  ❌ Вопрос ${q.id} без ответов. Данные вопроса:`, {
+        id: q.id,
+        question: q.question || q.text,
+        answer_a: q.answer_a,
+        answer_b: q.answer_b,
+        answer_c: q.answer_c,
+        answer_d: q.answer_d,
+        correct: q.correct,
+        answers_count: q.answers_count,
+        allKeys: Object.keys(q)
+      });
+      return {
+        ...q,
+        answers: [],
+        text: q.question || q.text || ''
+      };
+    });
+    
     const question = questions[currentQuestionIndex]
 
     if (!question) {
@@ -4041,7 +4531,13 @@ function App() {
           </div>
           
           <div className="answers-list">
-            {question.answers.map((answer, index) => {
+            {(!question.answers || question.answers.length === 0) ? (
+              <div style={{ padding: '20px', textAlign: 'center', color: '#666' }}>
+                <p>Варианты ответов не найдены для этого вопроса.</p>
+                <p style={{ fontSize: '12px', marginTop: '10px' }}>ID вопроса: {question.id}</p>
+              </div>
+            ) : (
+              question.answers.map((answer, index) => {
               const answerNumber = index + 1;
               // Сравниваем с учетом возможных различий типов
               const isSelected = selectedAnswer !== null && 
@@ -4080,7 +4576,7 @@ function App() {
                   {answerNumber}. {answer.text}
                 </div>
               );
-            })}
+            }))}
           </div>
         </div>
         
@@ -4150,7 +4646,21 @@ function App() {
       </div>
       <div className="topics-list">
         {topics.map((topic, index) => {
-          const questionCount = questionsData[topic.id]?.length || 0
+          // Используем questionCount из темы (загружено из Supabase)
+          let questionCount = topic.questionCount || 0;
+          
+          // Если questionCount не установлен, вычисляем из savedQuestions
+          if (!questionCount || questionCount === 0) {
+            const staticCount = questionsData[topic.id]?.length || 0;
+            const savedCount = savedQuestions.filter(q => {
+              // Сравниваем topic_id с учетом возможных различий типов (UUID vs число)
+              return q.topic_id === topic.id || 
+                     String(q.topic_id) === String(topic.id) ||
+                     (Number(q.topic_id) === Number(topic.id) && !isNaN(Number(q.topic_id)) && !isNaN(Number(topic.id)));
+            }).length;
+            questionCount = staticCount + savedCount;
+          }
+          
           return (
             <button
               key={topic.id}

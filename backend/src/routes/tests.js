@@ -50,7 +50,7 @@ function testsRouter({ pool }) {
         a.is_correct AS answer_is_correct,
         a.sort_order AS answer_sort_order
       FROM questions q
-      LEFT JOIN answers a ON a.question_id = q.id
+      LEFT JOIN options a ON a.question_id = q.id
       WHERE q.test_id = $1
       ORDER BY q.sort_order ASC, q.id ASC, a.sort_order ASC, a.id ASC
       `,
