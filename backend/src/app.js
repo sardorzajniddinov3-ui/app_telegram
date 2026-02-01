@@ -1,6 +1,3 @@
-const express = require('express');
-const cors = require('cors');
-
 const { authRouter } = require('./routes/auth');
 const { testsRouter } = require('./routes/tests');
 const { resultsRouter } = require('./routes/results');
@@ -8,26 +5,15 @@ const { createAdminRouter } = require('./routes/admin');
 const { subscriptionRouter } = require('./routes/subscription');
 const { notifyRouter } = require('./routes/notify');
 
-function createApp({ pool }) {
+function createApp({ pool, app }) {
   if (!pool) throw new Error('pool is required');
-
-  const app = express();
+  if (!app) throw new Error('app is required');
 
   // 1. Сначала ЛОГИ (чтобы видеть запросы в Railway)
   app.use((req, res, next) => {
     console.log(`Incoming request: ${req.method} ${req.url}`);
     next();
   });
-
-  // 2. Сразу после этого - CORS (Разрешаем всё)
-  app.use(cors({
-    origin: '*', 
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'x-requested-with']
-  }));
-
-  // 3. Потом JSON
-  app.use(express.json({ limit: '2mb' }));
 
   app.get('/health', (_req, res) => res.json({ ok: true }));
 

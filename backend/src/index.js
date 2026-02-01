@@ -1,4 +1,6 @@
 require('dotenv').config();
+const express = require('express');
+const cors = require('cors');
 
 const { createPool } = require('./db/pool');
 const { migrate } = require('./db/migrate');
@@ -42,7 +44,15 @@ async function main() {
   }
 
   // Создаем Express приложение
-  const app = createApp({ pool });
+  const app = express();
+  
+  // ИСПОЛЬЗОВАНИЕ CORS (Сразу после app = express())
+  app.use(cors({ origin: '*' }));
+  
+  app.use(express.json());
+  
+  // Добавляем роуты к app
+  createApp({ pool, app });
 
   // Запускаем сервер на 0.0.0.0 для Railway (принимает соединения извне)
   const server = app.listen(PORT, '0.0.0.0', () => {
