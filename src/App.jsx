@@ -1,9 +1,45 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, Suspense, lazy } from 'react'
 import './App.css'
 import { initTelegramWebAppSafe, getTelegramColorScheme } from './telegram'
 import { supabase } from './supabase'
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000';
+
+// Компонент экрана загрузки
+const LoadingScreen = () => {
+  return (
+    <div className="loading-screen">
+      <div className="loading-spinner-container">
+        <div className="loading-spinner"></div>
+        <p className="loading-text">Загрузка...</p>
+      </div>
+    </div>
+  );
+};
+
+// Компонент для анимации печатания текста (Typewriter)
+const Typewriter = ({ text }) => {
+  const [display, setDisplay] = useState('');
+  
+  useEffect(() => {
+    setDisplay(''); // Clear previous text instantly
+    let i = 0;
+    const interval = setInterval(() => {
+      if (!text) return;
+      setDisplay(text.slice(0, i + 1)); // Show characters 0 to i
+      i++;
+      if (i >= text.length) clearInterval(interval);
+    }, 25); // 25ms delay per letter
+    return () => clearInterval(interval);
+  }, [text]);
+
+  return (
+    <div className="ai-explanation-text">
+      <span>{display}</span>
+      <span className="typewriter-cursor">|</span>
+    </div>
+  );
+};
 
 function App() {
   // Загружаем темы из localStorage или используем дефолтные
@@ -147,6 +183,16 @@ function App() {
         throw new Error('Функция вернула пустой ответ');
       }
       
+      // Проверяем, не является ли ответ сообщением об ошибке 429
+      if (data.explanation && (data.explanation.includes('429') || data.explanation.includes('перегружен') || data.explanation.includes('⏳'))) {
+        // Это сообщение об ошибке 429, сохраняем как error
+        setExplanations(prev => ({
+          ...prev,
+          [questionId]: { loading: false, explanation: null, error: data.explanation }
+        }));
+        return;
+      }
+      
       // Сохраняем объяснение
       setExplanations(prev => ({
         ...prev,
@@ -154,13 +200,37 @@ function App() {
       }));
     } catch (err) {
       console.error('Ошибка при получении объяснения:', err);
-      const errorMessage = err?.message || err?.toString() || 'Неизвестная ошибка';
+      let errorMessage = err?.message || err?.toString() || 'Неизвестная ошибка';
+      
+      // Обработка ошибки 429 (quota exceeded)
+      if (errorMessage.includes('429') || errorMessage.includes('quota') || errorMessage.includes('перегружен')) {
+        let retryDelay = '60'; // По умолчанию 60 секунд
+        
+        // Пытаемся извлечь время ожидания из сообщения об ошибке
+        const retryMatch = errorMessage.match(/(\d+)\s*секунд/i) || errorMessage.match(/через\s*(\d+)/i);
+        if (retryMatch && retryMatch[1]) {
+          retryDelay = retryMatch[1];
+        } else {
+          // Пытаемся найти retryDelay в объекте ошибки
+          if (err?.details && Array.isArray(err.details)) {
+            const retryDetail = err.details.find((d) => d.retryDelay);
+            if (retryDetail?.retryDelay) {
+              retryDelay = String(retryDetail.retryDelay).replace('s', '').replace('S', '');
+            }
+          }
+        }
+        
+        errorMessage = `⏳ ИИ перегружен запросами. Он заработает через ${retryDelay} секунд. Пожалуйста, подождите.`;
+      } else {
+        errorMessage = `Ошибка: ${errorMessage}. Проверьте, что функция explain-answer создана в Supabase Dashboard.`;
+      }
+      
       setExplanations(prev => ({
         ...prev,
         [questionId]: { 
           loading: false, 
           explanation: null, 
-          error: `Ошибка: ${errorMessage}. Проверьте, что функция explain-answer создана в Supabase Dashboard.` 
+          error: errorMessage
         }
       }));
     }
@@ -168,6 +238,9 @@ function App() {
   const [grantMessage, setGrantMessage] = useState(null)
   const [subscriptionInfo, setSubscriptionInfo] = useState(null) // /api/subscription/me
   const [showSubscriptionModal, setShowSubscriptionModal] = useState(false) // Модальное окно подписки
+  const [showTariffSelection, setShowTariffSelection] = useState(false) // Показать выбор тарифов в модальном окне
+  const [selectedTariff, setSelectedTariff] = useState(null) // Выбранный тариф для оплаты
+  const [paymentSenderInfo, setPaymentSenderInfo] = useState('') // Информация об отправителе платежа
   const [adminsList, setAdminsList] = useState([]) // Список администраторов
   const [adminsLoading, setAdminsLoading] = useState(false)
   const [adminsError, setAdminsError] = useState(null)
@@ -2849,6 +2922,189 @@ function App() {
     );
   };
 
+  // Определение тарифов
+  const tariffs = [
+    {
+      id: 'test',
+      name: 'Тест',
+      price: 15000,
+      days: 7,
+      features: ['Доступ ко всем вопросам', 'Без рекламы'],
+      color: 'border-gray-600'
+    },
+    {
+      id: 'standard',
+      name: 'Базовый',
+      price: 35000,
+      days: 20,
+      features: ['Выгоднее на 15%', 'Полная статистика'],
+      color: 'border-blue-500'
+    },
+    {
+      id: 'pro',
+      name: 'PRO Максимум',
+      price: 49000,
+      days: 45,
+      features: ['ХИТ ПРОДАЖ 🔥', 'Максимальная выгода', 'Приоритетная поддержка'],
+      isRecommended: true,
+      color: 'border-yellow-500 shadow-yellow-900/20'
+    }
+  ];
+
+  // Функция для сохранения запроса на оплату в Supabase
+  const handlePaymentRequest = async (tariff, senderInfo) => {
+    try {
+      const tgUser = initTelegramWebAppSafe();
+      const userId = tgUser?.id ? Number(tgUser.id) : null;
+
+      if (!userId) {
+        alert('Ошибка: не удалось получить ID пользователя');
+        return;
+      }
+
+      const { error } = await supabase
+        .from('payment_requests')
+        .insert({
+          user_id: userId,
+          tariff_name: tariff.name,
+          amount: String(tariff.price),
+          sender_info: senderInfo,
+          status: 'pending'
+        });
+
+      if (error) {
+        console.error('Ошибка сохранения запроса на оплату:', error);
+        alert('Ошибка при сохранении запроса на оплату: ' + error.message);
+        return;
+      }
+
+      alert('Запрос на оплату успешно отправлен! Мы проверим платеж и активируем подписку в ближайшее время.');
+      setSelectedTariff(null);
+      setPaymentSenderInfo('');
+      setShowSubscriptionModal(false);
+    } catch (err) {
+      console.error('Ошибка при сохранении запроса на оплату:', err);
+      alert('Произошла ошибка при отправке запроса на оплату');
+    }
+  };
+
+  // Компонент модального окна оплаты
+  const PaymentModal = () => {
+    if (!selectedTariff) return null;
+
+    const handleCopyCardNumber = () => {
+      navigator.clipboard.writeText('9860 3501 4622 7235').then(() => {
+        alert('Номер карты скопирован!');
+      }).catch(() => {
+        alert('Не удалось скопировать номер карты');
+      });
+    };
+
+    return (
+      <div className="payment-modal-overlay" onClick={() => setSelectedTariff(null)}>
+        <div className="payment-modal-content" onClick={(e) => e.stopPropagation()}>
+          <div className="payment-modal-header">
+            <h2 className="payment-modal-title">Оплата тарифа {selectedTariff.name}</h2>
+            <button className="payment-modal-close" onClick={() => setSelectedTariff(null)}>
+              ✕
+            </button>
+          </div>
+
+          <div className="payment-modal-body">
+            <p className="payment-modal-text">
+              Переведите <strong>{(selectedTariff.price / 1000).toFixed(0)} 000 сум</strong> на карту:
+            </p>
+            
+            <div className="payment-card-number-container">
+              <div className="payment-card-number" onClick={handleCopyCardNumber}>
+                9860 3501 4622 7235
+              </div>
+              <button className="payment-copy-button" onClick={handleCopyCardNumber}>
+                Копировать
+              </button>
+            </div>
+
+            <div className="payment-input-group">
+              <label className="payment-input-label">
+                Ваше имя или последние 4 цифры карты
+              </label>
+              <input
+                type="text"
+                className="payment-input"
+                placeholder="Введите имя или 4 цифры карты"
+                value={paymentSenderInfo}
+                onChange={(e) => setPaymentSenderInfo(e.target.value)}
+              />
+            </div>
+
+            <div className="payment-modal-actions">
+              <button
+                className="payment-confirm-button"
+                onClick={() => handlePaymentRequest(selectedTariff, paymentSenderInfo)}
+                disabled={!paymentSenderInfo.trim()}
+              >
+                ✅ Я оплатил
+              </button>
+              <button
+                className="payment-cancel-button"
+                onClick={() => {
+                  setSelectedTariff(null);
+                  setPaymentSenderInfo('');
+                }}
+              >
+                Отмена
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // Компонент выбора тарифа
+  const TariffSelection = () => {
+    return (
+      <div className="tariff-selection-container-compact">
+        <div className="tariff-carousel">
+          {tariffs.map((tariff) => (
+            <div
+              key={tariff.id}
+              className={`tariff-card-compact ${tariff.isRecommended ? 'tariff-card-pro' : ''}`}
+              onClick={() => {
+                setSelectedTariff(tariff);
+                setShowTariffSelection(false);
+                setTimeout(() => {
+                  setShowSubscriptionModal(false);
+                }, 50);
+              }}
+            >
+              {tariff.isRecommended && (
+                <div className="tariff-badge-compact">ХИТ 🔥</div>
+              )}
+              <div className="tariff-name-compact">{tariff.name}</div>
+              <div className="tariff-price-compact">
+                {(tariff.price / 1000).toFixed(0)} 000
+              </div>
+              <div className="tariff-currency">сум</div>
+              <div className="tariff-duration-compact">за {tariff.days} дней</div>
+              <ul className="tariff-features-compact">
+                {tariff.features.slice(0, 3).map((feature, index) => (
+                  <li key={index} className="tariff-feature-compact">
+                    <span className="tariff-feature-icon-compact">✓</span>
+                    <span>{feature}</span>
+                  </li>
+                ))}
+              </ul>
+              <button className={`tariff-button-compact ${tariff.isRecommended ? 'tariff-button-pro' : ''}`}>
+                Купить
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
   // Компонент статуса подписки (глобальный)
   const SubscriptionStatusBadge = () => {
     if (userRole === 'admin' || loading || userRole === null) return null;
@@ -2901,17 +3157,36 @@ function App() {
         </div>
 
         {showSubscriptionModal && (
-          <div className="subscription-modal-overlay" onClick={() => setShowSubscriptionModal(false)}>
+          <div className="subscription-modal-overlay" onClick={() => {
+            setShowSubscriptionModal(false);
+            setShowTariffSelection(false);
+          }}>
             <div className="subscription-modal-content" onClick={(e) => e.stopPropagation()}>
               <div className="subscription-modal-header">
                 <h2 className="subscription-modal-title">Статус подписки</h2>
-                <button className="subscription-modal-close" onClick={() => setShowSubscriptionModal(false)}>
+                <button className="subscription-modal-close" onClick={() => {
+                  setShowSubscriptionModal(false);
+                  setShowTariffSelection(false);
+                }}>
                   ✕
                 </button>
               </div>
 
               <div className="subscription-modal-body">
-                {isActive ? (
+                {showTariffSelection ? (
+                  <>
+                    <button 
+                      className="tariff-back-button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowTariffSelection(false);
+                      }}
+                    >
+                      ← Назад
+                    </button>
+                    <TariffSelection />
+                  </>
+                ) : isActive ? (
                   <>
                     <div className="subscription-status-card active">
                       <div className="subscription-status-icon-large">
@@ -2954,7 +3229,12 @@ function App() {
                         )}
                       </div>
                     </div>
-                    <button className="subscription-renew-button" onClick={handlePayment}>
+                    <button className="subscription-renew-button" onClick={(e) => {
+                      e.stopPropagation();
+                      e.preventDefault();
+                      // Показываем секцию выбора тарифов
+                      setShowTariffSelection(true);
+                    }}>
                       Продлить подписку
                     </button>
                   </>
@@ -2967,27 +3247,21 @@ function App() {
                         Для прохождения тестов и экзаменов необходима активная подписка.
                       </p>
                     </div>
-                    <button className="subscription-purchase-button" onClick={handlePayment}>
-                      Оформить подписку
-                    </button>
+                    <TariffSelection />
                   </>
                 )}
               </div>
             </div>
           </div>
         )}
+        {/* Модальное окно оплаты - рендерится везде, где есть SubscriptionStatusBadge */}
+        <PaymentModal />
       </>
     );
   };
 
   if (loading || userRole === null) {
-    return (
-      <div className="quiz-container">
-        <div className="quiz-content">
-          <p style={{ textAlign: 'center' }}>Загрузка...</p>
-        </div>
-      </div>
-    );
+    return <LoadingScreen />;
   }
 
   // Show admin panel only for admin users (when screen is 'admin')
@@ -4706,6 +4980,33 @@ function App() {
     const questions = reviewResult.questions;
     const userAnswers = reviewResult.userAnswers;
     
+    // Автоматически запрашиваем объяснения для неправильных ответов
+    useEffect(() => {
+      questions.forEach((question, index) => {
+        const userAnswer = userAnswers[index];
+        if (!userAnswer) return;
+        
+        const userSelectedId = userAnswer?.selectedAnswerId;
+        const correctAnswer = question.answers.find(a => a.correct === true);
+        const userSelectedAnswer = question.answers.find(a => {
+          const normalizeId = (id) => {
+            if (id === null || id === undefined) return null;
+            const num = Number(id);
+            if (!isNaN(num)) return num;
+            return String(id);
+          };
+          return normalizeId(a.id) === normalizeId(userSelectedId);
+        });
+        
+        const isIncorrect = userSelectedAnswer && !userSelectedAnswer.correct;
+        const questionId = question.id || `q-${index}`;
+        
+        if (isIncorrect && correctAnswer && userSelectedAnswer && !explanations[questionId]?.explanation && !explanations[questionId]?.loading) {
+          getExplanation(questionId, question.text, userSelectedAnswer.text, correctAnswer.text);
+        }
+      });
+    }, [questions, userAnswers]);
+    
     // Отладочная информация - проверяем структуру данных
     console.log('Full Review - Data structure:', {
       reviewResultId: reviewResult.id,
@@ -4727,7 +5028,6 @@ function App() {
 
     return (
       <>
-        <ThemeToggleButton />
         <div className="full-review-container">
           <div className="full-review-header">
             <button className="back-button" onClick={() => {
@@ -4736,8 +5036,8 @@ function App() {
             }}>
               ← Назад
             </button>
-            <h2 className="full-review-title">{selectedTopic.name}</h2>
           </div>
+          <h2 className="full-review-title">{selectedTopic.name}</h2>
         
         <div className="full-review-result-info">
           {userData?.name && (
@@ -4771,6 +5071,21 @@ function App() {
           {questions.map((question, index) => {
             const userAnswer = userAnswers[index];
             
+            // Определяем, был ли ответ неправильным
+            const userSelectedId = userAnswer?.selectedAnswerId;
+            const correctAnswer = question.answers.find(a => a.correct === true);
+            const userSelectedAnswer = question.answers.find(a => {
+              const normalizeId = (id) => {
+                if (id === null || id === undefined) return null;
+                const num = Number(id);
+                if (!isNaN(num)) return num;
+                return String(id);
+              };
+              return normalizeId(a.id) === normalizeId(userSelectedId);
+            });
+            const isIncorrect = userSelectedAnswer && !userSelectedAnswer.correct;
+            const questionId = question.id || `q-${index}`;
+            
             // Отладочная информация для первого вопроса
             if (index === 0) {
               console.log('Full Review - Question 1:', {
@@ -4793,13 +5108,14 @@ function App() {
                 <div className="review-question-number">
                   Вопрос {index + 1} из {questions.length}
                 </div>
-                {question.image && (
-                  <img
-                    src={question.image}
-                    alt="question"
-                    className="review-question-image"
-                  />
-                )}
+            {/* TODO: Ensure this image is compressed (WebP or compressed PNG under 50kb) */}
+            {question.image && (
+              <img
+                src={question.image}
+                alt="question"
+                className="review-question-image"
+              />
+            )}
                 <h3 className="review-question-text">{question.text}</h3>
                 
                 <div className="review-answers">
@@ -4875,6 +5191,32 @@ function App() {
                     );
                   })}
                 </div>
+                
+                {/* Блок с объяснением ИИ для неправильных ответов */}
+                {isIncorrect && (
+                  <div className="ai-explanation-block">
+                    <div className="ai-explanation-header">
+                      <span className="ai-explanation-icon">🤖</span>
+                      <span className="ai-explanation-title">Объяснение ИИ:</span>
+                    </div>
+                    <div className="ai-explanation-content">
+                      {explanations[questionId]?.loading ? (
+                        <div className="ai-explanation-loading">
+                          <span>ИИ анализирует ваш ответ...</span>
+                        </div>
+                      ) : explanations[questionId]?.error ? (
+                        <div className="ai-explanation-error">
+                          {explanations[questionId].error}
+                        </div>
+                      ) : explanations[questionId]?.explanation ? (
+                        <Typewriter 
+                          key={`typewriter-${questionId}-${explanations[questionId].explanation?.length || 0}`}
+                          text={explanations[questionId].explanation || ''} 
+                        />
+                      ) : null}
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })}
@@ -5091,13 +5433,14 @@ function App() {
                 <div className="review-question-number">
                   Вопрос {index + 1} из {questions.length}
                 </div>
-                {question.image && (
-                  <img
-                    src={question.image}
-                    alt="question"
-                    className="review-question-image"
-                  />
-                )}
+            {/* TODO: Ensure this image is compressed (WebP or compressed PNG under 50kb) */}
+            {question.image && (
+              <img
+                src={question.image}
+                alt="question"
+                className="review-question-image"
+              />
+            )}
                 <h3 className="review-question-text">{question.text}</h3>
                 
                 <div className="review-answers">
@@ -5182,6 +5525,50 @@ function App() {
                     );
                   })}
                 </div>
+                
+                {/* Блок с объяснением ИИ для неправильных ответов */}
+                {(() => {
+                  const userSelectedId = userAnswer?.selectedAnswerId;
+                  const correctAnswer = question.answers.find(a => a.correct === true);
+                  const userSelectedAnswer = question.answers.find(a => {
+                    const normalizeId = (id) => {
+                      if (id === null || id === undefined) return null;
+                      const num = Number(id);
+                      if (!isNaN(num)) return num;
+                      return String(id);
+                    };
+                    return normalizeId(a.id) === normalizeId(userSelectedId);
+                  });
+                  const isIncorrect = userSelectedAnswer && !userSelectedAnswer.correct;
+                  const questionId = question.id || `q-${index}`;
+                  
+                  if (!isIncorrect) return null;
+                  
+                  return (
+                    <div className="ai-explanation-block">
+                      <div className="ai-explanation-header">
+                        <span className="ai-explanation-icon">🤖</span>
+                        <span className="ai-explanation-title">Объяснение ИИ:</span>
+                      </div>
+                      <div className="ai-explanation-content">
+                        {explanations[questionId]?.loading ? (
+                          <div className="ai-explanation-loading">
+                            <span>ИИ анализирует ваш ответ...</span>
+                          </div>
+                        ) : explanations[questionId]?.error ? (
+                          <div className="ai-explanation-error">
+                            {explanations[questionId].error}
+                          </div>
+                        ) : explanations[questionId]?.explanation ? (
+                          <Typewriter 
+                            key={explanations[questionId].explanation}
+                            text={explanations[questionId].explanation || ''}
+                          />
+                        ) : null}
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             );
           })}
@@ -5274,7 +5661,6 @@ function App() {
     if (!question) {
       return (
         <>
-          <SubscriptionStatusBadge />
           <div className="quiz-container">
             <div className="quiz-content">
               <p>Вопрос не найден</p>
@@ -5287,7 +5673,6 @@ function App() {
 
     return (
       <>
-        <SubscriptionStatusBadge />
         <div className="quiz-container-new">
         <div className="quiz-header-new">
           <div className="quiz-header-left">
@@ -5332,6 +5717,7 @@ function App() {
           </h2>
           
           <div className="question-box">
+            {/* TODO: Ensure this image is compressed (WebP or compressed PNG under 50kb) */}
             {question.image && (
               <img
                 src={question.image}
@@ -5540,6 +5926,8 @@ function App() {
         })}
         </div>
       </div>
+      {/* Модальное окно оплаты */}
+      <PaymentModal />
     </>
   )
 }
