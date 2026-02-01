@@ -13,7 +13,13 @@ function createApp({ pool }) {
 
   const app = express();
 
-  app.use(cors());
+  // Настройка CORS максимально открыто (для Vercel, Localhost, Telegram)
+  app.use(cors({
+    origin: '*', // Разрешаем всем (Vercel, Localhost, Telegram)
+    methods: ['GET', 'POST', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization']
+  }));
+  
   app.use(express.json({ limit: '2mb' }));
 
   app.get('/health', (_req, res) => res.json({ ok: true }));
