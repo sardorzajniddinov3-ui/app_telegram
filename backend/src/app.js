@@ -9,12 +9,6 @@ function createApp({ pool, app }) {
   if (!pool) throw new Error('pool is required');
   if (!app) throw new Error('app is required');
 
-  // 1. Сначала ЛОГИ (чтобы видеть запросы в Railway)
-  app.use((req, res, next) => {
-    console.log(`Incoming request: ${req.method} ${req.url}`);
-    next();
-  });
-
   app.get('/health', (_req, res) => res.json({ ok: true }));
 
   app.use('/api', authRouter({ pool }));

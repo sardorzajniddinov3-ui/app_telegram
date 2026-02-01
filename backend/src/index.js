@@ -46,12 +46,19 @@ async function main() {
   // Создаем Express приложение
   const app = express();
   
-  // ИСПОЛЬЗОВАНИЕ CORS (Сразу после app = express())
+  // 1. САМОЕ ПЕРВОЕ - CORS
   app.use(cors({ origin: '*' }));
   
+  // 2. Потом JSON
   app.use(express.json());
   
-  // Добавляем роуты к app
+  // 3. Потом логи (опционально)
+  app.use((req, res, next) => {
+    console.log('Request:', req.method, req.url);
+    next();
+  });
+  
+  // 4. Потом роуты
   createApp({ pool, app });
 
   // Запускаем сервер на 0.0.0.0 для Railway (принимает соединения извне)
