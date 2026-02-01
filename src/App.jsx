@@ -3194,6 +3194,7 @@ function App() {
   const PaymentModal = () => {
     const inputRef = useRef(null);
     const overlayRef = useRef(null);
+    const isInputFocusedRef = useRef(false);
     const [localPaymentSenderInfo, setLocalPaymentSenderInfo] = useState('');
 
     // Синхронизируем локальное состояние с глобальным при открытии модального окна
