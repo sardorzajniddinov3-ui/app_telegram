@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, Suspense, lazy } from 'react'
+import { useState, useEffect, useRef, Suspense, lazy, useCallback } from 'react'
 import './App.css'
 import { initTelegramWebAppSafe, getTelegramColorScheme } from './telegram'
 import { supabase } from './supabase'
@@ -2990,7 +2990,40 @@ function App() {
 
   // Компонент модального окна оплаты
   const PaymentModal = () => {
+    const inputRef = useRef(null);
+    const wasFocusedRef = useRef(false);
+
     if (!selectedTariff) return null;
+
+    // Сохраняем фокус на input, если он был в фокусе до перерендера
+    useEffect(() => {
+      if (inputRef.current && wasFocusedRef.current) {
+        // Используем requestAnimationFrame для более плавного восстановления фокуса
+        requestAnimationFrame(() => {
+          if (inputRef.current) {
+            inputRef.current.focus();
+            // Устанавливаем курсор в конец текста
+            const length = inputRef.current.value.length;
+            inputRef.current.setSelectionRange(length, length);
+          }
+        });
+      }
+    });
+
+    // Отслеживаем, когда input получает фокус
+    const handleInputFocus = useCallback(() => {
+      wasFocusedRef.current = true;
+    }, []);
+
+    // Отслеживаем, когда input теряет фокус (но только если это не из-за закрытия модального окна)
+    const handleInputBlur = useCallback(() => {
+      // Не сбрасываем флаг сразу, даем небольшую задержку
+      setTimeout(() => {
+        if (inputRef.current && document.activeElement !== inputRef.current) {
+          wasFocusedRef.current = false;
+        }
+      }, 100);
+    }, []);
 
     const handleCopyCardNumber = () => {
       navigator.clipboard.writeText('9860 3501 4622 7235').then(() => {
@@ -2999,6 +3032,21 @@ function App() {
         alert('Не удалось скопировать номер карты');
       });
     };
+
+    const handleInputChange = useCallback((e) => {
+      const value = e.target.value;
+      setPaymentSenderInfo(value);
+      // Сохраняем фокус после обновления состояния
+      wasFocusedRef.current = true;
+      // Восстанавливаем фокус после небольшой задержки
+      requestAnimationFrame(() => {
+        if (inputRef.current && wasFocusedRef.current) {
+          inputRef.current.focus();
+          const length = inputRef.current.value.length;
+          inputRef.current.setSelectionRange(length, length);
+        }
+      });
+    }, []);
 
     return (
       <div className="payment-modal-overlay" onClick={() => setSelectedTariff(null)}>
@@ -3029,11 +3077,15 @@ function App() {
                 Ваше имя или последние 4 цифры карты
               </label>
               <input
+                ref={inputRef}
                 type="text"
                 className="payment-input"
                 placeholder="Введите имя или 4 цифры карты"
                 value={paymentSenderInfo}
-                onChange={(e) => setPaymentSenderInfo(e.target.value)}
+                onChange={handleInputChange}
+                onFocus={handleInputFocus}
+                onBlur={handleInputBlur}
+                autoFocus
               />
             </div>
 
