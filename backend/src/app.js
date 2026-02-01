@@ -13,13 +13,18 @@ function createApp({ pool }) {
 
   const app = express();
 
-  // Настройка CORS максимально открыто (для Vercel, Localhost, Telegram)
+  // 1. САМОЕ ВАЖНОЕ: Разрешаем CORS для всех сразу после создания app
   app.use(cors({
     origin: '*', // Разрешаем всем (Vercel, Localhost, Telegram)
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization']
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: false // Не нужны credentials при origin: '*'
   }));
-  
+
+  // Явная обработка preflight запросов (OPTIONS)
+  app.options('*', cors());
+
+  // 2. Потом парсеры
   app.use(express.json({ limit: '2mb' }));
 
   app.get('/health', (_req, res) => res.json({ ok: true }));
