@@ -63,9 +63,7 @@ async function main() {
 
   // Запускаем сервер на 0.0.0.0 для Railway (принимает соединения извне)
   const server = app.listen(PORT, '0.0.0.0', () => {
-    console.log(`✅ Server is running on http://0.0.0.0:${PORT}`);
-    console.log(`✅ Health check available at http://0.0.0.0:${PORT}/health`);
-    console.log(`✅ Environment: ${process.env.NODE_ENV || 'development'}`);
+    console.log(`Server running on port ${PORT}`);
   });
 
   // Обработка ошибок сервера
