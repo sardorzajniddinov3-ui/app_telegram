@@ -13,18 +13,20 @@ function createApp({ pool }) {
 
   const app = express();
 
-  // 1. САМОЕ ВАЖНОЕ: Разрешаем CORS для всех сразу после создания app
+  // 1. Сначала ЛОГИ (чтобы видеть запросы в Railway)
+  app.use((req, res, next) => {
+    console.log(`Incoming request: ${req.method} ${req.url}`);
+    next();
+  });
+
+  // 2. Сразу после этого - CORS (Разрешаем всё)
   app.use(cors({
-    origin: '*', // Разрешаем всем (Vercel, Localhost, Telegram)
+    origin: '*', 
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
-    credentials: false // Не нужны credentials при origin: '*'
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-requested-with']
   }));
 
-  // Явная обработка preflight запросов (OPTIONS)
-  app.options('*', cors());
-
-  // 2. Потом парсеры
+  // 3. Потом JSON
   app.use(express.json({ limit: '2mb' }));
 
   app.get('/health', (_req, res) => res.json({ ok: true }));
