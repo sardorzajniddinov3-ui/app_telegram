@@ -6,6 +6,7 @@ const { testsRouter } = require('./routes/tests');
 const { resultsRouter } = require('./routes/results');
 const { createAdminRouter } = require('./routes/admin');
 const { subscriptionRouter } = require('./routes/subscription');
+const { notifyRouter } = require('./routes/notify');
 
 function createApp({ pool }) {
   if (!pool) throw new Error('pool is required');
@@ -21,6 +22,7 @@ function createApp({ pool }) {
   app.use('/api', testsRouter({ pool }));
   app.use('/api', resultsRouter({ pool }));
   app.use('/api', subscriptionRouter({ pool }));
+  app.use('/api/notify', notifyRouter());
   app.use('/api/admin', createAdminRouter(pool));
 
   // Error handler

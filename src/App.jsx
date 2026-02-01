@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, Suspense, lazy, useCallback } from 'react'
+import { useState, useEffect, useRef, Suspense, lazy, useCallback, memo } from 'react'
 import './App.css'
 import { initTelegramWebAppSafe, getTelegramColorScheme } from './telegram'
 import { supabase } from './supabase'
@@ -241,6 +241,17 @@ function App() {
   const [showTariffSelection, setShowTariffSelection] = useState(false) // Показать выбор тарифов в модальном окне
   const [selectedTariff, setSelectedTariff] = useState(null) // Выбранный тариф для оплаты
   const [paymentSenderInfo, setPaymentSenderInfo] = useState('') // Информация об отправителе платежа
+  const [showPaymentModal, setShowPaymentModal] = useState(false) // Видимость модального окна оплаты
+  const [isPaymentProcessing, setIsPaymentProcessing] = useState(() => {
+    // Загружаем статус обработки из localStorage при инициализации
+    try {
+      const saved = localStorage.getItem('payment_processing');
+      return saved === 'true';
+    } catch (e) {
+      return false;
+    }
+  }) // Статус обработки платежа
+  const [paymentModalAnimated, setPaymentModalAnimated] = useState(false) // Флаг, что анимация уже была показана
   const [adminsList, setAdminsList] = useState([]) // Список администраторов
   const [adminsLoading, setAdminsLoading] = useState(false)
   const [adminsError, setAdminsError] = useState(null)
@@ -1012,6 +1023,43 @@ function App() {
         if (error.code === 'PGRST116') {
           console.log('Активная подписка не найдена для пользователя:', currentUserId);
           setSubscriptionInfo({ active: false, subscriptionExpiresAt: null });
+          
+          // Проверяем наличие pending платежей
+          if (currentUserId) {
+            const { data: pendingPayments, error: paymentError } = await supabase
+              .from('payment_requests')
+              .select('*')
+              .eq('user_id', currentUserId)
+              .eq('status', 'pending')
+              .order('created_at', { ascending: false })
+              .limit(1);
+            
+            if (!paymentError && pendingPayments && pendingPayments.length > 0) {
+              // Есть pending платеж, устанавливаем статус обработки
+              setIsPaymentProcessing(true);
+              try {
+                localStorage.setItem('payment_processing', 'true');
+              } catch (e) {
+                console.error('Ошибка сохранения статуса обработки:', e);
+              }
+            } else {
+              // Нет pending платежей, сбрасываем статус
+              setIsPaymentProcessing(false);
+              try {
+                localStorage.removeItem('payment_processing');
+              } catch (e) {
+                console.error('Ошибка удаления статуса обработки:', e);
+              }
+            }
+          } else {
+            // Если не удалось получить ID пользователя, сбрасываем статус
+            setIsPaymentProcessing(false);
+            try {
+              localStorage.removeItem('payment_processing');
+            } catch (e) {
+              console.error('Ошибка удаления статуса обработки:', e);
+            }
+          }
           return;
         }
         console.error('Ошибка загрузки подписки из Supabase:', error);
@@ -1028,13 +1076,103 @@ function App() {
           active: isActive,
           subscriptionExpiresAt: data.end_date
         });
+        
+        // Если подписка активна, сбрасываем статус обработки платежа
+        if (isActive) {
+          setIsPaymentProcessing(false);
+          // Удаляем статус из localStorage
+          try {
+            localStorage.removeItem('payment_processing');
+          } catch (e) {
+            console.error('Ошибка удаления статуса обработки:', e);
+          }
+        }
       } else {
         console.log('Подписка не найдена или истекла');
         setSubscriptionInfo({ active: false, subscriptionExpiresAt: null });
+        
+        // Если подписка неактивна, проверяем наличие pending платежей
+        const tgUser = initTelegramWebAppSafe();
+        const userId = tgUser?.id ? Number(tgUser.id) : null;
+        if (userId) {
+          const { data: pendingPayments, error: paymentError } = await supabase
+            .from('payment_requests')
+            .select('*')
+            .eq('user_id', userId)
+            .eq('status', 'pending')
+            .order('created_at', { ascending: false })
+            .limit(1);
+          
+          if (!paymentError && pendingPayments && pendingPayments.length > 0) {
+            // Есть pending платеж, устанавливаем статус обработки
+            setIsPaymentProcessing(true);
+            try {
+              localStorage.setItem('payment_processing', 'true');
+            } catch (e) {
+              console.error('Ошибка сохранения статуса обработки:', e);
+            }
+          } else {
+            // Нет pending платежей, сбрасываем статус
+            setIsPaymentProcessing(false);
+            try {
+              localStorage.removeItem('payment_processing');
+            } catch (e) {
+              console.error('Ошибка удаления статуса обработки:', e);
+            }
+          }
+        }
       }
     } catch (error) {
       console.error('Ошибка загрузки подписки:', error);
       setSubscriptionInfo({ active: false, subscriptionExpiresAt: null });
+      
+      // При ошибке проверяем pending платежи
+      const tgUser = initTelegramWebAppSafe();
+      const userId = tgUser?.id ? Number(tgUser.id) : null;
+      if (userId) {
+        try {
+          const { data: pendingPayments, error: paymentError } = await supabase
+            .from('payment_requests')
+            .select('*')
+            .eq('user_id', userId)
+            .eq('status', 'pending')
+            .order('created_at', { ascending: false })
+            .limit(1);
+          
+          if (!paymentError && pendingPayments && pendingPayments.length > 0) {
+            setIsPaymentProcessing(true);
+            try {
+              localStorage.setItem('payment_processing', 'true');
+            } catch (e) {
+              console.error('Ошибка сохранения статуса обработки:', e);
+            }
+          } else {
+            setIsPaymentProcessing(false);
+            try {
+              localStorage.removeItem('payment_processing');
+            } catch (e) {
+              console.error('Ошибка удаления статуса обработки:', e);
+            }
+          }
+        } catch (checkError) {
+          console.error('Ошибка проверки pending платежей:', checkError);
+          // При ошибке проверки сбрасываем статус
+          setIsPaymentProcessing(false);
+          try {
+            localStorage.removeItem('payment_processing');
+          } catch (e) {
+            console.error('Ошибка удаления статуса обработки:', e);
+          }
+        }
+      } else {
+        // Если не удалось получить ID, сбрасываем статус
+        setIsPaymentProcessing(false);
+        try {
+          localStorage.removeItem('payment_processing');
+        } catch (e) {
+          console.error('Ошибка удаления статуса обработки:', e);
+        }
+      }
     }
   };
 
@@ -2962,6 +3100,18 @@ function App() {
         return;
       }
 
+      // Устанавливаем статус обработки и открываем модальное окно подписки сразу
+      setIsPaymentProcessing(true);
+      // Сохраняем статус в localStorage
+      try {
+        localStorage.setItem('payment_processing', 'true');
+      } catch (e) {
+        console.error('Ошибка сохранения статуса обработки:', e);
+      }
+      setShowPaymentModal(false);
+      setShowSubscriptionModal(true);
+      setShowTariffSelection(false);
+
       const { error } = await supabase
         .from('payment_requests')
         .insert({
@@ -2975,55 +3125,85 @@ function App() {
       if (error) {
         console.error('Ошибка сохранения запроса на оплату:', error);
         alert('Ошибка при сохранении запроса на оплату: ' + error.message);
+        setIsPaymentProcessing(false);
+        // Удаляем статус из localStorage при ошибке
+        try {
+          localStorage.removeItem('payment_processing');
+        } catch (e) {
+          console.error('Ошибка удаления статуса обработки:', e);
+        }
         return;
+      }
+
+      // Отправляем уведомление в Telegram (не блокируем процесс, если не удалось)
+      try {
+        const notifyUrl = `${BACKEND_URL}/api/notify/payment`;
+        console.log('📤 Отправка уведомления в Telegram:', {
+          url: notifyUrl,
+          backendUrl: BACKEND_URL,
+          amount: tariff.price,
+          tariffName: tariff.name,
+          userId: userId
+        });
+
+        const notifyResponse = await fetch(notifyUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            amount: tariff.price,
+            tariffName: tariff.name,
+            userInfo: senderInfo,
+            userId: userId
+          })
+        });
+
+        if (!notifyResponse.ok) {
+          const errorText = await notifyResponse.text();
+          console.error('❌ Ошибка отправки уведомления:', {
+            status: notifyResponse.status,
+            statusText: notifyResponse.statusText,
+            error: errorText
+          });
+        } else {
+          const result = await notifyResponse.json();
+          console.log('✅ Уведомление отправлено успешно:', result);
+        }
+      } catch (notifyError) {
+        console.error('❌ Ошибка отправки уведомления:', notifyError);
+        // Не блокируем процесс оплаты из-за ошибки уведомления
       }
 
       alert('Запрос на оплату успешно отправлен! Мы проверим платеж и активируем подписку в ближайшее время.');
       setSelectedTariff(null);
       setPaymentSenderInfo('');
-      setShowSubscriptionModal(false);
+      // Статус обработки остается true, чтобы показывать "Данные в обработке" в статусе подписки
     } catch (err) {
       console.error('Ошибка при сохранении запроса на оплату:', err);
       alert('Произошла ошибка при отправке запроса на оплату');
+      setIsPaymentProcessing(false);
+      // Удаляем статус из localStorage при ошибке
+      try {
+        localStorage.removeItem('payment_processing');
+      } catch (e) {
+        console.error('Ошибка удаления статуса обработки:', e);
+      }
     }
   };
 
   // Компонент модального окна оплаты
   const PaymentModal = () => {
     const inputRef = useRef(null);
-    const wasFocusedRef = useRef(false);
+    const overlayRef = useRef(null);
+    const [localPaymentSenderInfo, setLocalPaymentSenderInfo] = useState('');
 
-    if (!selectedTariff) return null;
-
-    // Сохраняем фокус на input, если он был в фокусе до перерендера
+    // Синхронизируем локальное состояние с глобальным при открытии модального окна
     useEffect(() => {
-      if (inputRef.current && wasFocusedRef.current) {
-        // Используем requestAnimationFrame для более плавного восстановления фокуса
-        requestAnimationFrame(() => {
-          if (inputRef.current) {
-            inputRef.current.focus();
-            // Устанавливаем курсор в конец текста
-            const length = inputRef.current.value.length;
-            inputRef.current.setSelectionRange(length, length);
-          }
-        });
+      if (showPaymentModal && selectedTariff) {
+        setLocalPaymentSenderInfo(paymentSenderInfo || '');
       }
-    });
+    }, [showPaymentModal, selectedTariff]);
 
-    // Отслеживаем, когда input получает фокус
-    const handleInputFocus = useCallback(() => {
-      wasFocusedRef.current = true;
-    }, []);
-
-    // Отслеживаем, когда input теряет фокус (но только если это не из-за закрытия модального окна)
-    const handleInputBlur = useCallback(() => {
-      // Не сбрасываем флаг сразу, даем небольшую задержку
-      setTimeout(() => {
-        if (inputRef.current && document.activeElement !== inputRef.current) {
-          wasFocusedRef.current = false;
-        }
-      }, 100);
-    }, []);
+    if (!selectedTariff || !showPaymentModal) return null;
 
     const handleCopyCardNumber = () => {
       navigator.clipboard.writeText('9860 3501 4622 7235').then(() => {
@@ -3035,25 +3215,59 @@ function App() {
 
     const handleInputChange = useCallback((e) => {
       const value = e.target.value;
-      setPaymentSenderInfo(value);
-      // Сохраняем фокус после обновления состояния
-      wasFocusedRef.current = true;
-      // Восстанавливаем фокус после небольшой задержки
-      requestAnimationFrame(() => {
-        if (inputRef.current && wasFocusedRef.current) {
-          inputRef.current.focus();
-          const length = inputRef.current.value.length;
-          inputRef.current.setSelectionRange(length, length);
+      setLocalPaymentSenderInfo(value);
+      // НЕ обновляем глобальное состояние при каждом изменении, только при отправке
+    }, []);
+
+    const handleInputFocus = () => {
+      isInputFocusedRef.current = true;
+    };
+
+    const handleInputBlur = () => {
+      // Небольшая задержка, чтобы проверить, не перешел ли фокус на другой элемент модального окна
+      setTimeout(() => {
+        if (document.activeElement !== inputRef.current) {
+          isInputFocusedRef.current = false;
         }
-      });
+      }, 100);
+    };
+
+    const handleOverlayClick = useCallback((e) => {
+      // Закрываем модальное окно только если клик был именно на overlay (e.target === e.currentTarget)
+      // НЕ закрываем, если input в фокусе (пользователь вводит текст)
+      if (e.target === e.currentTarget && !isInputFocusedRef.current && document.activeElement !== inputRef.current) {
+        setSelectedTariff(null);
+        setPaymentSenderInfo('');
+        setShowPaymentModal(false);
+      setPaymentModalAnimated(false); // Сбрасываем флаг анимации при закрытии
+      }
     }, []);
 
     return (
-      <div className="payment-modal-overlay" onClick={() => setSelectedTariff(null)}>
-        <div className="payment-modal-content" onClick={(e) => e.stopPropagation()}>
+      <div 
+        ref={overlayRef}
+        className="payment-modal-overlay" 
+        onClick={handleOverlayClick}
+        onMouseDown={(e) => {
+          // Предотвращаем закрытие при клике на overlay во время ввода
+          if (e.target === e.currentTarget && document.activeElement === inputRef.current) {
+            e.preventDefault();
+            e.stopPropagation();
+          }
+        }}
+      >
+        <div 
+          className="payment-modal-content"
+          onClick={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
+        >
           <div className="payment-modal-header">
             <h2 className="payment-modal-title">Оплата тарифа {selectedTariff.name}</h2>
-            <button className="payment-modal-close" onClick={() => setSelectedTariff(null)}>
+            <button className="payment-modal-close" onClick={() => {
+              setSelectedTariff(null);
+              setPaymentSenderInfo('');
+              setShowPaymentModal(false);
+            }}>
               ✕
             </button>
           </div>
@@ -3081,7 +3295,7 @@ function App() {
                 type="text"
                 className="payment-input"
                 placeholder="Введите имя или 4 цифры карты"
-                value={paymentSenderInfo}
+                value={localPaymentSenderInfo}
                 onChange={handleInputChange}
                 onFocus={handleInputFocus}
                 onBlur={handleInputBlur}
@@ -3092,8 +3306,11 @@ function App() {
             <div className="payment-modal-actions">
               <button
                 className="payment-confirm-button"
-                onClick={() => handlePaymentRequest(selectedTariff, paymentSenderInfo)}
-                disabled={!paymentSenderInfo.trim()}
+                onClick={() => {
+                  setPaymentSenderInfo(localPaymentSenderInfo);
+                  handlePaymentRequest(selectedTariff, localPaymentSenderInfo);
+                }}
+                disabled={!localPaymentSenderInfo.trim()}
               >
                 ✅ Я оплатил
               </button>
@@ -3102,6 +3319,8 @@ function App() {
                 onClick={() => {
                   setSelectedTariff(null);
                   setPaymentSenderInfo('');
+                  setShowPaymentModal(false);
+      setPaymentModalAnimated(false); // Сбрасываем флаг анимации при закрытии
                 }}
               >
                 Отмена
@@ -3127,6 +3346,7 @@ function App() {
                 setShowTariffSelection(false);
                 setTimeout(() => {
                   setShowSubscriptionModal(false);
+                  setShowPaymentModal(true);
                 }, 50);
               }}
             >
@@ -3162,6 +3382,11 @@ function App() {
     if (userRole === 'admin' || loading || userRole === null) return null;
 
     const isActive = hasActiveSubscription();
+    
+    // Определяем, что показывать: корона, часы или замок
+    const showCrown = isActive;
+    const showClock = !isActive && isPaymentProcessing;
+    const showLock = !isActive && !isPaymentProcessing;
 
     return (
       <>
@@ -3169,7 +3394,7 @@ function App() {
           className="subscription-status-badge"
           onClick={() => setShowSubscriptionModal(true)}
         >
-          {isActive ? (
+          {showCrown ? (
             <div className="subscription-badge-active">
               <svg
                 className="subscription-badge-icon"
@@ -3187,7 +3412,25 @@ function App() {
                 <path d="M12 18l-1-4 1-4 1 4-1 4z" />
               </svg>
             </div>
-          ) : (
+          ) : showClock ? (
+            <div className="subscription-badge-inactive">
+              <svg
+                className="subscription-badge-icon"
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                {/* Clock icon */}
+                <circle cx="12" cy="12" r="10" />
+                <polyline points="12 6 12 12 16 14" />
+              </svg>
+            </div>
+          ) : showLock ? (
             <div className="subscription-badge-inactive">
               <svg
                 className="subscription-badge-icon"
@@ -3205,7 +3448,7 @@ function App() {
                 <path d="M7 11V7a5 5 0 0 1 10 0v4" />
               </svg>
             </div>
-          )}
+          ) : null}
         </div>
 
         {showSubscriptionModal && (
@@ -3238,7 +3481,32 @@ function App() {
                     </button>
                     <TariffSelection />
                   </>
-                ) : isActive ? (
+                ) : isPaymentProcessing ? (
+                  <>
+                    <div className="subscription-status-card processing">
+                      <div className="subscription-status-icon-large">
+                        <svg
+                          width="48"
+                          height="48"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          {/* Clock icon */}
+                          <circle cx="12" cy="12" r="10" />
+                          <polyline points="12 6 12 12 16 14" />
+                        </svg>
+                      </div>
+                      <h3 className="subscription-status-title">Данные в обработке</h3>
+                      <p className="subscription-status-description">
+                        Ваш запрос на оплату обрабатывается. Мы проверим платеж и активируем подписку в ближайшее время.
+                      </p>
+                    </div>
+                  </>
+                ) : hasActiveSubscription() ? (
                   <>
                     <div className="subscription-status-card active">
                       <div className="subscription-status-icon-large">
@@ -5979,7 +6247,9 @@ function App() {
         </div>
       </div>
       {/* Модальное окно оплаты */}
-      <PaymentModal />
+      {showPaymentModal && selectedTariff && (
+        <PaymentModal />
+      )}
     </>
   )
 }
