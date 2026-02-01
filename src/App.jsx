@@ -3,7 +3,7 @@ import './App.css'
 import { initTelegramWebAppSafe, getTelegramColorScheme } from './telegram'
 import { supabase } from './supabase'
 
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000';
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'https://apptelegram-production-4131.up.railway.app';
 
 // Компонент экрана загрузки
 const LoadingScreen = () => {
