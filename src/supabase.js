@@ -4,6 +4,10 @@ import { createClient } from '@supabase/supabase-js'
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
+// Проверка загрузки ключей (для отладки в браузере)
+console.log('Supabase URL exists:', !!supabaseUrl);
+console.log('Supabase Key exists:', !!supabaseKey);
+
 // Проверка наличия переменных окружения
 if (!supabaseUrl || !supabaseKey) {
   console.error("⛔ CRITICAL: Supabase keys are missing! Check .env variables.");
