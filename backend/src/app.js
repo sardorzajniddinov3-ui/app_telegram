@@ -9,8 +9,6 @@ function createApp({ pool, app }) {
   if (!pool) throw new Error('pool is required');
   if (!app) throw new Error('app is required');
 
-  app.get('/health', (_req, res) => res.json({ ok: true }));
-
   app.use('/api', authRouter({ pool }));
   app.use('/api', testsRouter({ pool }));
   app.use('/api', resultsRouter({ pool }));

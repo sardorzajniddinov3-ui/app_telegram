@@ -58,6 +58,15 @@ async function main() {
     next();
   });
   
+  // Проверка здоровья сервера (чтобы Railway не убивал процесс)
+  app.get('/', (req, res) => {
+    res.status(200).send('Server is running and healthy! 🚀');
+  });
+
+  app.get('/health', (req, res) => {
+    res.status(200).json({ status: 'ok', timestamp: new Date() });
+  });
+  
   // 4. Потом роуты
   createApp({ pool, app });
 
