@@ -72,7 +72,7 @@ async function main() {
 
   // Запускаем сервер на 0.0.0.0 для Railway (принимает соединения извне)
   const server = app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server running on port ${PORT}`);
+    console.log(`Server started on port ${PORT}`);
   });
 
   // Обработка ошибок сервера
