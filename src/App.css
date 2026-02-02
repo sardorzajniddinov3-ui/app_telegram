@@ -293,8 +293,12 @@ button {
   width: 100%;
 }
 
-.answer-item:hover {
-  background-color: #BBDEFB;
+/* Свечение при наведении убрано */
+
+/* Убираем все эффекты при нажатии на мобильных устройствах */
+.answer-item:active {
+  transform: none;
+  box-shadow: none;
 }
 
 .answer-selected {
@@ -303,8 +307,25 @@ button {
   border-width: 3px;
   color: #fff;
   font-weight: 600;
-  box-shadow: 0 4px 12px rgba(33, 150, 243, 0.4);
-  transform: scale(1.02);
+  /* Убрано свечение (box-shadow и transform) */
+}
+
+/* Убираем эффекты свечения на мобильных устройствах */
+@media (max-width: 768px) {
+  .answer-item {
+    transition: none;
+  }
+  
+  .answer-item:active {
+    transform: none;
+    box-shadow: none;
+    background-color: var(--topic-item-bg, #E3F2FD);
+  }
+  
+  .answer-selected {
+    transform: none;
+    box-shadow: none;
+  }
 }
 
 .answer-correct {
@@ -443,6 +464,21 @@ body[data-theme="dark"] .answer-incorrect {
 
 .app-logo-text {
   display: inline-block;
+}
+
+/* Увеличение логотипа для мобильных устройств */
+@media (max-width: 480px) {
+  .app-logo {
+    font-size: 48px;
+    margin-top: 24px;
+  }
+}
+
+/* Для очень маленьких экранов */
+@media (max-width: 360px) {
+  .app-logo {
+    font-size: 44px;
+  }
 }
 
 /* Анимация свечения - едва заметная */
@@ -930,35 +966,24 @@ body[data-theme="dark"] .app-logo-go {
 /* Стили для объяснения ИИ */
 .ai-explanation-block {
   margin-top: 20px;
-  padding: 16px;
-  background: #1a237e; /* Темно-синий фон */
-  border-radius: 12px;
-  border: 1px solid rgba(100, 181, 246, 0.5); /* Тонкая светлая синяя рамка по всему периметру */
+  padding: 12px 16px;
+  background-color: #f0f7ff; /* Светло-голубой фон как у exam-available-questions */
+  border-radius: 10px;
+  border-left: 3px solid #2196F3; /* Синяя левая граница */
   position: relative;
   overflow: hidden;
 }
 
-/* Яркая светлая синяя вертикальная линия слева */
-.ai-explanation-block::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  bottom: 0;
-  width: 4px;
-  background: #64b5f6; /* Яркая светлая синяя линия */
-  z-index: 1;
-  box-shadow: 0 0 8px rgba(100, 181, 246, 0.8); /* Эффект свечения */
-}
+/* Убираем псевдоэлемент ::before, так как используем border-left */
 
 .ai-explanation-header {
   display: flex;
   align-items: center;
   gap: 8px;
   margin-bottom: 12px;
-  font-weight: 700;
+  font-weight: 600;
   font-size: 16px;
-  color: #90caf9; /* Светло-синий текст */
+  color: #2196F3; /* Синий цвет как у exam-available-questions */
 }
 
 .ai-explanation-icon {
@@ -966,17 +991,17 @@ body[data-theme="dark"] .app-logo-go {
 }
 
 .ai-explanation-title {
-  color: #90caf9; /* Светло-синий текст */
+  color: #2196F3; /* Синий цвет как у exam-available-questions */
 }
 
 .ai-explanation-content {
-  color: #90caf9; /* Светло-синий текст */
+  color: #2196F3; /* Синий цвет как у exam-available-questions */
   line-height: 1.6;
   font-size: 15px;
 }
 
 .ai-explanation-loading {
-  color: #90caf9; /* Светло-синий текст */
+  color: #2196F3; /* Синий цвет как у exam-available-questions */
   font-style: italic;
 }
 
@@ -986,7 +1011,7 @@ body[data-theme="dark"] .app-logo-go {
 }
 
 .ai-explanation-text {
-  color: #90caf9; /* Светло-синий текст */
+  color: #2196F3; /* Синий цвет как у exam-available-questions */
   white-space: pre-wrap;
   word-wrap: break-word;
 }
@@ -1011,14 +1036,23 @@ body[data-theme="dark"] .app-logo-go {
   }
 }
 
-/* Темный режим для объяснения ИИ - используем те же стили */
+/* Темный режим для объяснения ИИ - как у exam-available-questions */
 body[data-theme="dark"] .ai-explanation-block {
-  background: #1a237e; /* Темно-синий фон */
-  border-color: #3f51b5; /* Яркая синяя рамка */
+  background-color: rgba(33, 150, 243, 0.15); /* Полупрозрачный синий фон */
+  border-left-color: #2196F3; /* Синяя левая граница */
 }
 
 body[data-theme="dark"] .typewriter-cursor {
-  background-color: #90caf9; /* Светло-синий курсор */
+  background-color: #64b5f6; /* Светло-синий курсор */
+}
+
+/* Темный режим для текста ИИ - как у exam-available-questions */
+body[data-theme="dark"] .ai-explanation-header,
+body[data-theme="dark"] .ai-explanation-title,
+body[data-theme="dark"] .ai-explanation-content,
+body[data-theme="dark"] .ai-explanation-loading,
+body[data-theme="dark"] .ai-explanation-text {
+  color: #64b5f6; /* Светло-синий цвет текста как у exam-available-questions */
 }
 
 .review-question-block {
@@ -4244,4 +4278,97 @@ body[data-theme="light"] .tariff-back-button {
 body[data-theme="light"] .tariff-back-button:hover {
   background-color: var(--bg-secondary, #f5f5f5);
   color: var(--text-color, #1a1a1a);
+}
+
+/* ========== ИИ-ОБЪЯСНЕНИЕ: Стили для эффекта печатания ========== */
+/* Стили уже определены выше, дублируем только для совместимости */
+
+.ai-explanation-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  font-weight: 600;
+  color: var(--text-color, #ffffff);
+  font-size: 15px;
+}
+
+body[data-theme="light"] .ai-explanation-header {
+  color: var(--text-color, #1a1a1a);
+}
+
+.ai-explanation-icon {
+  font-size: 18px;
+}
+
+.ai-explanation-title {
+  font-size: 15px;
+}
+
+.ai-explanation-content {
+  color: var(--text-color, #ffffff);
+  line-height: 1.6;
+  font-size: 14px;
+}
+
+body[data-theme="light"] .ai-explanation-content {
+  color: var(--text-color, #1a1a1a);
+}
+
+.ai-explanation-text {
+  display: inline-block;
+  color: var(--text-color, #ffffff);
+  line-height: 1.6;
+  font-size: 14px;
+}
+
+body[data-theme="light"] .ai-explanation-text {
+  color: var(--text-color, #1a1a1a);
+}
+
+.typewriter-cursor {
+  display: inline-block;
+  margin-left: 2px;
+  color: var(--text-color, #ffffff);
+  animation: blink 1s infinite;
+  font-weight: 300;
+}
+
+body[data-theme="light"] .typewriter-cursor {
+  color: var(--text-color, #1a1a1a);
+}
+
+@keyframes blink {
+  0%, 50% {
+    opacity: 1;
+  }
+  51%, 100% {
+    opacity: 0;
+  }
+}
+
+.ai-explanation-loading {
+  color: var(--text-secondary, #98989E);
+  font-style: italic;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ai-explanation-loading::before {
+  content: '⏳';
+  font-size: 16px;
+}
+
+.ai-explanation-error {
+  color: var(--error-color, #f44336);
+  font-size: 14px;
+  padding: 8px;
+  background-color: rgba(244, 67, 54, 0.1);
+  border-radius: 8px;
+  border-left: 3px solid var(--error-color, #f44336);
+}
+
+body[data-theme="light"] .ai-explanation-error {
+  background-color: rgba(244, 67, 54, 0.05);
 }

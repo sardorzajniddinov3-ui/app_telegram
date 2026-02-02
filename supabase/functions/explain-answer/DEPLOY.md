@@ -9,13 +9,14 @@ supabase functions deploy explain-answer
 
 ## Настройка переменных окружения:
 
-Перед деплоем убедитесь, что в Supabase Dashboard добавлен секрет `GEMINI_API_KEY`:
+Перед деплоем убедитесь, что в Supabase Dashboard добавлен/обновлен секрет `GEMINI_API_KEY`:
 
 1. Откройте Supabase Dashboard
 2. Перейдите в раздел **Project Settings** → **Edge Functions** → **Secrets**
-3. Добавьте секрет:
+3. Добавьте или обновите секрет:
    - **Name**: `GEMINI_API_KEY`
-   - **Value**: ваш API ключ от Google Gemini
+   - **Value**: `AIzaSyCB4BeQ6l5nf19eHLbSD4NeIZyiH8RExOk`
+   - Модель: **Gemini 2.5 Flash** (уже настроена в коде)
 
 ## Проверка работы:
 

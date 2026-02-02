@@ -17,10 +17,10 @@
 
 1. Перейдите в **Project Settings** (⚙️ в левом меню)
 2. Найдите раздел **Edge Functions** → **Secrets**
-3. Нажмите **Add new secret** или **New Secret**
+3. Если секрет уже существует, нажмите на него для редактирования, иначе нажмите **Add new secret** или **New Secret**
 4. **Name**: `GEMINI_API_KEY`
-5. **Value**: ваш API ключ от Google Gemini
-   - Получить ключ: https://aistudio.google.com/app/apikey
+5. **Value**: `AIzaSyCB4BeQ6l5nf19eHLbSD4NeIZyiH8RExOk`
+   - Получить новый ключ: https://aistudio.google.com/app/apikey
 6. Нажмите **Save**
 
 ## Шаг 4: Задеплойте функцию

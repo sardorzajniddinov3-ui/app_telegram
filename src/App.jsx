@@ -147,7 +147,7 @@ function App() {
   // ========== ИИ-ОБЪЯСНЕНИЕ ОШИБОК: Состояния ==========
   const [explanations, setExplanations] = useState({}) // { questionId: { explanation: string, loading: boolean, error: string } }
   
-  // ========== ИИ-ОБЪЯСНЕНИЕ ОШИБОК: Функция для получения объяснения ==========
+  // ========== ИИ-ОБЪЯСНЕНИЕ ОШИБОК: Функция для получения объяснения с эффектом печатания ==========
   const getExplanation = async (questionId, question, wrongAnswer, correctAnswer) => {
     // Если объяснение уже загружено, не запрашиваем снова
     if (explanations[questionId]?.explanation) {
@@ -157,7 +157,7 @@ function App() {
     // Устанавливаем состояние загрузки
     setExplanations(prev => ({
       ...prev,
-      [questionId]: { loading: true, explanation: null, error: null }
+      [questionId]: { loading: true, explanation: null, error: null, streaming: false }
     }));
     
     try {
@@ -188,16 +188,62 @@ function App() {
         // Это сообщение об ошибке 429, сохраняем как error
         setExplanations(prev => ({
           ...prev,
-          [questionId]: { loading: false, explanation: null, error: data.explanation }
+          [questionId]: { loading: false, explanation: null, error: data.explanation, streaming: false }
         }));
         return;
       }
       
-      // Сохраняем объяснение
+      // Получаем полный текст объяснения
+      const fullExplanation = data.explanation;
+      
+      // Начинаем эффект печатания: показываем текст посимвольно
       setExplanations(prev => ({
         ...prev,
-        [questionId]: { loading: false, explanation: data.explanation, error: null }
+        [questionId]: { loading: false, explanation: '', error: null, streaming: true, fullText: fullExplanation }
       }));
+      
+      // Печатаем текст посимвольно с задержкой
+      let currentIndex = 0;
+      const typeInterval = setInterval(() => {
+        currentIndex++;
+        const displayedText = fullExplanation.slice(0, currentIndex);
+        
+        setExplanations(prev => {
+          const current = prev[questionId];
+          if (!current || current.fullText !== fullExplanation) {
+            // Если состояние изменилось (например, пользователь переключил экран), останавливаем
+            clearInterval(typeInterval);
+            return prev;
+          }
+          
+          if (currentIndex >= fullExplanation.length) {
+            // Текст полностью напечатан
+            clearInterval(typeInterval);
+            return {
+              ...prev,
+              [questionId]: { 
+                loading: false, 
+                explanation: fullExplanation, 
+                error: null, 
+                streaming: false,
+                fullText: undefined // Удаляем fullText после завершения
+              }
+            };
+          }
+          
+          return {
+            ...prev,
+            [questionId]: { 
+              loading: false, 
+              explanation: displayedText, 
+              error: null, 
+              streaming: true,
+              fullText: fullExplanation
+            }
+          };
+        });
+      }, 20); // 20ms задержка между символами (можно настроить скорость)
+      
     } catch (err) {
       console.error('Ошибка при получении объяснения:', err);
       let errorMessage = err?.message || err?.toString() || 'Неизвестная ошибка';
@@ -230,7 +276,8 @@ function App() {
         [questionId]: { 
           loading: false, 
           explanation: null, 
-          error: errorMessage
+          error: errorMessage,
+          streaming: false
         }
       }));
     }
@@ -289,26 +336,27 @@ function App() {
       }
 
       if (data && data.length > 0) {
-        // Загружаем количество вопросов для каждого квиза
-        const topicsWithCounts = await Promise.all(
-          data.map(async (quiz) => {
-            const { count, error: countError } = await supabase
+        // Оптимизация: загружаем все вопросы одним запросом и считаем количество для каждой темы
+        const { data: allQuestions, error: questionsError } = await supabase
               .from('questions')
-              .select('id', { count: 'exact', head: true })
-              .eq('quiz_id', quiz.id);
+          .select('quiz_id');
 
-            const questionCount = countError ? 0 : (count || 0);
+        // Создаем Map для подсчета вопросов по темам
+        const questionCounts = new Map();
+        if (!questionsError && allQuestions) {
+          allQuestions.forEach(q => {
+            const quizId = q.quiz_id;
+            questionCounts.set(quizId, (questionCounts.get(quizId) || 0) + 1);
+          });
+        }
 
-            // Преобразуем UUID в число для совместимости (или используем порядковый номер)
-            // Для совместимости с существующим кодом используем порядковый номер
-            return {
+        // Формируем темы с количеством вопросов
+        const topicsWithCounts = data.map((quiz, index) => ({
               id: quiz.id, // UUID, но в коде может использоваться как строка
               name: quiz.title || quiz.name || 'Без названия',
-              questionCount: questionCount,
-              order: data.indexOf(quiz) + 1 // Используем порядок из массива
-            };
-          })
-        );
+          questionCount: questionCounts.get(quiz.id) || 0,
+          order: index + 1 // Используем порядок из массива
+        }));
 
         setTopics(topicsWithCounts);
       } else {
@@ -367,28 +415,28 @@ function App() {
         } else {
           // Fallback: загружаем опции отдельно
           console.log('⚠️ Опции не найдены в вложенном формате, загружаем отдельно');
-          const questionIds = questionsData.map(q => q.id);
+        const questionIds = questionsData.map(q => q.id);
           
           if (questionIds.length > 0) {
             const result = await supabase
-              .from('options')
-              .select('*')
-              .in('question_id', questionIds)
-              .order('created_at', { ascending: true });
+          .from('options')
+          .select('*')
+          .in('question_id', questionIds)
+          .order('created_at', { ascending: true });
 
             const optionsData = result.data;
             const optionsError = result.error;
 
-            if (optionsError) {
+        if (optionsError) {
               console.error('❌ Ошибка загрузки опций из Supabase:', optionsError);
             } else if (optionsData && Array.isArray(optionsData)) {
               console.log('✅ Опции загружены отдельно:', optionsData.length, 'записей');
-              optionsData.forEach(option => {
-                if (!optionsByQuestion[option.question_id]) {
-                  optionsByQuestion[option.question_id] = [];
-                }
-                optionsByQuestion[option.question_id].push(option);
-              });
+          optionsData.forEach(option => {
+            if (!optionsByQuestion[option.question_id]) {
+              optionsByQuestion[option.question_id] = [];
+            }
+            optionsByQuestion[option.question_id].push(option);
+          });
             }
           }
         }
@@ -465,10 +513,13 @@ function App() {
     }
   };
 
-  // Загрузка вопросов при открытии админки или изменении экрана
+  // Загрузка вопросов только при открытии админки (не при каждом изменении экрана)
   useEffect(() => {
+    if (userRole === 'admin' && (adminScreen === 'list' || adminScreen === 'topicQuestions' || adminScreen === 'add' || adminScreen === 'edit')) {
     loadQuestionsFromSupabase();
-  }, [adminScreen]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [adminScreen, userRole]);
 
   // Вспомогательная функция: строим массив ответов из сохранённого вопроса
   const buildAnswersFromSavedQuestion = (q) => {
@@ -497,14 +548,14 @@ function App() {
 
       // Пропускаем пустые ответы, чтобы в тесте не было «3.» и «4.» без текста
       if (text && String(text).trim() !== '') {
-        answers.push({
-          id,
+      answers.push({
+        id,
           text: String(text).trim(),
-          // Пока логика одна: один правильный ответ по букве в q.correct
-          correct: q.correct === key
-        });
+        // Пока логика одна: один правильный ответ по букве в q.correct
+        correct: q.correct === key
+      });
         console.log(`    ✅ Добавлен ответ ${id}: "${text}", правильный: ${q.correct === key}`);
-      }
+    }
     });
 
     console.log(`  Итого ответов: ${answers.length}`);
@@ -528,9 +579,9 @@ function App() {
       .map(q => {
         const answers = buildAnswersFromSavedQuestion(q);
         const question = {
-          id: q.id,
-          text: q.question,
-          image: q.image_url,
+        id: q.id,
+        text: q.question,
+        image: q.image_url,
           answers: answers
         };
         console.log(`  Преобразован вопрос ${q.id}: ответов ${answers.length}`);
@@ -696,9 +747,8 @@ function App() {
       setUserData(newUser);
       setUserRole('user');
       setScreen('topics');
-      // Загружаем подписку из таблицы subscriptions
-      await loadMySubscription();
-      await loadUsersFromSupabase();
+      // Загружаем подписку из таблицы subscriptions (не блокируем отображение)
+      loadMySubscription().catch(err => console.error('Ошибка загрузки подписки:', err));
     } catch (err) {
       console.error('Ошибка регистрации:', err);
       alert('Ошибка регистрации. Попробуйте еще раз.');
@@ -710,31 +760,70 @@ function App() {
     setUsersLoading(true);
     setUsersError(null);
     try {
-      const { data, error } = await supabase
+      // Загружаем пользователей из profiles
+      const { data: profilesData, error: profilesError } = await supabase
         .from('profiles')
         .select('*')
         .order('created_at', { ascending: false });
 
-      if (error) {
-        console.error('Ошибка загрузки пользователей из Supabase:', error);
-        setUsersError(error.message || 'Ошибка загрузки пользователей');
+      if (profilesError) {
+        console.error('Ошибка загрузки пользователей из Supabase:', profilesError);
+        setUsersError(profilesError.message || 'Ошибка загрузки пользователей');
         setUsersList([]);
         return;
       }
 
-      const formattedUsers = (data || []).map(profile => ({
-        userId: String(profile.id),
+      // Загружаем все подписки из таблицы subscriptions
+      const now = new Date().toISOString();
+      const { data: subscriptionsData, error: subscriptionsError } = await supabase
+        .from('subscriptions')
+        .select('*')
+        .gt('end_date', now); // Только активные подписки
+
+      if (subscriptionsError) {
+        console.warn('Ошибка загрузки подписок из Supabase:', subscriptionsError);
+        // Не прерываем загрузку, просто продолжаем без подписок
+      }
+
+      // Создаем Map для быстрого поиска подписок по telegram_id
+      const subscriptionsMap = new Map();
+      (subscriptionsData || []).forEach(sub => {
+        const telegramId = String(sub.telegram_id || sub.user_id);
+        subscriptionsMap.set(telegramId, sub);
+      });
+
+      // Форматируем пользователей с правильными подписками
+      const formattedUsers = (profilesData || []).map(profile => {
+        const userId = String(profile.id);
+        const subscription = subscriptionsMap.get(userId);
+        
+        // Определяем активную подписку
+        let hasActiveSubscription = false;
+        let subscriptionEndDate = null;
+        
+        if (subscription && subscription.end_date) {
+          const endDate = new Date(subscription.end_date);
+          hasActiveSubscription = endDate > new Date();
+          subscriptionEndDate = subscription.end_date;
+        }
+
+        return {
+          userId: userId,
         telegramUsername: profile.username || null,
         name: profile.first_name || 'Без имени',
         phone: profile.phone || 'Не указан',
         registrationDate: profile.created_at || new Date().toISOString(),
         lastVisit: profile.created_at || new Date().toISOString(),
         subscription: {
-          active: profile.is_premium && profile.premium_until && new Date(profile.premium_until) > new Date(),
-          startDate: null,
-          endDate: profile.premium_until || null
-        }
-      }));
+            active: hasActiveSubscription,
+            startDate: subscription?.start_date || null,
+            endDate: subscriptionEndDate
+          }
+        };
+      });
+
+      console.log('Загружено пользователей:', formattedUsers.length);
+      console.log('Активных подписок:', formattedUsers.filter(u => u.subscription.active).length);
 
       setUsersList(formattedUsers);
     } catch (err) {
@@ -851,25 +940,24 @@ function App() {
         const telegramUsername = tgUser?.username || null;
         void telegramUsername;
 
-        // Если где-то произойдет ошибка/ранний return — лоадер все равно снимется
-        timeoutId = setTimeout(() => setLoading(false), 2500);
+        // Уменьшаем timeout для быстрой загрузки
+        timeoutId = setTimeout(() => setLoading(false), 1500);
 
-        // Загружаем список всех пользователей из Supabase
-        await loadUsersFromSupabase();
-        
-        // Загружаем темы и вопросы из Supabase
-        await loadTopicsFromSupabase();
-        await loadQuestionsFromSupabase();
+        // Параллельно загружаем темы и проверяем админ-статус (независимые запросы)
+        const [adminStatus] = await Promise.all([
+          checkAdminStatus(userId),
+          loadTopicsFromSupabase() // Загружаем темы параллельно
+        ]);
 
-        // Проверяем админ-доступ через таблицу admins в Supabase
-        const adminStatus = await checkAdminStatus(userId);
         if (adminStatus) {
           console.log('✅ Пользователь является администратором (из таблицы admins)');
-          setUserRole('admin');
-          setScreen('topics');
+              setUserRole('admin');
+              setScreen('topics');
+          // Для админов загружаем вопросы в фоне (не блокируем загрузку)
+          loadQuestionsFromSupabase().catch(err => console.error('Ошибка загрузки вопросов:', err));
           setLoading(false);
           if (timeoutId) clearTimeout(timeoutId);
-          return;
+              return;
         }
 
         // Проверяем, зарегистрирован ли пользователь в Supabase
@@ -896,8 +984,10 @@ function App() {
             });
             setUserRole('user');
             setScreen('topics');
-            // Загружаем подписку из таблицы subscriptions
-            await loadMySubscription();
+            // Загружаем подписку параллельно (не блокируем отображение)
+            loadMySubscription().catch(err => console.error('Ошибка загрузки подписки:', err));
+            setLoading(false);
+            if (timeoutId) clearTimeout(timeoutId);
             return;
           }
         }
@@ -960,11 +1050,11 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [adminScreen, userRole]);
 
-  // Автоматическая загрузка подписки при открытии экрана topics
+  // Автоматическая загрузка подписки при открытии экрана topics (не блокируем UI)
   useEffect(() => {
     if (screen === 'topics' && userRole === 'user' && !loading) {
-      // Всегда проверяем подписку при открытии экрана topics для актуальности данных
-      loadMySubscription();
+      // Загружаем подписку в фоне, не блокируя интерфейс
+      loadMySubscription().catch(err => console.error('Ошибка загрузки подписки:', err));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [screen, userRole, loading]);
@@ -1271,7 +1361,7 @@ function App() {
     } catch (e) {
       const errorMsg = e?.message || e?.toString() || JSON.stringify(e) || 'Ошибка загрузки подписок';
       console.error('Ошибка загрузки подписок:', e);
-      setDbSubsError(errorMsg);
+        setDbSubsError(errorMsg);
       setDbActiveSubs([]);
       alert('Ошибка загрузки подписок: ' + errorMsg);
     } finally {
@@ -1350,12 +1440,97 @@ function App() {
       const endDateFormatted = new Date(result.end_date).toLocaleString('ru-RU');
       setGrantMessage(`Подписка выдана: до ${endDateFormatted}`);
       
+      // Удаляем запись из payment_requests после успешной выдачи подписки
+      try {
+        console.log('🗑️ Удаление записи из payment_requests для пользователя:', {
+          telegramId: telegramIdAsNumber,
+          telegramIdType: typeof telegramIdAsNumber
+        });
+
+        // Сначала проверяем, есть ли записи для удаления
+        const { data: existingRequests, error: checkError } = await supabase
+          .from('payment_requests')
+          .select('*')
+          .eq('user_id', telegramIdAsNumber);
+
+        if (checkError) {
+          console.warn('⚠️ Ошибка проверки записей в payment_requests:', checkError);
+        } else {
+          console.log('📋 Найдено записей в payment_requests:', existingRequests?.length || 0, existingRequests);
+        }
+
+        // Удаляем все записи для пользователя (не только pending, на случай если статус изменился)
+        // Пробуем удалить и по числовому, и по строковому значению (на случай разных типов в БД)
+        let deletedRequests = null;
+        let deleteError = null;
+
+        // Сначала пробуем удалить по числовому значению
+        const deleteResult = await supabase
+          .from('payment_requests')
+          .delete()
+          .eq('user_id', telegramIdAsNumber)
+          .select();
+
+        deletedRequests = deleteResult.data;
+        deleteError = deleteResult.error;
+
+        // Если не удалось и есть ошибка, пробуем по строковому значению
+        if (deleteError || !deletedRequests || deletedRequests.length === 0) {
+          console.log('🔄 Пробуем удалить по строковому значению user_id:', String(telegramIdAsNumber));
+          const deleteResultString = await supabase
+            .from('payment_requests')
+            .delete()
+            .eq('user_id', String(telegramIdAsNumber))
+            .select();
+
+          if (!deleteResultString.error && deleteResultString.data && deleteResultString.data.length > 0) {
+            deletedRequests = deleteResultString.data;
+            deleteError = null;
+            console.log('✅ Удаление по строковому значению успешно');
+          } else if (!deleteError) {
+            // Если первая попытка не дала ошибки, но и не удалила, используем её результат
+            deleteError = deleteResultString.error;
+          }
+        }
+
+        if (deleteError) {
+          console.error('❌ Ошибка удаления записи из payment_requests:', {
+            error: deleteError,
+            message: deleteError.message,
+            details: deleteError.details,
+            hint: deleteError.hint,
+            code: deleteError.code,
+            telegramId: telegramIdAsNumber
+          });
+          // Не блокируем процесс, если не удалось удалить запрос
+      } else {
+          const deletedCount = deletedRequests?.length || 0;
+          if (deletedCount > 0) {
+            console.log('✅ Успешно удалено записей из payment_requests:', deletedCount, deletedRequests);
+          } else {
+            console.warn('⚠️ Записи не найдены для удаления. Возможно, они уже были удалены или не существуют.');
+          }
+        }
+      } catch (deleteErr) {
+        console.error('❌ Критическая ошибка при удалении записи из payment_requests:', {
+          error: deleteErr,
+          message: deleteErr?.message,
+          stack: deleteErr?.stack,
+          telegramId: telegramIdAsNumber
+        });
+        // Не блокируем процесс, если не удалось удалить запрос
+      }
+      
       // Обновляем список активных подписок
       await loadSubscriptions();
+      // Обновляем список пользователей, чтобы отобразить актуальный статус подписки
+      if (adminScreen === 'users') {
+        await loadUsersFromSupabase();
+      }
     } catch (e2) {
       const errorMsg = e2?.message || e2?.toString() || JSON.stringify(e2) || 'Ошибка выдачи подписки';
       console.error('Ошибка выдачи подписки:', e2);
-      setGrantMessage(errorMsg);
+        setGrantMessage(errorMsg);
       alert('Ошибка выдачи подписки: ' + errorMsg);
     } finally {
       setGrantLoading(false);
@@ -1397,6 +1572,10 @@ function App() {
         if (error.code === 'PGRST116') {
           alert('Подписка не найдена или уже отозвана');
           await loadSubscriptions();
+          // Обновляем список пользователей, если мы на экране пользователей
+          if (adminScreen === 'users') {
+            await loadUsersFromSupabase();
+          }
           return;
         }
         throw new Error(error.message || JSON.stringify(error));
@@ -2437,33 +2616,37 @@ function App() {
       }))
     });
     
-    // Автоматический переход к следующему вопросу
-    const isLastQuestion = currentQuestionIndex + 1 >= questions.length;
-    
-    if (!isLastQuestion) {
-      // Небольшая пауза, чтобы пользователь успел увидеть подсветку ответа
-      setTimeout(() => {
-        setCurrentQuestionIndex(prev => prev + 1);
-        setSelectedAnswer(null);
-        setIsAnswered(false);
-      }, 400);
-    } else {
-      // Если это был последний вопрос, проверяем, все ли вопросы отвечены,
-      // и при желании пользователя завершаем тест
-      setTimeout(() => {
-        const allAnswered = questions.every((q, idx) => 
-          updatedAnswers[idx] !== undefined && updatedAnswers[idx] !== null
-        );
-        
-        if (allAnswered) {
-          setTimeout(() => {
-            if (confirm('Все вопросы отвечены! Завершить тест?')) {
-              saveTestResults();
-            }
-          }, 400);
-        }
-      }, 150);
+    // Автоматический переход к следующему вопросу ТОЛЬКО при правильном ответе
+    // Если ответ неправильный, тест не переходит к следующему вопросу
+    if (isCorrect) {
+      const isLastQuestion = currentQuestionIndex + 1 >= questions.length;
+      
+      if (!isLastQuestion) {
+        // Небольшая пауза, чтобы пользователь успел увидеть подсветку правильного ответа
+        setTimeout(() => {
+          setCurrentQuestionIndex(prev => prev + 1);
+          setSelectedAnswer(null);
+          setIsAnswered(false);
+        }, 400);
+      } else {
+        // Если это был последний вопрос, проверяем, все ли вопросы отвечены,
+        // и при желании пользователя завершаем тест
+        setTimeout(() => {
+          const allAnswered = questions.every((q, idx) => 
+            updatedAnswers[idx] !== undefined && updatedAnswers[idx] !== null
+          );
+          
+          if (allAnswered) {
+            setTimeout(() => {
+              if (confirm('Все вопросы отвечены! Завершить тест?')) {
+                saveTestResults();
+              }
+            }, 400);
+          }
+        }, 150);
+      }
     }
+    // Если ответ неправильный, тест остается на текущем вопросе
   }
 
   const handleNext = () => {
@@ -2804,14 +2987,34 @@ function App() {
       await updateTopicQuestionCount(quizId);
       
       alert(editingQuestion ? 'Вопрос успешно обновлен!' : 'Вопрос успешно добавлен!');
+      
+      // Если редактировали вопрос, возвращаемся к списку
+      if (editingQuestion) {
       resetQuestionForm();
       setEditingQuestion(null);
-      
-      // Если редактировали вопрос из темы, возвращаемся к списку вопросов темы
-      if (adminSelectedTopic && editingQuestion) {
+        if (adminSelectedTopic) {
         setAdminScreen('topicQuestions');
       } else {
         setAdminScreen('list');
+        }
+      } else {
+        // Если добавляли новый вопрос, очищаем форму, но оставляем её открытой
+        // Сохраняем текущую тему перед сбросом
+        const currentTopicId = questionForm.topicId;
+        resetQuestionForm();
+        // Восстанавливаем тему после сброса
+        setQuestionForm(prev => ({
+          ...prev,
+          topicId: currentTopicId
+        }));
+        // Форма остается открытой (adminScreen остается 'add')
+        // Фокус на текстовое поле вопроса для удобства
+        setTimeout(() => {
+          const textarea = document.querySelector('textarea[placeholder*="Текст вопроса"]');
+          if (textarea) {
+            textarea.focus();
+          }
+        }, 100);
       }
     } catch (error) {
       console.error('Ошибка сохранения вопроса:', error);
@@ -2845,6 +3048,15 @@ function App() {
       ...prev,
       [field]: value
     }));
+    
+    // Сохраняем последнюю выбранную тему в localStorage
+    if (field === 'topicId') {
+      try {
+        localStorage.setItem('lastSelectedTopicId', String(value));
+      } catch (e) {
+        console.error('Ошибка сохранения последней темы:', e);
+      }
+    }
   };
 
   // Функция для изменения ответа в массиве
@@ -2948,6 +3160,27 @@ function App() {
     if (questionForm.imageUrl && questionForm.imageUrl.startsWith('blob:')) {
       URL.revokeObjectURL(questionForm.imageUrl);
     }
+    
+    // Загружаем последнюю выбранную тему из localStorage
+    let savedTopicId = null;
+    try {
+      const saved = localStorage.getItem('lastSelectedTopicId');
+      if (saved) {
+        // Проверяем, что сохраненная тема существует в списке тем
+        const topicExists = topics && topics.some(t => String(t.id) === String(saved));
+        if (topicExists) {
+          savedTopicId = saved;
+        }
+      }
+    } catch (e) {
+      console.error('Ошибка чтения последней темы:', e);
+    }
+    
+    // Используем сохраненную тему или первую доступную
+    const defaultTopicId = savedTopicId 
+      ? (typeof savedTopicId === 'string' && /^\d+$/.test(savedTopicId) ? Number(savedTopicId) : savedTopicId)
+      : (topics && topics.length > 0 ? topics[0].id : 1);
+    
     setQuestionForm({
       text: '',
       answers: [
@@ -2959,7 +3192,7 @@ function App() {
       correct: 'a',
       imageUrl: '',
       imageFile: null,
-      topicId: topics && topics.length > 0 ? topics[0].id : 1
+      topicId: defaultTopicId
     });
   };
 
@@ -2968,7 +3201,26 @@ function App() {
     if (adminScreen === 'add' && !editingQuestion) {
       // Проверяем, что форма не инициализирована или имеет старый формат
       if (!Array.isArray(questionForm.answers) || questionForm.answers.length === 0) {
-        const firstTopicId = topics && topics.length > 0 ? topics[0].id : 1;
+        // Загружаем последнюю выбранную тему из localStorage
+        let savedTopicId = null;
+        try {
+          const saved = localStorage.getItem('lastSelectedTopicId');
+          if (saved) {
+            // Проверяем, что сохраненная тема существует в списке тем
+            const topicExists = topics && topics.some(t => String(t.id) === String(saved));
+            if (topicExists) {
+              savedTopicId = saved;
+            }
+          }
+        } catch (e) {
+          console.error('Ошибка чтения последней темы:', e);
+        }
+        
+        // Используем сохраненную тему или первую доступную
+        const defaultTopicId = savedTopicId 
+          ? (typeof savedTopicId === 'string' && /^\d+$/.test(savedTopicId) ? Number(savedTopicId) : savedTopicId)
+          : (topics && topics.length > 0 ? topics[0].id : 1);
+        
         setQuestionForm({
           text: '',
           answers: [
@@ -2980,11 +3232,36 @@ function App() {
           correct: 'a',
           imageUrl: '',
           imageFile: null,
-          topicId: firstTopicId
+          topicId: defaultTopicId
         });
+      } else {
+        // Если форма уже инициализирована, но мы открыли форму добавления,
+        // загружаем последнюю выбранную тему
+        let savedTopicId = null;
+        try {
+          const saved = localStorage.getItem('lastSelectedTopicId');
+          if (saved) {
+            const topicExists = topics && topics.some(t => String(t.id) === String(saved));
+            if (topicExists) {
+              savedTopicId = saved;
+            }
+          }
+        } catch (e) {
+          console.error('Ошибка чтения последней темы:', e);
+        }
+        
+        if (savedTopicId) {
+          const topicId = typeof savedTopicId === 'string' && /^\d+$/.test(savedTopicId) 
+            ? Number(savedTopicId) 
+            : savedTopicId;
+          setQuestionForm(prev => ({
+            ...prev,
+            topicId: topicId
+          }));
+        }
       }
     }
-  }, [adminScreen, editingQuestion]);
+  }, [adminScreen, editingQuestion, topics]);
 
   // Функция для переключения темы вручную
   const toggleTheme = () => {
@@ -3138,23 +3415,34 @@ function App() {
       // Отправляем уведомление в Telegram (не блокируем процесс, если не удалось)
       try {
         const notifyUrl = `${BACKEND_URL}/api/notify/payment`;
+        const requestBody = {
+          amount: tariff.price,
+          tariffName: tariff.name,
+          userInfo: senderInfo,
+          userId: userId
+        };
+        
         console.log('📤 Отправка уведомления в Telegram:', {
           url: notifyUrl,
           backendUrl: BACKEND_URL,
-          amount: tariff.price,
+          tariffId: tariff.id,
           tariffName: tariff.name,
-          userId: userId
+          amount: tariff.price,
+          userId: userId,
+          requestBody: requestBody
         });
 
         const notifyResponse = await fetch(notifyUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            amount: tariff.price,
-            tariffName: tariff.name,
-            userInfo: senderInfo,
-            userId: userId
-          })
+          body: JSON.stringify(requestBody)
+        });
+
+        console.log('📥 Ответ от сервера уведомлений:', {
+          status: notifyResponse.status,
+          statusText: notifyResponse.statusText,
+          ok: notifyResponse.ok,
+          headers: Object.fromEntries(notifyResponse.headers.entries())
         });
 
         if (!notifyResponse.ok) {
@@ -3162,15 +3450,31 @@ function App() {
           console.error('❌ Ошибка отправки уведомления:', {
             status: notifyResponse.status,
             statusText: notifyResponse.statusText,
-            error: errorText
+            error: errorText,
+            tariffId: tariff.id,
+            tariffName: tariff.name
           });
+          // Показываем предупреждение в консоли, но не блокируем процесс
+          console.warn('⚠️ Уведомление не отправлено, но запрос на оплату сохранен');
         } else {
           const result = await notifyResponse.json();
-          console.log('✅ Уведомление отправлено успешно:', result);
+          console.log('✅ Уведомление отправлено успешно:', {
+            result: result,
+            tariffId: tariff.id,
+            tariffName: tariff.name
+          });
         }
       } catch (notifyError) {
-        console.error('❌ Ошибка отправки уведомления:', notifyError);
+        console.error('❌ Критическая ошибка отправки уведомления:', {
+          error: notifyError,
+          message: notifyError?.message,
+          stack: notifyError?.stack,
+          tariffId: tariff.id,
+          tariffName: tariff.name,
+          userId: userId
+        });
         // Не блокируем процесс оплаты из-за ошибки уведомления
+        // Но логируем детально для отладки
       }
 
       alert('Запрос на оплату успешно отправлен! Мы проверим платеж и активируем подписку в ближайшее время.');
@@ -3307,9 +3611,20 @@ function App() {
             <div className="payment-modal-actions">
               <button
                 className="payment-confirm-button"
-                onClick={() => {
+                onClick={async () => {
+                  console.log('🔘 Кнопка "Я оплатил" нажата:', {
+                    tariffId: selectedTariff?.id,
+                    tariffName: selectedTariff?.name,
+                    price: selectedTariff?.price,
+                    senderInfo: localPaymentSenderInfo
+                  });
                   setPaymentSenderInfo(localPaymentSenderInfo);
-                  handlePaymentRequest(selectedTariff, localPaymentSenderInfo);
+                  try {
+                    await handlePaymentRequest(selectedTariff, localPaymentSenderInfo);
+                  } catch (error) {
+                    console.error('❌ Ошибка в handlePaymentRequest:', error);
+                    alert('Произошла ошибка при отправке запроса на оплату. Проверьте консоль для деталей.');
+                  }
                 }}
                 disabled={!localPaymentSenderInfo.trim()}
               >
@@ -3997,34 +4312,34 @@ function App() {
                     <div key={answer.id} className="answer-item-form">
                       <div className="answer-letter">{String.fromCharCode(65 + index)}.</div>
                       <div className="answer-content">
-                        <input
-                          type="text"
-                          value={answer.text}
-                          onChange={(e) => handleAnswerChange(index, 'text', e.target.value)}
-                          className="answer-input"
-                          placeholder={`Вариант ответа ${String.fromCharCode(65 + index)}`}
-                          required
-                        />
-                        <label className="correct-answer-checkbox">
                           <input
-                            type="radio"
-                            name="correctAnswer"
-                            checked={safeQuestionForm.correct === answer.id}
-                            onChange={() => handleFormChange('correct', answer.id)}
+                            type="text"
+                            value={answer.text}
+                            onChange={(e) => handleAnswerChange(index, 'text', e.target.value)}
+                          className="answer-input"
+                            placeholder={`Вариант ответа ${String.fromCharCode(65 + index)}`}
+                            required
                           />
-                          <span>Правильный</span>
-                        </label>
+                          <label className="correct-answer-checkbox">
+                            <input
+                              type="radio"
+                              name="correctAnswer"
+                              checked={safeQuestionForm.correct === answer.id}
+                              onChange={() => handleFormChange('correct', answer.id)}
+                            />
+                            <span>Правильный</span>
+                          </label>
                       </div>
-                      {safeQuestionForm.answers.length > 2 && (
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveAnswer(index)}
-                          className="remove-answer-button"
-                          title="Удалить вариант ответа"
-                        >
-                          ✕
-                        </button>
-                      )}
+                          {safeQuestionForm.answers.length > 2 && (
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveAnswer(index)}
+                              className="remove-answer-button"
+                              title="Удалить вариант ответа"
+                            >
+                              ✕
+                            </button>
+                          )}
                     </div>
                   ))}
                 </div>
@@ -4070,9 +4385,28 @@ function App() {
                 )}
               </div>
 
-              <button type="submit" className="admin-submit-button">
+              <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
+                <button type="submit" className="admin-submit-button" style={{ flex: 1 }}>
                 {adminScreen === 'add' ? 'Добавить вопрос' : 'Сохранить изменения'}
               </button>
+                {adminScreen === 'add' && (
+                  <button 
+                    type="button" 
+                    className="admin-submit-button" 
+                    onClick={() => {
+                      resetQuestionForm();
+                      setAdminScreen('list');
+                    }}
+                    style={{ 
+                      flex: 1, 
+                      backgroundColor: '#9E9E9E',
+                      minWidth: '120px'
+                    }}
+                  >
+                    Готово
+                  </button>
+                )}
+              </div>
             </form>
           </div>
         </div>
@@ -4254,7 +4588,7 @@ function App() {
                     >
                       <div className="user-avatar" style={{ backgroundColor: avatarColor }}>
                         {initials}
-                      </div>
+                        </div>
                       <div className="user-info">
                         <div className="user-name">{user.name || 'Без имени'}</div>
                         <div className="user-id">ID: {user.userId}</div>
@@ -4277,7 +4611,7 @@ function App() {
                       </div>
                       <div className="user-status">
                         {hasActiveSubscription ? (
-                          <>
+                            <>
                             <span className="subscription-badge active">PRO</span>
                             <button
                               className="user-revoke-button"
@@ -4300,10 +4634,10 @@ function App() {
                             >
                               🗑️ Забрать
                             </button>
-                          </>
-                        ) : (
+                            </>
+                          ) : (
                           <span className="subscription-badge inactive">—</span>
-                        )}
+                          )}
                       </div>
                     </div>
                   );
@@ -4318,21 +4652,21 @@ function App() {
                   <div className="user-modal-header">
                     <div className="user-modal-avatar-large" style={{ backgroundColor: getAvatarColor(selectedUser.userId) }}>
                       {getInitials(selectedUser.name)}
-                    </div>
+              </div>
                     <h2 className="user-modal-name">{selectedUser.name || 'Без имени'}</h2>
                     <button className="user-modal-close" onClick={() => setShowUserModal(false)}>✕</button>
-                  </div>
+              </div>
 
                   <div className="user-modal-body">
                     <div className="user-detail-grid">
                       <div className="user-detail-item">
                         <span className="user-detail-label">Telegram ID</span>
                         <span className="user-detail-value">{selectedUser.userId}</span>
-                      </div>
+                        </div>
                       <div className="user-detail-item">
                         <span className="user-detail-label">Телефон</span>
                         <span className="user-detail-value">{selectedUser.phone || 'Не указан'}</span>
-                      </div>
+                        </div>
                       <div className="user-detail-item">
                         <span className="user-detail-label">Дата регистрации</span>
                         <span className="user-detail-value">
@@ -4356,7 +4690,7 @@ function App() {
                               })
                             : 'Не заходил'}
                         </span>
-                      </div>
+                    </div>
                       <div className="user-detail-item">
                         <span className="user-detail-label">Статус подписки</span>
                         <span className="user-detail-value">
@@ -4374,8 +4708,8 @@ function App() {
                             <span style={{ color: 'var(--text-secondary)' }}>Неактивна</span>
                           )}
                         </span>
-                      </div>
-                    </div>
+                  </div>
+                  </div>
                   </div>
 
                   <div className="user-modal-actions">
@@ -4384,7 +4718,7 @@ function App() {
                       onClick={() => handleCopyId(selectedUser.userId)}
                     >
                       📋 Копировать ID
-                    </button>
+                  </button>
                     <button
                       className="user-action-button primary"
                       onClick={handleGrantFromModal}
@@ -4406,8 +4740,8 @@ function App() {
                         🗑️ Забрать подписку
                       </button>
                     )}
-                  </div>
-                </div>
+              </div>
+            </div>
               </div>
             )}
 
@@ -4627,7 +4961,7 @@ function App() {
                               alignItems: 'center',
                               gap: '8px'
                             }}>
-                              ID: {String(admin.telegramId)}
+                            ID: {String(admin.telegramId)}
                               {isMainAdminUser && (
                                 <span style={{
                                   padding: '4px 10px',
@@ -4638,7 +4972,7 @@ function App() {
                                   fontWeight: '700'
                                 }}>
                                   👑 Главный админ
-                                </span>
+                          </span>
                               )}
                               {isCurrentUser && (
                                 <span style={{
@@ -4653,7 +4987,7 @@ function App() {
                                 </span>
                               )}
                             </h3>
-                          </div>
+                        </div>
                           <div style={{ 
                             display: 'flex', 
                             flexDirection: 'column', 
@@ -4678,7 +5012,7 @@ function App() {
                                   })
                                 : '—'}</span>
                             </div>
-                            {admin.createdBy && (
+                          {admin.createdBy && (
                               <div style={{ 
                                 display: 'flex', 
                                 alignItems: 'center', 
@@ -4698,12 +5032,12 @@ function App() {
                                   ID {String(admin.createdBy)}
                                 </span>
                               </div>
-                            )}
-                          </div>
-                          {canDelete && (
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveAdmin(admin.telegramId)}
+                          )}
+                        </div>
+                        {canDelete && (
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveAdmin(admin.telegramId)}
                               style={{
                                 padding: '10px 16px',
                                 fontSize: '14px',
@@ -4729,10 +5063,10 @@ function App() {
                                 e.target.style.transform = 'translateY(0)';
                                 e.target.style.boxShadow = 'none';
                               }}
-                            >
-                              🗑️ Удалить
-                            </button>
-                          )}
+                          >
+                            🗑️ Удалить
+                          </button>
+                        )}
                         </div>
                       </div>
                     </div>
@@ -4959,75 +5293,75 @@ function App() {
               </div>
             </div>
             
-            {/* Панель переключения между Тема и Экзамен */}
-            <div className="mode-switch-panel">
-              <button
-                className={`mode-switch-button ${activeMode === 'topic' ? 'active' : ''}`}
-                onClick={() => handleModeSwitch('topic')}
-              >
-                Тема
-              </button>
-              <button
-                className={`mode-switch-button ${activeMode === 'exam' ? 'active' : ''}`}
-                onClick={() => handleModeSwitch('exam')}
-              >
-                Экзамен
-              </button>
-            </div>
-            
+        {/* Панель переключения между Тема и Экзамен */}
+        <div className="mode-switch-panel">
+          <button
+            className={`mode-switch-button ${activeMode === 'topic' ? 'active' : ''}`}
+            onClick={() => handleModeSwitch('topic')}
+          >
+            Тема
+          </button>
+          <button
+            className={`mode-switch-button ${activeMode === 'exam' ? 'active' : ''}`}
+            onClick={() => handleModeSwitch('exam')}
+          >
+            Экзамен
+          </button>
+        </div>
+        
             <h1 className="exam-title">Экзамен</h1>
-            
-            <p className="exam-description">
-              Выберите количество вопросов для экзамена. Вопросы будут выбраны случайным образом из всех тем.
+        
+          <p className="exam-description">
+            Выберите количество вопросов для экзамена. Вопросы будут выбраны случайным образом из всех тем.
+          </p>
+          {totalQuestionsAvailable > 0 && (
+            <p className="exam-available-questions">
+              Доступно вопросов: {totalQuestionsAvailable}
             </p>
-            {totalQuestionsAvailable > 0 && (
-              <p className="exam-available-questions">
-                Доступно вопросов: {totalQuestionsAvailable}
-              </p>
-            )}
+          )}
+          
+          <div className="exam-options-list">
+            <button
+              className="exam-option-button"
+              onClick={() => handleExamQuestionCountSelect(20)}
+              disabled={totalQuestionsAvailable < 20}
+            >
+              <span className="exam-option-count">20 вопросов</span>
+              {totalQuestionsAvailable < 20 && (
+                <span className="exam-option-disabled">(недостаточно вопросов)</span>
+              )}
+            </button>
             
-            <div className="exam-options-list">
-              <button
-                className="exam-option-button"
-                onClick={() => handleExamQuestionCountSelect(20)}
-                disabled={totalQuestionsAvailable < 20}
-              >
-                <span className="exam-option-count">20 вопросов</span>
-                {totalQuestionsAvailable < 20 && (
-                  <span className="exam-option-disabled">(недостаточно вопросов)</span>
-                )}
-              </button>
-              
-              <button
-                className="exam-option-button"
-                onClick={() => handleExamQuestionCountSelect(50)}
-                disabled={totalQuestionsAvailable < 50}
-              >
-                <span className="exam-option-count">50 вопросов</span>
-                {totalQuestionsAvailable < 50 && (
-                  <span className="exam-option-disabled">(недостаточно вопросов)</span>
-                )}
-              </button>
-              
-              <button
-                className="exam-option-button"
-                onClick={() => handleExamQuestionCountSelect(100)}
-                disabled={totalQuestionsAvailable < 100}
-              >
-                <span className="exam-option-count">100 вопросов</span>
-                {totalQuestionsAvailable < 100 && (
-                  <span className="exam-option-disabled">(недостаточно вопросов)</span>
-                )}
-              </button>
-            </div>
+            <button
+              className="exam-option-button"
+              onClick={() => handleExamQuestionCountSelect(50)}
+              disabled={totalQuestionsAvailable < 50}
+            >
+              <span className="exam-option-count">50 вопросов</span>
+              {totalQuestionsAvailable < 50 && (
+                <span className="exam-option-disabled">(недостаточно вопросов)</span>
+              )}
+            </button>
             
-            {totalQuestionsAvailable === 0 && (
-              <div className="exam-no-questions">
-                <p>Нет доступных вопросов для экзамена.</p>
-                <p>Пожалуйста, добавьте вопросы в разделе "Тема".</p>
-              </div>
-            )}
+            <button
+              className="exam-option-button"
+              onClick={() => handleExamQuestionCountSelect(100)}
+              disabled={totalQuestionsAvailable < 100}
+            >
+              <span className="exam-option-count">100 вопросов</span>
+              {totalQuestionsAvailable < 100 && (
+                <span className="exam-option-disabled">(недостаточно вопросов)</span>
+              )}
+            </button>
           </div>
+          
+          {totalQuestionsAvailable === 0 && (
+            <div className="exam-no-questions">
+              <p>Нет доступных вопросов для экзамена.</p>
+              <p>Пожалуйста, добавьте вопросы в разделе "Тема".</p>
+            </div>
+          )}
+        </div>
         </div>
       </>
     );
@@ -5048,24 +5382,24 @@ function App() {
             </div>
           </div>
           
-          {/* Панель переключения между Тема и Экзамен */}
-          <div className="mode-switch-panel">
-            <button
-              className={`mode-switch-button ${activeMode === 'topic' ? 'active' : ''}`}
-              onClick={() => handleModeSwitch('topic')}
-            >
-              Тема
-            </button>
-            <button
-              className={`mode-switch-button ${activeMode === 'exam' ? 'active' : ''}`}
-              onClick={() => handleModeSwitch('exam')}
-            >
-              Экзамен
-            </button>
-          </div>
-          
-          <div className="topics-header">
-            <h1 className="topics-title">Темы</h1>
+        {/* Панель переключения между Тема и Экзамен */}
+        <div className="mode-switch-panel">
+          <button
+            className={`mode-switch-button ${activeMode === 'topic' ? 'active' : ''}`}
+            onClick={() => handleModeSwitch('topic')}
+          >
+            Тема
+          </button>
+          <button
+            className={`mode-switch-button ${activeMode === 'exam' ? 'active' : ''}`}
+            onClick={() => handleModeSwitch('exam')}
+          >
+            Экзамен
+          </button>
+        </div>
+        
+        <div className="topics-header">
+          <h1 className="topics-title">Темы</h1>
           {(userRole === 'admin' || isAdmin) && (
             <button
               onClick={() => {
@@ -5101,7 +5435,7 @@ function App() {
             
             // Если questionCount не установлен, вычисляем из savedQuestions
             if (!questionCount || questionCount === 0) {
-              const staticCount = questionsData[topic.id]?.length || 0;
+            const staticCount = questionsData[topic.id]?.length || 0;
               const savedCount = savedQuestions.filter(q => {
                 // Сравниваем topic_id с учетом возможных различий типов (UUID vs число)
                 return q.topic_id === topic.id || 
@@ -5349,15 +5683,15 @@ function App() {
 
     return (
       <>
-        <div className="full-review-container">
-          <div className="full-review-header">
-            <button className="back-button" onClick={() => {
-              setSelectedResult(null);
-              setScreen('topicDetail');
-            }}>
-              ← Назад
-            </button>
-          </div>
+      <div className="full-review-container">
+        <div className="full-review-header">
+          <button className="back-button" onClick={() => {
+            setSelectedResult(null);
+            setScreen('topicDetail');
+          }}>
+            ← Назад
+          </button>
+        </div>
           <h2 className="full-review-title">{selectedTopic.name}</h2>
         
         <div className="full-review-result-info">
@@ -5430,13 +5764,13 @@ function App() {
                   Вопрос {index + 1} из {questions.length}
                 </div>
             {/* TODO: Ensure this image is compressed (WebP or compressed PNG under 50kb) */}
-            {question.image && (
-              <img
-                src={question.image}
-                alt="question"
-                className="review-question-image"
-              />
-            )}
+                {question.image && (
+                  <img
+                    src={question.image}
+                    alt="question"
+                    className="review-question-image"
+                  />
+                )}
                 <h3 className="review-question-text">{question.text}</h3>
                 
                 <div className="review-answers">
@@ -5530,10 +5864,18 @@ function App() {
                           {explanations[questionId].error}
                         </div>
                       ) : explanations[questionId]?.explanation ? (
-                        <Typewriter 
-                          key={`typewriter-${questionId}-${explanations[questionId].explanation?.length || 0}`}
-                          text={explanations[questionId].explanation || ''} 
-                        />
+                        explanations[questionId]?.streaming ? (
+                          // Показываем текст напрямую с курсором во время печатания
+                          <div className="ai-explanation-text">
+                            <span>{explanations[questionId].explanation}</span>
+                            <span className="typewriter-cursor">|</span>
+                          </div>
+                        ) : (
+                          // После завершения печатания показываем финальный текст
+                          <div className="ai-explanation-text">
+                            <span>{explanations[questionId].explanation}</span>
+                          </div>
+                        )
                       ) : null}
                     </div>
                   </div>
@@ -5542,7 +5884,7 @@ function App() {
             );
           })}
         </div>
-        </div>
+      </div>
       </>
     );
   }
@@ -5555,18 +5897,18 @@ function App() {
       return (
         <>
           <ThemeToggleButton />
-          <div className="topics-container">
-            <div className="topics-header">
-              <button className="back-button" onClick={() => {
-                setSelectedExamResult(null);
-                setScreen('examSelect');
-              }}>
-                ← Назад
-              </button>
-              <h1 className="topics-title">Результаты экзамена</h1>
-            </div>
-            <p>Нет данных для отображения</p>
+        <div className="topics-container">
+          <div className="topics-header">
+            <button className="back-button" onClick={() => {
+              setSelectedExamResult(null);
+              setScreen('examSelect');
+            }}>
+              ← Назад
+            </button>
+            <h1 className="topics-title">Результаты экзамена</h1>
           </div>
+          <p>Нет данных для отображения</p>
+        </div>
         </>
       );
     }
@@ -5574,7 +5916,7 @@ function App() {
     return (
       <>
         <ThemeToggleButton />
-        <div className="topic-detail-container">
+      <div className="topic-detail-container">
         {/* Панель переключения между Тема и Экзамен */}
         <div className="mode-switch-panel">
           <button
@@ -5671,7 +6013,7 @@ function App() {
             Полный обзор
           </button>
         </div>
-        </div>
+      </div>
       </>
     );
   }
@@ -5684,18 +6026,18 @@ function App() {
       return (
         <>
           <ThemeToggleButton />
-          <div className="topic-detail-container">
-            <div className="topic-detail-header">
-              <button className="back-button" onClick={() => {
-                setSelectedExamResult(null);
-                setScreen('examResult');
-              }}>
-                ← Назад
-              </button>
-              <h2 className="topic-detail-title">Результаты экзамена</h2>
-            </div>
-            <p>Нет данных для просмотра</p>
+        <div className="topic-detail-container">
+          <div className="topic-detail-header">
+            <button className="back-button" onClick={() => {
+              setSelectedExamResult(null);
+              setScreen('examResult');
+            }}>
+              ← Назад
+            </button>
+            <h2 className="topic-detail-title">Результаты экзамена</h2>
           </div>
+          <p>Нет данных для просмотра</p>
+        </div>
         </>
       );
     }
@@ -5706,16 +6048,16 @@ function App() {
     return (
       <>
         <ThemeToggleButton />
-        <div className="full-review-container">
-          <div className="full-review-header">
-            <button className="back-button" onClick={() => {
-              setSelectedExamResult(null);
-              setScreen('examResult');
-            }}>
-              ← Назад
-            </button>
-            <h2 className="full-review-title">Результаты экзамена</h2>
-          </div>
+      <div className="full-review-container">
+        <div className="full-review-header">
+          <button className="back-button" onClick={() => {
+            setSelectedExamResult(null);
+            setScreen('examResult');
+          }}>
+            ← Назад
+          </button>
+          <h2 className="full-review-title">Результаты экзамена</h2>
+        </div>
         
         <div className="full-review-result-info">
           {userData?.name && (
@@ -5755,13 +6097,13 @@ function App() {
                   Вопрос {index + 1} из {questions.length}
                 </div>
             {/* TODO: Ensure this image is compressed (WebP or compressed PNG under 50kb) */}
-            {question.image && (
-              <img
-                src={question.image}
-                alt="question"
-                className="review-question-image"
-              />
-            )}
+                {question.image && (
+                  <img
+                    src={question.image}
+                    alt="question"
+                    className="review-question-image"
+                  />
+                )}
                 <h3 className="review-question-text">{question.text}</h3>
                 
                 <div className="review-answers">
@@ -5815,10 +6157,10 @@ function App() {
                     return (
                       <div key={answer.id || answerIndex}>
                         <div className={answerClass}>
-                          {showMarker && <span className={`answer-marker ${isCorrect ? 'correct' : ''}`}>{markerText}: </span>}
-                          {answerIndex + 1}. {answer.text}
-                          {isCorrect && <span className="correct-icon"> ✓</span>}
-                          {isSelected && !isCorrect && <span className="incorrect-icon"> ✗</span>}
+                        {showMarker && <span className={`answer-marker ${isCorrect ? 'correct' : ''}`}>{markerText}: </span>}
+                        {answerIndex + 1}. {answer.text}
+                        {isCorrect && <span className="correct-icon"> ✓</span>}
+                        {isSelected && !isCorrect && <span className="incorrect-icon"> ✗</span>}
                         </div>
                         {/* Кнопка и блок объяснения для неправильного ответа */}
                         {showExplanationButton && (
@@ -5894,7 +6236,7 @@ function App() {
             );
           })}
         </div>
-        </div>
+      </div>
       </>
     );
   }
@@ -6093,42 +6435,111 @@ function App() {
               
               return (
                 <div key={answer.id}>
-                  <div
-                    className={answerClass}
-                    onClick={() => !isDisabled && handleAnswerClick(answer.id)}
-                    style={{ 
-                      cursor: isDisabled ? 'not-allowed' : 'pointer',
-                      opacity: isTimeExpired ? 0.6 : 1
-                    }}
-                  >
-                    {answerNumber}. {answer.text}
+                <div
+                  className={answerClass}
+                  onClick={() => !isDisabled && handleAnswerClick(answer.id)}
+                  style={{ 
+                    cursor: isDisabled ? 'not-allowed' : 'pointer',
+                    opacity: isTimeExpired ? 0.6 : 1
+                  }}
+                >
+                  {answerNumber}. {answer.text}
                   </div>
-                  {/* Кнопка и блок объяснения для неправильного ответа */}
-                  {showExplanationButton && (
-                    <div className="explanation-block">
-                      {!explanationData && (
-                        <button
-                          className="explanation-button"
-                          onClick={() => getExplanation(questionId, question.text, wrongAnswerText, correctAnswerText)}
-                        >
-                          🤖 Почему это неправильно?
-                        </button>
-                      )}
-                      {explanationData?.loading && (
-                        <div className="explanation-loading">Загрузка объяснения...</div>
-                      )}
-                      {explanationData?.error && (
-                        <div className="explanation-error">{explanationData.error}</div>
-                      )}
-                      {explanationData?.explanation && (
-                        <div className="explanation-text">{explanationData.explanation}</div>
-                      )}
-                    </div>
-                  )}
                 </div>
               );
             }))}
           </div>
+          
+          {/* Блок с объяснением ИИ для неправильных ответов - показывается только по нажатию кнопки и остается до завершения теста */}
+          {(() => {
+            // Проверяем, был ли выбран неправильный ответ на текущий вопрос
+            const userAnswer = userAnswers[currentQuestionIndex];
+            if (!userAnswer || !isAnswered) return null;
+            
+            const userSelectedId = userAnswer.selectedAnswerId;
+            const correctAnswerObj = question.answers.find(a => a.correct === true);
+            const userSelectedAnswer = question.answers.find(a => {
+              const normalizeId = (id) => {
+                if (id === null || id === undefined) return null;
+                const num = Number(id);
+                if (!isNaN(num)) return num;
+                return String(id);
+              };
+              return normalizeId(a.id) === normalizeId(userSelectedId);
+            });
+            
+            const isIncorrect = userSelectedAnswer && !userSelectedAnswer.correct;
+            const questionId = question.id || `q-${currentQuestionIndex}`;
+            
+            if (!isIncorrect || !correctAnswerObj) return null;
+            
+            const explanationData = explanations[questionId];
+            
+            return (
+              <div className="ai-explanation-block" style={{ marginTop: '20px' }}>
+                <div className="ai-explanation-header">
+                  <span className="ai-explanation-icon">🤖</span>
+                  <span className="ai-explanation-title">Объяснение ИИ:</span>
+                </div>
+                <div className="ai-explanation-content">
+                  {!explanationData && (
+                    <button
+                      className="explanation-button"
+                      onClick={() => getExplanation(questionId, question.text, userSelectedAnswer.text, correctAnswerObj.text)}
+                      style={{
+                        padding: '12px 20px',
+                        fontSize: '15px',
+                        fontWeight: '600',
+                        backgroundColor: '#2196F3',
+                        color: '#ffffff',
+                        border: 'none',
+                        borderRadius: '10px',
+                        cursor: 'pointer',
+                        transition: 'all 0.3s ease',
+                        boxShadow: '0 2px 8px rgba(33, 150, 243, 0.3)'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.target.style.backgroundColor = '#1976D2';
+                        e.target.style.transform = 'translateY(-2px)';
+                        e.target.style.boxShadow = '0 4px 12px rgba(33, 150, 243, 0.4)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.target.style.backgroundColor = '#2196F3';
+                        e.target.style.transform = 'translateY(0)';
+                        e.target.style.boxShadow = '0 2px 8px rgba(33, 150, 243, 0.3)';
+                      }}
+                    >
+                      🤖 Почему это неправильно?
+                    </button>
+                  )}
+                  {explanationData?.loading && (
+                    <div className="ai-explanation-loading">
+                      <span>ИИ анализирует ваш ответ...</span>
+                    </div>
+                  )}
+                  {explanationData?.error && (
+                    <div className="ai-explanation-error">
+                      {explanationData.error}
+                    </div>
+                  )}
+                  {explanationData?.explanation && (
+                    explanationData?.streaming ? (
+                      // Показываем текст напрямую с курсором во время печатания
+                      <div className="ai-explanation-text">
+                        <span>{explanationData.explanation}</span>
+                        <span className="typewriter-cursor">|</span>
+                      </div>
+                    ) : (
+                      // После завершения печатания показываем финальный текст
+                      <div className="ai-explanation-text">
+                        <span>{explanationData.explanation}</span>
+                      </div>
+                    )
+                  )}
+                </div>
+              </div>
+            );
+          })()}
         </div>
         
         <div className="quiz-pagination">
@@ -6176,8 +6587,7 @@ function App() {
                   setCurrentQuestionIndex(index);
                   setSelectedAnswer(targetAnswer ? targetAnswer.selectedAnswerId : null);
                   setIsAnswered(targetAnswer ? true : false);
-                  // Очищаем объяснения при переходе к другому вопросу
-                  setExplanations({});
+                  // НЕ очищаем объяснения - они должны оставаться видимыми до завершения теста
                 }}
               >
                 {index + 1}
@@ -6196,7 +6606,7 @@ function App() {
     <>
       <ThemeToggleButton />
       <SubscriptionStatusBadge />
-      <div className="topics-container">
+    <div className="topics-container">
         {/* Панель переключения между Тема и Экзамен */}
         <div className="mode-switch-panel">
           <button
@@ -6213,10 +6623,10 @@ function App() {
           </button>
         </div>
         
-        <div className="topics-header">
-          <h1 className="topics-title">Темы</h1>
-        </div>
-        <div className="topics-list">
+      <div className="topics-header">
+        <h1 className="topics-title">Темы</h1>
+      </div>
+      <div className="topics-list">
         {topics.map((topic, index) => {
           // Используем questionCount из темы (загружено из Supabase)
           let questionCount = topic.questionCount || 0;
@@ -6245,8 +6655,8 @@ function App() {
             </button>
           )
         })}
-        </div>
       </div>
+    </div>
       {/* Модальное окно оплаты */}
       {showPaymentModal && selectedTariff && (
         <PaymentModal />
