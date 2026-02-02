@@ -2218,6 +2218,62 @@ function App() {
     };
   }, [screen, testStartTime, isExamMode, examTimeLimit, examTimeRemaining]);
 
+  // Автоматически запрашиваем объяснения для неправильных ответов в режиме полного обзора
+  useEffect(() => {
+    // Выполняем только если мы на экране fullReview
+    if (screen !== 'fullReview') return;
+    
+    // Получаем результат: сначала из selectedResult, затем из results по selectedTopic, затем из всех results
+    let reviewResult = selectedResult;
+    
+    if (!reviewResult && selectedTopic && selectedTopic.id) {
+      reviewResult = (results[selectedTopic.id] || [])[0];
+    }
+    
+    // Если все еще нет результата, ищем в всех results
+    if (!reviewResult) {
+      for (const topicId in results) {
+        if (results[topicId] && results[topicId].length > 0) {
+          reviewResult = results[topicId][0];
+          break;
+        }
+      }
+    }
+    
+    // Проверяем, что есть данные для обработки
+    if (!reviewResult || !reviewResult.questions || !reviewResult.userAnswers) {
+      return;
+    }
+    
+    const questions = reviewResult.questions;
+    const userAnswers = reviewResult.userAnswers;
+    
+    // Автоматически запрашиваем объяснения для неправильных ответов
+    questions.forEach((question, index) => {
+      const userAnswer = userAnswers[index];
+      if (!userAnswer) return;
+      
+      const userSelectedId = userAnswer?.selectedAnswerId;
+      const correctAnswer = question.answers.find(a => a.correct === true);
+      const userSelectedAnswer = question.answers.find(a => {
+        const normalizeId = (id) => {
+          if (id === null || id === undefined) return null;
+          const num = Number(id);
+          if (!isNaN(num)) return num;
+          return String(id);
+        };
+        return normalizeId(a.id) === normalizeId(userSelectedId);
+      });
+      
+      const isIncorrect = userSelectedAnswer && !userSelectedAnswer.correct;
+      const questionId = question.id || `q-${index}`;
+      
+      if (isIncorrect && correctAnswer && userSelectedAnswer && !explanations[questionId]?.explanation && !explanations[questionId]?.loading) {
+        getExplanation(questionId, question.text, userSelectedAnswer.text, correctAnswer.text);
+      }
+    });
+  }, [screen, selectedResult, selectedTopic, results, explanations, getExplanation]);
+
   // Форматирование времени для обычного теста (HH:MM:SS)
   const formatTime = (seconds) => {
     const hours = Math.floor(seconds / 3600);
@@ -5577,6 +5633,28 @@ function App() {
                     <button
                       className="history-review-button"
                       onClick={() => {
+                        console.log('History Full Review button clicked:', {
+                          result: result ? {
+                            id: result.id,
+                            hasQuestions: !!result.questions,
+                            hasUserAnswers: !!result.userAnswers,
+                            questionsLength: result.questions?.length,
+                            userAnswersLength: result.userAnswers?.length,
+                            correct: result.correct,
+                            total: result.total
+                          } : null,
+                          selectedTopic: selectedTopic ? {
+                            id: selectedTopic.id,
+                            name: selectedTopic.name
+                          } : null
+                        });
+                        
+                        if (!result || !result.questions || !result.userAnswers) {
+                          console.error('Cannot open full review: missing data in result');
+                          alert('Ошибка: данные результатов неполные. Попробуйте пройти тест снова.');
+                          return;
+                        }
+                        
                         setSelectedResult(result);
                         setScreen('fullReview');
                       }}
@@ -5591,6 +5669,28 @@ function App() {
             <button 
               className="full-review-button"
               onClick={() => {
+                console.log('Full Review button clicked:', {
+                  latestResult: latestResult ? {
+                    id: latestResult.id,
+                    hasQuestions: !!latestResult.questions,
+                    hasUserAnswers: !!latestResult.userAnswers,
+                    questionsLength: latestResult.questions?.length,
+                    userAnswersLength: latestResult.userAnswers?.length,
+                    correct: latestResult.correct,
+                    total: latestResult.total
+                  } : null,
+                  selectedTopic: selectedTopic ? {
+                    id: selectedTopic.id,
+                    name: selectedTopic.name
+                  } : null
+                });
+                
+                if (!latestResult || !latestResult.questions || !latestResult.userAnswers) {
+                  console.error('Cannot open full review: missing data in latestResult');
+                  alert('Ошибка: данные результатов неполные. Попробуйте пройти тест снова.');
+                  return;
+                }
+                
                 setSelectedResult(latestResult);
                 setScreen('fullReview');
               }}
@@ -5613,54 +5713,66 @@ function App() {
 
   // Full Review Screen
   if (screen === 'fullReview') {
-    const reviewResult = selectedResult || (results[selectedTopic.id] || [])[0];
+    // Получаем результат: сначала из selectedResult, затем из results по selectedTopic, затем из всех results
+    let reviewResult = selectedResult;
+    
+    if (!reviewResult && selectedTopic && selectedTopic.id) {
+      reviewResult = (results[selectedTopic.id] || [])[0];
+    }
+    
+    // Если все еще нет результата, ищем в всех results
+    if (!reviewResult) {
+      for (const topicId in results) {
+        if (results[topicId] && results[topicId].length > 0) {
+          reviewResult = results[topicId][0];
+          break;
+        }
+      }
+    }
     
     if (!reviewResult || !reviewResult.questions || !reviewResult.userAnswers) {
+      console.error('Full Review - Missing data:', {
+        hasSelectedResult: !!selectedResult,
+        hasSelectedTopic: !!selectedTopic,
+        selectedTopicId: selectedTopic?.id,
+        reviewResult: reviewResult ? {
+          id: reviewResult.id,
+          hasQuestions: !!reviewResult.questions,
+          hasUserAnswers: !!reviewResult.userAnswers,
+          questionsLength: reviewResult.questions?.length,
+          userAnswersLength: reviewResult.userAnswers?.length
+        } : null
+      });
+      
       return (
         <div className="topic-detail-container">
           <div className="topic-detail-header">
             <button className="back-button" onClick={() => {
               setSelectedResult(null);
-              setScreen('topicDetail');
+              if (selectedTopic) {
+                setScreen('topicDetail');
+              } else {
+                setScreen('topics');
+              }
             }}>
               ← Назад
             </button>
-            <h2 className="topic-detail-title">{selectedTopic.name}</h2>
+            <h2 className="topic-detail-title">{selectedTopic?.name || 'Результаты теста'}</h2>
           </div>
-          <p>Нет данных для просмотра</p>
+          <div style={{ padding: '20px', textAlign: 'center' }}>
+            <p style={{ color: 'var(--text-secondary, #666)', marginBottom: '10px' }}>
+              Нет данных для просмотра
+            </p>
+            <p style={{ fontSize: '14px', color: 'var(--text-secondary, #999)' }}>
+              Результаты теста не найдены. Попробуйте пройти тест снова.
+            </p>
+          </div>
         </div>
       );
     }
 
     const questions = reviewResult.questions;
     const userAnswers = reviewResult.userAnswers;
-    
-    // Автоматически запрашиваем объяснения для неправильных ответов
-    useEffect(() => {
-      questions.forEach((question, index) => {
-        const userAnswer = userAnswers[index];
-        if (!userAnswer) return;
-        
-        const userSelectedId = userAnswer?.selectedAnswerId;
-        const correctAnswer = question.answers.find(a => a.correct === true);
-        const userSelectedAnswer = question.answers.find(a => {
-          const normalizeId = (id) => {
-            if (id === null || id === undefined) return null;
-            const num = Number(id);
-            if (!isNaN(num)) return num;
-            return String(id);
-          };
-          return normalizeId(a.id) === normalizeId(userSelectedId);
-        });
-        
-        const isIncorrect = userSelectedAnswer && !userSelectedAnswer.correct;
-        const questionId = question.id || `q-${index}`;
-        
-        if (isIncorrect && correctAnswer && userSelectedAnswer && !explanations[questionId]?.explanation && !explanations[questionId]?.loading) {
-          getExplanation(questionId, question.text, userSelectedAnswer.text, correctAnswer.text);
-        }
-      });
-    }, [questions, userAnswers]);
     
     // Отладочная информация - проверяем структуру данных
     console.log('Full Review - Data structure:', {
@@ -5687,12 +5799,16 @@ function App() {
         <div className="full-review-header">
           <button className="back-button" onClick={() => {
             setSelectedResult(null);
-            setScreen('topicDetail');
+            if (selectedTopic) {
+              setScreen('topicDetail');
+            } else {
+              setScreen('topics');
+            }
           }}>
             ← Назад
           </button>
         </div>
-          <h2 className="full-review-title">{selectedTopic.name}</h2>
+          <h2 className="full-review-title">{selectedTopic?.name || 'Полный обзор результатов'}</h2>
         
         <div className="full-review-result-info">
           {userData?.name && (

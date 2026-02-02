@@ -478,17 +478,17 @@ body[data-theme="dark"] .answer-incorrect {
 @media (max-width: 360px) {
   .app-logo {
     font-size: 44px;
-  }
+}
 }
 
 /* Анимация свечения - едва заметная */
 @keyframes glowAvto {
   0%, 100% {
     filter: drop-shadow(0 0 2px rgba(192, 192, 192, 0.3)) drop-shadow(0 0 3px rgba(192, 192, 192, 0.2));
-  }
+}
   50% {
     filter: drop-shadow(0 0 3px rgba(192, 192, 192, 0.4)) drop-shadow(0 0 4px rgba(192, 192, 192, 0.3));
-  }
+}
 }
 
 @keyframes glowGo {
@@ -497,16 +497,16 @@ body[data-theme="dark"] .answer-incorrect {
   }
   50% {
     filter: drop-shadow(0 0 3px rgba(34, 197, 94, 0.4)) drop-shadow(0 0 4px rgba(34, 197, 94, 0.3));
-  }
+}
 }
 
 @keyframes glowGoDark {
   0%, 100% {
     filter: drop-shadow(0 0 2px rgba(50, 205, 50, 0.3)) drop-shadow(0 0 3px rgba(50, 205, 50, 0.2));
-  }
+}
   50% {
     filter: drop-shadow(0 0 3px rgba(50, 205, 50, 0.4)) drop-shadow(0 0 4px rgba(50, 205, 50, 0.3));
-  }
+}
 }
 
 /* Светлый режим - более контрастные цвета */
@@ -1033,7 +1033,7 @@ body[data-theme="dark"] .app-logo-go {
   }
   51%, 100% {
     opacity: 0;
-  }
+}
 }
 
 /* Темный режим для объяснения ИИ - как у exam-available-questions */
@@ -3221,7 +3221,7 @@ body[data-theme="dark"] .exam-subscription-button:hover {
   background: linear-gradient(135deg, #FFD700 0%, #FFA500 100%);
   color: #ffffff;
   box-shadow: 0 4px 12px rgba(255, 215, 0, 0.4);
-}
+  }
 
 .subscription-status-card.inactive .subscription-status-icon-large {
   background-color: #ff9800;
@@ -3449,7 +3449,7 @@ body[data-theme="dark"] .loading-screen {
 @keyframes spin {
   0% {
     transform: rotate(0deg);
-  }
+}
   100% {
     transform: rotate(360deg);
   }
