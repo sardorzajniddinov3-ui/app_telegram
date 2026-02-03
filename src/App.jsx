@@ -5199,9 +5199,9 @@ function App() {
             <h3 style={{ fontSize: '18px', marginBottom: '10px' }}>Темы:</h3>
             {topics.map((topic, index) => {
               const staticCount = questionsData[topic.id]?.length || 0;
-              const savedCount = savedQuestions.filter(q => q.topic_id === topic.id).length;
+              const savedCount = savedQuestions.filter(q => q.quiz_id === topic.id).length;
               const questionCount = staticCount + savedCount;
-              const topicSavedQuestions = savedQuestions.filter(q => q.topic_id === topic.id);
+              const topicSavedQuestions = savedQuestions.filter(q => q.quiz_id === topic.id);
               
               return (
                 <div key={topic.id}>
