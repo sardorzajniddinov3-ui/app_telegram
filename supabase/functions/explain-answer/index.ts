@@ -18,13 +18,15 @@ const models = [
  */
 async function getAIExplanation(prompt: string, apiKey: string): Promise<string> {
   const apiVersion = 'v1beta'; // Используем v1beta для поддержки новых моделей
+  let lastError = '';
   
   // Проходим по всем моделям в массиве
-  for (const modelName of models) {
+  for (let i = 0; i < models.length; i++) {
+    const modelName = models[i];
     const fullModelName = modelName.startsWith('models/') ? modelName : `models/${modelName}`;
     
     try {
-      console.log(`🔄 Пробую модель: ${fullModelName}`);
+      console.log(`🔄 [${i + 1}/${models.length}] Пробую модель: ${fullModelName}`);
       
       const response = await fetch(
         `https://generativelanguage.googleapis.com/${apiVersion}/${fullModelName}:generateContent?key=${apiKey}`,
@@ -50,32 +52,47 @@ async function getAIExplanation(prompt: string, apiKey: string): Promise<string>
 
       // Обработка ошибок
       const errorText = await response.text();
+      lastError = `Модель ${fullModelName}: ${response.status} - ${errorText.substring(0, 100)}`;
       
       // Ошибка 429 (Rate Limit) - пробуем следующую модель
-      if (response.status === 429 || errorText.includes('429') || errorText.includes('quota') || errorText.includes('rate limit')) {
-        console.log(`[FALLBACK] Модель ${fullModelName} перегружена, пробую следующую...`);
+      if (response.status === 429 || errorText.includes('429') || errorText.includes('quota') || errorText.includes('rate limit') || errorText.includes('RESOURCE_EXHAUSTED')) {
+        console.log(`[FALLBACK] Модель ${fullModelName} перегружена (429), автоматически переключаюсь на следующую...`);
+        if (i < models.length - 1) {
+          console.log(`➡️ Переключаюсь на модель: ${models[i + 1]}`);
+        }
         continue; // Переходим к следующей модели
       }
       
       // Ошибка 404 (модель не найдена) - пропускаем эту модель
-      if (response.status === 404 || errorText.includes('404') || errorText.includes('not found')) {
-        console.log(`[FALLBACK] Модель ${fullModelName} не найдена, пробую следующую...`);
+      if (response.status === 404 || errorText.includes('404') || errorText.includes('not found') || errorText.includes('NOT_FOUND')) {
+        console.log(`[FALLBACK] Модель ${fullModelName} не найдена (404), автоматически переключаюсь на следующую...`);
+        if (i < models.length - 1) {
+          console.log(`➡️ Переключаюсь на модель: ${models[i + 1]}`);
+        }
         continue; // Переходим к следующей модели
       }
       
       // Другие ошибки - пробуем следующую модель
       console.warn(`⚠️ Модель ${fullModelName} вернула ошибку ${response.status}, пробую следующую...`);
+      if (i < models.length - 1) {
+        console.log(`➡️ Переключаюсь на модель: ${models[i + 1]}`);
+      }
       continue;
       
     } catch (error) {
       // Ошибка сети или другая ошибка - пробуем следующую модель
+      lastError = `Модель ${fullModelName}: ${error}`;
       console.warn(`⚠️ Ошибка при запросе к модели ${fullModelName}:`, error);
+      if (i < models.length - 1) {
+        console.log(`➡️ Переключаюсь на модель: ${models[i + 1]}`);
+      }
       continue;
     }
   }
   
   // Если все модели выдали ошибку
   console.error('❌ Все модели исчерпали лимиты или недоступны');
+  console.error('Последняя ошибка:', lastError);
   return "Все лимиты ИИ временно исчерпаны. Попробуйте через 1 минуту.";
 }
 

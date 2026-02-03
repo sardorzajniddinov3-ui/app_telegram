@@ -148,6 +148,8 @@ function App() {
   const [explanations, setExplanations] = useState({}) // { questionId: { explanation: string, loading: boolean, error: string } }
   
   // ========== ИИ-ОБЪЯСНЕНИЕ ОШИБОК: Функция для получения объяснения с эффектом печатания ==========
+  // Система автоматического переключения моделей реализована в Edge Function
+  // При ошибке 429 или 404 система автоматически переключается на следующую модель
   const getExplanation = async (questionId, question, wrongAnswer, correctAnswer) => {
     // Если объяснение уже загружено, не запрашиваем снова
     if (explanations[questionId]?.explanation) {
@@ -183,15 +185,20 @@ function App() {
         throw new Error('Функция вернула пустой ответ');
       }
       
-      // Проверяем, не является ли ответ сообщением об ошибке 429
-      if (data.explanation && (data.explanation.includes('429') || data.explanation.includes('перегружен') || data.explanation.includes('⏳'))) {
-        // Это сообщение об ошибке 429, сохраняем как error
+      // Проверяем, не является ли ответ финальным сообщением об исчерпании всех лимитов
+      // Если это сообщение "Все лимиты ИИ временно исчерпаны", значит все модели не сработали
+      if (data.explanation && data.explanation.includes('Все лимиты ИИ временно исчерпаны')) {
+        // Все модели исчерпали лимиты - показываем ошибку
         setExplanations(prev => ({
           ...prev,
           [questionId]: { loading: false, explanation: null, error: data.explanation, streaming: false }
         }));
+        console.log('[AI] Все модели исчерпали лимиты');
         return;
       }
+      
+      // Если это сообщение об ошибке одной модели, система fallback уже попробовала другие
+      // Показываем ошибку только если это финальное сообщение
       
       // Получаем полный текст объяснения
       const fullExplanation = data.explanation;
@@ -248,25 +255,16 @@ function App() {
       console.error('Ошибка при получении объяснения:', err);
       let errorMessage = err?.message || err?.toString() || 'Неизвестная ошибка';
       
-      // Обработка ошибки 429 (quota exceeded)
-      if (errorMessage.includes('429') || errorMessage.includes('quota') || errorMessage.includes('перегружен')) {
-        let retryDelay = '60'; // По умолчанию 60 секунд
-        
-        // Пытаемся извлечь время ожидания из сообщения об ошибке
-        const retryMatch = errorMessage.match(/(\d+)\s*секунд/i) || errorMessage.match(/через\s*(\d+)/i);
-        if (retryMatch && retryMatch[1]) {
-          retryDelay = retryMatch[1];
-        } else {
-          // Пытаемся найти retryDelay в объекте ошибки
-          if (err?.details && Array.isArray(err.details)) {
-            const retryDetail = err.details.find((d) => d.retryDelay);
-            if (retryDetail?.retryDelay) {
-              retryDelay = String(retryDetail.retryDelay).replace('s', '').replace('S', '');
-            }
-          }
-        }
-        
-        errorMessage = `⏳ ИИ перегружен запросами. Он заработает через ${retryDelay} секунд. Пожалуйста, подождите.`;
+      // Обработка ошибок
+      // Система fallback в Edge Function автоматически переключается между моделями
+      // Если все модели исчерпали лимиты, показываем соответствующее сообщение
+      if (errorMessage.includes('Все лимиты ИИ временно исчерпаны')) {
+        // Все модели не сработали - это финальное сообщение
+        errorMessage = errorMessage;
+      } else if (errorMessage.includes('429') || errorMessage.includes('quota') || errorMessage.includes('перегружен')) {
+        // Ошибка одной модели - система fallback попробует другие автоматически
+        // Показываем сообщение о попытке переключения
+        errorMessage = `⏳ Переключение на другую модель ИИ...`;
       } else {
         errorMessage = `Ошибка: ${errorMessage}. Проверьте, что функция explain-answer создана в Supabase Dashboard.`;
       }
@@ -379,17 +377,125 @@ function App() {
     }
   };
 
-  // Загрузка вопросов из Supabase с опциями
-  const loadQuestionsFromSupabase = async () => {
+  // Загрузка вопросов из Supabase с опциями (оптимизированная версия)
+  const loadQuestionsFromSupabase = async (useCache = true) => {
     try {
+      // Сначала загружаем из кэша для мгновенного отображения
+      if (useCache) {
+        try {
+          const cached = localStorage.getItem('dev_questions_cache');
+          const cacheTime = localStorage.getItem('dev_questions_cache_time');
+          if (cached && cacheTime) {
+            const cacheAge = Date.now() - parseInt(cacheTime, 10);
+            // Используем кэш, если он не старше 30 минут (увеличено для быстрой загрузки)
+            if (cacheAge < 30 * 60 * 1000) {
+              const cachedQuestions = JSON.parse(cached);
+              setSavedQuestions(cachedQuestions);
+              // Обновляем в фоне (не блокируем интерфейс)
+              setTimeout(() => {
+                loadQuestionsFromSupabase(false).catch(() => {});
+              }, 1000);
+              return;
+            }
+          }
+        } catch (e) {
+          // Игнорируем ошибки кэша
+        }
+      }
+
       // Загружаем вопросы с опциями через вложенный select
+      // Используем простой синтаксис для совместимости
       const { data: questionsData, error: questionsError } = await supabase
         .from('questions')
         .select('*, options(*)')
         .order('created_at', { ascending: true });
 
       if (questionsError) {
-        console.error('Ошибка загрузки вопросов из Supabase:', questionsError);
+        console.error('❌ Ошибка загрузки вопросов из Supabase:', questionsError);
+        
+        // Пробуем альтернативный запрос без вложенного select
+        console.log('🔄 Пробуем альтернативный запрос...');
+        const { data: questionsDataAlt, error: questionsErrorAlt } = await supabase
+          .from('questions')
+          .select('id, quiz_id, question_text, image_url, created_at')
+          .order('created_at', { ascending: true });
+
+        if (questionsErrorAlt) {
+          console.error('❌ Альтернативный запрос тоже не удался:', questionsErrorAlt);
+          // Fallback на localStorage
+          const saved = JSON.parse(localStorage.getItem('dev_questions') || '[]');
+          setSavedQuestions(saved);
+          return;
+        }
+
+        // Если альтернативный запрос успешен, загружаем опции отдельно
+        if (questionsDataAlt && questionsDataAlt.length > 0) {
+          const questionIds = questionsDataAlt.map(q => q.id);
+          const { data: optionsData, error: optionsError } = await supabase
+            .from('options')
+            .select('question_id, option_text, is_correct, created_at')
+            .in('question_id', questionIds)
+            .order('created_at', { ascending: true });
+
+          // Объединяем вопросы с опциями
+          const questionsWithOptions = questionsDataAlt.map(q => ({
+            ...q,
+            options: (optionsData || []).filter(opt => opt.question_id === q.id)
+          }));
+
+          // Продолжаем обработку с объединенными данными
+          const optionsByQuestion = new Map();
+          questionsWithOptions.forEach(q => {
+            if (q.options && Array.isArray(q.options) && q.options.length > 0) {
+              optionsByQuestion.set(q.id, q.options);
+            }
+          });
+
+          // Обрабатываем данные
+          const formattedQuestions = questionsWithOptions.map(q => {
+            const options = (optionsByQuestion.get(q.id) || []).sort((a, b) => {
+              return (a.created_at || '').localeCompare(b.created_at || '');
+            });
+
+            const answerMap = {};
+            let correctKey = 'a';
+            const answerKeys = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+            
+            options.forEach((option, index) => {
+              if (index < answerKeys.length) {
+                const key = answerKeys[index];
+                answerMap[`answer_${key}`] = option.option_text || '';
+                if (option.is_correct) {
+                  correctKey = key;
+                }
+              }
+            });
+
+            return {
+              id: q.id,
+              quiz_id: q.quiz_id, // Используем quiz_id вместо topic_id
+              topic_id: q.quiz_id, // Оставляем для обратной совместимости
+              question: q.question_text || q.question || '',
+              ...answerMap,
+              correct: correctKey,
+              image_url: q.image_url || '',
+              answers_count: options.length || 0,
+              created_at: q.created_at
+            };
+          });
+
+          setSavedQuestions(formattedQuestions);
+          
+          try {
+            localStorage.setItem('dev_questions_cache', JSON.stringify(formattedQuestions));
+            localStorage.setItem('dev_questions_cache_time', String(Date.now()));
+          } catch (e) {
+            // Игнорируем ошибки localStorage
+          }
+          
+          return;
+        }
+
         // Fallback на localStorage
         const saved = JSON.parse(localStorage.getItem('dev_questions') || '[]');
         setSavedQuestions(saved);
@@ -397,112 +503,79 @@ function App() {
       }
 
       if (questionsData && questionsData.length > 0) {
-        // Если опции загружены через вложенный select, они уже в questionsData[q].options
-        // Если нет - загружаем отдельно (fallback)
-        let optionsByQuestion = {};
-        
-        // Проверяем, есть ли опции в вложенном формате
-        const hasNestedOptions = questionsData.some(q => q.options && Array.isArray(q.options));
-        
-        if (hasNestedOptions) {
-          // Опции уже загружены через вложенный select
-          console.log('✅ Опции загружены через вложенный select');
-          questionsData.forEach(q => {
-            if (q.options && Array.isArray(q.options)) {
-              optionsByQuestion[q.id] = q.options;
-            }
-          });
-        } else {
-          // Fallback: загружаем опции отдельно
-          console.log('⚠️ Опции не найдены в вложенном формате, загружаем отдельно');
-        const questionIds = questionsData.map(q => q.id);
-          
-          if (questionIds.length > 0) {
-            const result = await supabase
-          .from('options')
-          .select('*')
-          .in('question_id', questionIds)
-          .order('created_at', { ascending: true });
+        // Оптимизация: сразу обрабатываем опции из вложенного select
+        // Используем Map для быстрого доступа
+        const optionsByQuestion = new Map();
+        questionsData.forEach(q => {
+          if (q.options && Array.isArray(q.options) && q.options.length > 0) {
+            optionsByQuestion.set(q.id, q.options);
+          }
+        });
 
-            const optionsData = result.data;
-            const optionsError = result.error;
+        // Если опций нет в вложенном формате, загружаем отдельно (редкий случай)
+        if (optionsByQuestion.size === 0 && questionsData.length > 0) {
+          const questionIds = questionsData.map(q => q.id);
+          const { data: optionsData, error: optionsError } = await supabase
+            .from('options')
+            .select('question_id, option_text, is_correct, created_at')
+            .in('question_id', questionIds)
+            .order('created_at', { ascending: true });
 
-        if (optionsError) {
-              console.error('❌ Ошибка загрузки опций из Supabase:', optionsError);
-            } else if (optionsData && Array.isArray(optionsData)) {
-              console.log('✅ Опции загружены отдельно:', optionsData.length, 'записей');
-          optionsData.forEach(option => {
-            if (!optionsByQuestion[option.question_id]) {
-              optionsByQuestion[option.question_id] = [];
-            }
-            optionsByQuestion[option.question_id].push(option);
-          });
-            }
+          if (!optionsError && optionsData) {
+            optionsData.forEach(option => {
+              const existing = optionsByQuestion.get(option.question_id) || [];
+              existing.push(option);
+              optionsByQuestion.set(option.question_id, existing);
+            });
           }
         }
 
-        // Преобразуем формат из Supabase в формат приложения
+        // Оптимизированное преобразование данных (используем предварительно отсортированные опции)
         const formattedQuestions = questionsData.map(q => {
-          const options = optionsByQuestion[q.id] || [];
-          console.log(`📋 Вопрос ${q.id} (${q.question_text?.substring(0, 30)}...): найдено опций: ${options.length}`);
-          
-          if (options.length === 0) {
-            console.warn(`⚠️ Вопрос ${q.id} не имеет опций в optionsByQuestion`);
-            console.warn(`   Доступные question_id в optionsByQuestion:`, Object.keys(optionsByQuestion));
-          }
-          
-          // Сортируем опции и преобразуем в формат answer_a, answer_b, etc.
-          const sortedOptions = options.sort((a, b) => {
-            // Сортируем по created_at или по порядку
-            return new Date(a.created_at || 0) - new Date(b.created_at || 0);
+          const options = (optionsByQuestion.get(q.id) || []).sort((a, b) => {
+            return (a.created_at || '').localeCompare(b.created_at || '');
           });
 
           const answerMap = {};
           let correctKey = 'a';
-          sortedOptions.forEach((option, index) => {
-            const key = String.fromCharCode(97 + index); // 'a', 'b', 'c', ...
-            answerMap[`answer_${key}`] = option.option_text || '';
-            console.log(`  ✅ Опция ${key}: "${option.option_text}", правильный: ${option.is_correct}`);
-            if (option.is_correct) {
-              correctKey = key;
+          const answerKeys = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+          
+          options.forEach((option, index) => {
+            if (index < answerKeys.length) {
+              const key = answerKeys[index];
+              answerMap[`answer_${key}`] = option.option_text || '';
+              if (option.is_correct) {
+                correctKey = key;
+              }
             }
           });
 
-          const formattedQuestion = {
+          return {
             id: q.id,
-            topic_id: q.quiz_id, // Используем quiz_id как topic_id для совместимости
+            quiz_id: q.quiz_id, // Используем quiz_id вместо topic_id
+            topic_id: q.quiz_id, // Оставляем для обратной совместимости
             question: q.question_text || q.question || '',
             ...answerMap,
             correct: correctKey,
             image_url: q.image_url || '',
-            answers_count: sortedOptions.length || 0,
+            answers_count: options.length || 0,
             created_at: q.created_at
           };
-          
-          // Логируем результат
-          if (sortedOptions.length === 0) {
-            console.error(`❌ Вопрос ${q.id} без опций (ответов):`, {
-              questionId: q.id,
-              questionText: q.question_text,
-              quizId: q.quiz_id,
-              optionsInDb: options.length,
-              allQuestionIds: questionsData.map(qq => qq.id),
-              optionsByQuestionKeys: Object.keys(optionsByQuestion)
-            });
-          } else {
-            console.log(`✅ Вопрос ${q.id} загружен:`, {
-              опций: sortedOptions.length,
-              ответы: Object.keys(answerMap),
-              правильный: correctKey,
-              answerMap: answerMap
-            });
-          }
-          
-          return formattedQuestion;
         });
         
+        // Сохраняем в состояние и кэш
         setSavedQuestions(formattedQuestions);
+        
+        // Кэшируем для быстрой загрузки в следующий раз
+        try {
+          localStorage.setItem('dev_questions_cache', JSON.stringify(formattedQuestions));
+          localStorage.setItem('dev_questions_cache_time', String(Date.now()));
+        } catch (e) {
+          // Игнорируем ошибки localStorage
+        }
       } else {
+        // Если база возвращает 0 вопросов, не делаем повторный запрос
+        console.log('[QUIZ] Вопросы для ID не найдены в БД (база вернула пустой результат)');
         setSavedQuestions([]);
       }
     } catch (err) {
@@ -523,8 +596,6 @@ function App() {
 
   // Вспомогательная функция: строим массив ответов из сохранённого вопроса
   const buildAnswersFromSavedQuestion = (q) => {
-    console.log('buildAnswersFromSavedQuestion для вопроса:', q.id, q);
-    
     // Кол-во ответов, по умолчанию 4, но если сохранено меньше — используем меньше
     const answersCountRaw = q.answers_count !== undefined && q.answers_count !== null
       ? Number(q.answers_count)
@@ -532,8 +603,6 @@ function App() {
     const answersCount = Number.isNaN(answersCountRaw) || answersCountRaw <= 0
       ? 4
       : answersCountRaw;
-
-    console.log(`  answers_count: ${q.answers_count}, вычислено: ${answersCount}`);
 
     const answers = [];
     const answerKeys = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
@@ -544,8 +613,6 @@ function App() {
       const text = q[answerKey];
       const id = i + 1;
 
-      console.log(`  Проверка ${answerKey}:`, text ? `"${text}"` : 'отсутствует');
-
       // Пропускаем пустые ответы, чтобы в тесте не было «3.» и «4.» без текста
       if (text && String(text).trim() !== '') {
       answers.push({
@@ -554,43 +621,61 @@ function App() {
         // Пока логика одна: один правильный ответ по букве в q.correct
         correct: q.correct === key
       });
-        console.log(`    ✅ Добавлен ответ ${id}: "${text}", правильный: ${q.correct === key}`);
     }
     });
 
-    console.log(`  Итого ответов: ${answers.length}`);
     return answers;
   };
 
   // Function to get merged questions (static + saved from Supabase)
   const getMergedQuestions = (topicId) => {
     const staticQuestions = questionsData[topicId] || [];
-    console.log(`getMergedQuestions для темы ${topicId}: статических вопросов: ${staticQuestions.length}`);
+    
+    // Нормализуем topicId для сравнения (приводим к строке и убираем пробелы)
+    const normalizedTopicId = String(topicId).trim();
     
     // Используем savedQuestions из состояния (загружены из Supabase)
+    let debugCount = 0;
     const savedForTopic = savedQuestions
       .filter(q => {
-        const matches = q.topic_id === topicId;
-        if (matches) {
-          console.log(`  Найден сохраненный вопрос для темы ${topicId}:`, q.id, q.question);
+        // Используем quiz_id как основной идентификатор (синхронизация с БД)
+        const qQuizId = String(q.quiz_id || q.topic_id || '').trim();
+        const matches = qQuizId === normalizedTopicId;
+        
+        // Отладочное логирование только в dev режиме (первые 3 вопроса)
+        if (process.env.NODE_ENV === 'development' && debugCount < 3) {
+          console.log(`🔍 Сравнение: qQuizId="${qQuizId}" === normalizedTopicId="${normalizedTopicId}" = ${matches}`);
+          debugCount++;
         }
+        
         return matches;
       })
       .map(q => {
         const answers = buildAnswersFromSavedQuestion(q);
-        const question = {
-        id: q.id,
-        text: q.question,
-        image: q.image_url,
+        return {
+          id: q.id,
+          text: q.question,
+          image: q.image_url,
           answers: answers
         };
-        console.log(`  Преобразован вопрос ${q.id}: ответов ${answers.length}`);
-        return question;
       });
     
-    console.log(`getMergedQuestions: сохраненных вопросов для темы ${topicId}: ${savedForTopic.length}`);
     const allQuestions = [...staticQuestions, ...savedForTopic];
-    console.log(`getMergedQuestions: всего вопросов: ${allQuestions.length}`);
+    
+    // Логируем только если нет вопросов (для отладки)
+    if (allQuestions.length === 0) {
+      console.warn(`[QUIZ] Вопросы для ID ${normalizedTopicId} не найдены в БД`, {
+        staticQuestionsCount: staticQuestions.length,
+        savedQuestionsTotal: savedQuestions.length,
+        topicId: normalizedTopicId,
+        sampleQuizIds: savedQuestions.slice(0, 3).map(q => ({
+          id: q.id,
+          quiz_id: q.quiz_id,
+          topic_id: q.topic_id // для обратной совместимости
+        }))
+      });
+    }
+    
     return allQuestions;
   };
 
@@ -941,20 +1026,20 @@ function App() {
         void telegramUsername;
 
         // Уменьшаем timeout для быстрой загрузки
-        timeoutId = setTimeout(() => setLoading(false), 1500);
+        timeoutId = setTimeout(() => setLoading(false), 800);
 
-        // Параллельно загружаем темы и проверяем админ-статус (независимые запросы)
+        // Параллельно загружаем темы, вопросы и проверяем админ-статус (все критичные запросы)
         const [adminStatus] = await Promise.all([
           checkAdminStatus(userId),
-          loadTopicsFromSupabase() // Загружаем темы параллельно
+          loadTopicsFromSupabase(), // Загружаем темы параллельно
+          loadQuestionsFromSupabase(true) // Загружаем вопросы параллельно (с кэшем)
         ]);
 
         if (adminStatus) {
           console.log('✅ Пользователь является администратором (из таблицы admins)');
               setUserRole('admin');
               setScreen('topics');
-          // Для админов загружаем вопросы в фоне (не блокируем загрузку)
-          loadQuestionsFromSupabase().catch(err => console.error('Ошибка загрузки вопросов:', err));
+          // Вопросы уже загружены параллельно при инициализации
           setLoading(false);
           if (timeoutId) clearTimeout(timeoutId);
               return;
@@ -984,7 +1069,7 @@ function App() {
             });
             setUserRole('user');
             setScreen('topics');
-            // Загружаем подписку параллельно (не блокируем отображение)
+            // Загружаем подписку в фоне (вопросы уже загружены параллельно при инициализации)
             loadMySubscription().catch(err => console.error('Ошибка загрузки подписки:', err));
             setLoading(false);
             if (timeoutId) clearTimeout(timeoutId);
@@ -1050,14 +1135,23 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [adminScreen, userRole]);
 
-  // Автоматическая загрузка подписки при открытии экрана topics (не блокируем UI)
+  // Автоматическая загрузка подписки при открытии экрана topics (один раз)
+  const [subscriptionLoaded, setSubscriptionLoaded] = useState(false);
   useEffect(() => {
-    if (screen === 'topics' && userRole === 'user' && !loading) {
-      // Загружаем подписку в фоне, не блокируя интерфейс
-      loadMySubscription().catch(err => console.error('Ошибка загрузки подписки:', err));
+    if (screen === 'topics' && userRole === 'user' && !loading && !subscriptionLoaded) {
+      // Загружаем подписку один раз при открытии экрана topics
+      loadMySubscription()
+        .then(() => setSubscriptionLoaded(true))
+        .catch(err => {
+          console.error('Ошибка загрузки подписки:', err);
+          setSubscriptionLoaded(true); // Помечаем как загруженную, чтобы не повторять
+        });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [screen, userRole, loading]);
+    // Сбрасываем флаг при смене экрана
+    if (screen !== 'topics') {
+      setSubscriptionLoaded(false);
+    }
+  }, [screen, userRole, loading, subscriptionLoaded]);
 
   const getUserHeaders = () => {
     try {
@@ -2075,7 +2169,19 @@ function App() {
       }
     }
     
+    if (!selectedTopic || !selectedTopic.id) {
+      alert('Ошибка: не выбрана тема для теста.');
+      return;
+    }
+    
     const questions = getMergedQuestions(selectedTopic.id);
+    
+    if (!questions || questions.length === 0) {
+      alert('В этой теме пока нет вопросов. Пожалуйста, попробуйте другую тему или обратитесь к администратору.');
+      console.error('Нет вопросов для темы:', selectedTopic.id, selectedTopic.name);
+      return;
+    }
+    
     setCurrentQuestionIndex(0)
     setSelectedAnswer(null)
     setIsAnswered(false)
@@ -2249,6 +2355,7 @@ function App() {
     const userAnswers = reviewResult.userAnswers;
     
     // Автоматически запрашиваем объяснения для неправильных ответов
+    // Система fallback в Edge Function автоматически переключается между моделями
     questions.forEach((question, index) => {
       const userAnswer = userAnswers[index];
       if (!userAnswer) return;
@@ -2809,28 +2916,33 @@ function App() {
     // Обрабатываем изображение
     let imageUrl = questionForm.imageUrl || null;
     
-    // Если загружен файл, конвертируем в base64 или сохраняем URL
+    // Если загружен новый файл, загружаем его в Supabase Storage
     if (questionForm.imageFile) {
-      // Для localStorage сохраняем как base64
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const base64String = reader.result;
-        saveQuestionWithImage(base64String);
-      };
-      reader.readAsDataURL(questionForm.imageFile);
-      return; // Выходим, так как сохранение произойдет в onloadend
+      try {
+        // Загружаем изображение в Storage
+        const uploadedUrl = await uploadImageToStorage(questionForm.imageFile, editingQuestion?.id);
+        imageUrl = uploadedUrl;
+        
+        // Если обновляем вопрос и было старое изображение, удаляем его
+        if (editingQuestion && editingQuestion.image_url && editingQuestion.image_url !== imageUrl) {
+          await deleteImageFromStorage(editingQuestion.image_url);
+        }
+      } catch (error) {
+        console.error('Ошибка загрузки изображения:', error);
+        alert('Ошибка при загрузке изображения. Вопрос будет сохранен без изображения.');
+        imageUrl = null;
+      }
+    } else if (editingQuestion && !imageUrl && editingQuestion.image_url) {
+      // Если удалили изображение при редактировании, удаляем из Storage
+      await deleteImageFromStorage(editingQuestion.image_url);
+      imageUrl = null;
     }
     
+    // Сохраняем вопрос с URL изображения из Storage
     saveQuestion(imageUrl);
   };
 
-  // Функция для сохранения вопроса с изображением
-  const saveQuestionWithImage = (imageBase64) => {
-    const questionData = buildQuestionData(imageBase64);
-    saveQuestionToStorage(questionData);
-  };
-
-  // Функция для сохранения вопроса без изображения
+  // Функция для сохранения вопроса (imageUrl теперь всегда URL из Storage)
   const saveQuestion = (imageUrl) => {
     const questionData = buildQuestionData(imageUrl);
     saveQuestionToStorage(questionData);
@@ -3172,6 +3284,152 @@ function App() {
     });
   };
 
+  // Функция для оптимизации изображения (сжатие и конвертация)
+  const optimizeImage = (file, maxWidth = 1200, maxHeight = 1200, quality = 0.85) => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+          try {
+            const canvas = document.createElement('canvas');
+            let width = img.width;
+            let height = img.height;
+
+            // Вычисляем новые размеры с сохранением пропорций
+            if (width > height) {
+              if (width > maxWidth) {
+                height = (height * maxWidth) / width;
+                width = maxWidth;
+              }
+            } else {
+              if (height > maxHeight) {
+                width = (width * maxHeight) / height;
+                height = maxHeight;
+              }
+            }
+
+            canvas.width = width;
+            canvas.height = height;
+
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, width, height);
+
+            // Пытаемся конвертировать в WebP, если не поддерживается - используем JPEG
+            const tryWebP = () => {
+              canvas.toBlob(
+                (blob) => {
+                  if (blob) {
+                    resolve(blob);
+                  } else {
+                    // Fallback на JPEG, если WebP не поддерживается
+                    canvas.toBlob(
+                      (jpegBlob) => {
+                        if (jpegBlob) {
+                          resolve(jpegBlob);
+                        } else {
+                          reject(new Error('Ошибка оптимизации изображения'));
+                        }
+                      },
+                      'image/jpeg',
+                      quality
+                    );
+                  }
+                },
+                'image/webp',
+                quality
+              );
+            };
+
+            tryWebP();
+          } catch (err) {
+            reject(err);
+          }
+        };
+        img.onerror = () => reject(new Error('Ошибка загрузки изображения'));
+        img.src = e.target.result;
+      };
+      reader.onerror = () => reject(new Error('Ошибка чтения файла'));
+      reader.readAsDataURL(file);
+    });
+  };
+
+  // Функция для загрузки изображения в Supabase Storage
+  const uploadImageToStorage = async (file, questionId = null) => {
+    try {
+      // Оптимизируем изображение перед загрузкой
+      const optimizedBlob = await optimizeImage(file);
+      
+      // Определяем расширение файла на основе типа blob
+      const fileExt = optimizedBlob.type === 'image/webp' ? 'webp' : 'jpg';
+      
+      // Генерируем уникальное имя файла
+      const fileName = questionId 
+        ? `questions/${questionId}.${fileExt}`
+        : `questions/${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
+      
+      // Загружаем в Supabase Storage (bucket: 'question-images')
+      const { data, error } = await supabase.storage
+        .from('question-images')
+        .upload(fileName, optimizedBlob, {
+          cacheControl: '3600',
+          upsert: true, // Перезаписываем, если файл существует
+          contentType: optimizedBlob.type
+        });
+
+      if (error) {
+        console.error('Ошибка загрузки изображения в Storage:', error);
+        throw error;
+      }
+
+      // Получаем публичный URL изображения
+      const { data: urlData } = supabase.storage
+        .from('question-images')
+        .getPublicUrl(fileName);
+
+      console.log('✅ Изображение загружено в Storage:', urlData.publicUrl);
+      return urlData.publicUrl;
+    } catch (err) {
+      console.error('Ошибка при загрузке изображения:', err);
+      throw err;
+    }
+  };
+
+  // Функция для удаления изображения из Storage
+  const deleteImageFromStorage = async (imageUrl) => {
+    try {
+      // Не удаляем base64 изображения (старые данные)
+      if (!imageUrl || imageUrl.startsWith('data:image/') || imageUrl.startsWith('blob:')) {
+        return;
+      }
+
+      // Проверяем, что это URL из нашего Storage
+      if (!imageUrl.includes('/storage/v1/object/public/question-images/')) {
+        return;
+      }
+
+      // Извлекаем путь к файлу из URL
+      // URL формат: https://xxx.supabase.co/storage/v1/object/public/question-images/questions/xxx.webp
+      const urlParts = imageUrl.split('/question-images/');
+      if (urlParts.length < 2) return;
+
+      const filePath = urlParts[1].split('?')[0]; // Убираем query параметры
+      if (!filePath) return;
+
+      const { error } = await supabase.storage
+        .from('question-images')
+        .remove([filePath]);
+
+      if (error) {
+        console.warn('Ошибка удаления изображения из Storage:', error);
+      } else {
+        console.log('✅ Изображение удалено из Storage:', filePath);
+      }
+    } catch (err) {
+      console.warn('Ошибка при удалении изображения:', err);
+    }
+  };
+
   // Функция для загрузки изображения
   const handleImageUpload = (e) => {
     const file = e.target.files[0];
@@ -3182,9 +3440,9 @@ function App() {
         return;
       }
       
-      // Проверяем размер файла (макс 5MB)
-      if (file.size > 5 * 1024 * 1024) {
-        alert('Размер файла не должен превышать 5MB!');
+      // Проверяем размер файла (макс 10MB до оптимизации)
+      if (file.size > 10 * 1024 * 1024) {
+        alert('Размер файла не должен превышать 10MB!');
         return;
       }
       
