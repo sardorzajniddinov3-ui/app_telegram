@@ -265,11 +265,12 @@ button {
 }
 
 .question-text-new {
-  font-size: 16px;
-  font-weight: 500;
+  font-size: 22px;
+  font-weight: 600;
   color: #000000; /* Explicitly black for readability on light blue background */
   margin: 0;
   line-height: 1.5;
+  text-align: center;
 }
 
 .answers-list {
@@ -2863,6 +2864,45 @@ body[data-theme="dark"] .question-box {
 
 body[data-theme="dark"] .question-text-new {
   color: var(--text-main, #ffffff);
+  font-size: 22px;
+  font-weight: 600;
+  text-align: center;
+}
+
+/* ========== АНИМАЦИИ ДЛЯ ИИ-ТРЕНЕРА ========== */
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.loading-spinner-small {
+  border: 3px solid rgba(255, 255, 255, 0.3);
+  border-radius: 50%;
+  border-top: 3px solid #ffffff;
+  width: 20px;
+  height: 20px;
+  animation: spin 1s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Стили для блока совета ИИ-тренера */
+.ai-trainer-advice-block {
+  animation: slideIn 0.5s ease-out;
+}
+
+body[data-theme="dark"] .ai-trainer-advice-block {
+  background: linear-gradient(135deg, #4a5568 0%, #2d3748 100%) !important;
 }
 
 /* ========== КНОПКА ПЕРЕКЛЮЧЕНИЯ ТЕМЫ ========== */

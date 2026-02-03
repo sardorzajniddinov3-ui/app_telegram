@@ -64,6 +64,7 @@ function App() {
   }
 
   const [userRole, setUserRole] = useState(null)
+  const [userId, setUserId] = useState(null) // ID пользователя Telegram
   const [loading, setLoading] = useState(true)
   const [screen, setScreen] = useState('topics') // 'topics', 'topicDetail', 'quiz', 'admin', 'fullReview', 'examSelect', 'examResult', 'examFullReview', 'registration'
   // Загружаем сохраненную тему из localStorage при инициализации
@@ -306,6 +307,296 @@ function App() {
   const [userSearchQuery, setUserSearchQuery] = useState('') // Поиск пользователей
   const [selectedUser, setSelectedUser] = useState(null) // Выбранный пользователь для модального окна
   const [showUserModal, setShowUserModal] = useState(false) // Показать модальное окно пользователя
+
+  // ========== ПЕРСОНАЛЬНЫЙ ИИ-ТРЕНЕР ==========
+  const [userPerformance, setUserPerformance] = useState(null) // Средний % по всем темам
+  const [problematicQuizzes, setProblematicQuizzes] = useState([]) // Проблемные темы
+  const [aiTrainerAdvice, setAiTrainerAdvice] = useState(null) // Совет от ИИ после теста
+  const [showAiAdvice, setShowAiAdvice] = useState(false) // Показать блок с советом ИИ
+
+  // ========== ФУНКЦИИ ПЕРСОНАЛЬНОГО ИИ-ТРЕНЕРА ==========
+  
+  // 1. Анализ производительности пользователя
+  const analyzeUserPerformance = async () => {
+    if (!userId) return null;
+    
+    try {
+      console.log('[AI TRAINER] Анализ производительности пользователя:', userId);
+      
+      // Получаем средний процент успеваемости по всем темам
+      const { data: avgData, error: avgError } = await supabase
+        .rpc('get_user_average_performance', { p_user_id: userId });
+      
+      if (!avgError && avgData !== null) {
+        setUserPerformance(avgData);
+        console.log('[AI TRAINER] Средняя успеваемость:', avgData + '%');
+      }
+      
+      // Получаем 3 самые проблемные темы
+      const { data: problemsData, error: problemsError } = await supabase
+        .rpc('get_problematic_topics', { p_user_id: userId, p_limit: 3 });
+      
+      if (!problemsError && problemsData && problemsData.length > 0) {
+        setProblematicQuizzes(problemsData);
+        console.log('[AI TRAINER] Проблемные темы:', problemsData);
+        return problemsData;
+      }
+      
+      return [];
+    } catch (error) {
+      console.error('[AI TRAINER] Ошибка анализа производительности:', error);
+      return [];
+    }
+  };
+  
+  // 2. Адаптивный подбор вопросов (40% из ошибок пользователя)
+  const getAdaptiveQuestions = async (topicId, totalQuestions = 20) => {
+    if (!userId) return [];
+    
+    try {
+      console.log('[AI TRAINER] Адаптивный подбор вопросов для темы:', topicId);
+      
+      // Получаем вопросы с ошибками пользователя
+      const { data: errorQuestions, error: errorQuestionsError } = await supabase
+        .rpc('get_user_error_questions', { p_user_id: userId, p_topic_id: String(topicId) });
+      
+      if (errorQuestionsError) {
+        console.warn('[AI TRAINER] Ошибка получения ошибочных вопросов:', errorQuestionsError);
+      }
+      
+      // Получаем все вопросы темы (используем getMergedQuestions как fallback)
+      const allQuestions = getMergedQuestions(topicId);
+      
+      if (!allQuestions || allQuestions.length === 0) {
+        console.warn('[AI TRAINER] Нет вопросов для темы');
+        return [];
+      }
+      
+      // Если нет ошибок или их мало, возвращаем случайные вопросы
+      if (!errorQuestions || errorQuestions.length === 0) {
+        console.log('[AI TRAINER] Нет ошибок пользователя, возвращаем случайные вопросы');
+        return shuffleArray(allQuestions).slice(0, totalQuestions);
+      }
+      
+      // Вычисляем 40% от общего количества
+      const errorQuestionCount = Math.ceil(totalQuestions * 0.4);
+      const regularQuestionCount = totalQuestions - errorQuestionCount;
+      
+      console.log('[AI TRAINER] Подбор: 40% ошибочных (${errorQuestionCount}), 60% обычных (${regularQuestionCount})');
+      
+      // Получаем вопросы с ошибками
+      const errorQuestionIds = errorQuestions.map(eq => eq.question_id);
+      const questionsWithErrors = allQuestions.filter(q => errorQuestionIds.includes(q.id));
+      const questionsWithoutErrors = allQuestions.filter(q => !errorQuestionIds.includes(q.id));
+      
+      // Выбираем случайные вопросы с ошибками
+      const selectedErrorQuestions = shuffleArray(questionsWithErrors).slice(0, errorQuestionCount);
+      
+      // Дополняем обычными вопросами
+      const selectedRegularQuestions = shuffleArray(questionsWithoutErrors).slice(0, regularQuestionCount);
+      
+      // Объединяем и перемешиваем
+      const finalQuestions = shuffleArray([...selectedErrorQuestions, ...selectedRegularQuestions]);
+      
+      console.log('[AI TRAINER] Итого вопросов:', finalQuestions.length);
+      return finalQuestions.slice(0, totalQuestions);
+      
+    } catch (error) {
+      console.error('[AI TRAINER] Ошибка адаптивного подбора:', error);
+      return [];
+    }
+  };
+  
+  // Вспомогательная функция для перемешивания массива
+  const shuffleArray = (array) => {
+    const shuffled = [...array];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    return shuffled;
+  };
+  
+  // 3. Получить совет от ИИ после теста
+  const getAITrainerAdvice = async (testResult) => {
+    // Получаем userId напрямую из Telegram (надежнее, чем полагаться на состояние)
+    const tgUser = initTelegramWebAppSafe();
+    const currentUserId = tgUser?.id ? String(tgUser.id) : userId; // Используем состояние как fallback
+    
+    if (!currentUserId) {
+      console.log('[AI TRAINER] Пропуск - userId не установлен (ни из Telegram, ни из состояния)');
+      return;
+    }
+    
+    try {
+      console.log('[AI TRAINER] Запрос совета от ИИ для результата:', {
+        correct: testResult.correct,
+        total: testResult.total,
+        hasQuestions: !!testResult.questions,
+        hasUserAnswers: !!testResult.userAnswers,
+        userId: currentUserId
+      });
+      
+      // Сначала показываем блок с загрузкой
+      setAiTrainerAdvice({ loading: true, text: null, error: null });
+      setShowAiAdvice(true);
+      console.log('[AI TRAINER] Блок показан, состояние:', { showAiAdvice: true, loading: true });
+      
+      // Формируем список ошибок
+      const errors = [];
+      if (testResult.questions && testResult.userAnswers) {
+        testResult.questions.forEach((question, index) => {
+          const userAnswer = testResult.userAnswers[index];
+          if (userAnswer && !userAnswer.isCorrect) {
+            const wrongAnswer = question.answers.find(a => {
+              const normalizeId = (id) => {
+                if (id === null || id === undefined) return null;
+                const num = Number(id);
+                if (!isNaN(num)) return num;
+                return String(id);
+              };
+              return normalizeId(a.id) === normalizeId(userAnswer.selectedAnswerId);
+            });
+            const correctAnswer = question.answers.find(a => a.correct === true);
+            
+            if (wrongAnswer && correctAnswer) {
+              errors.push({
+                question: question.text || question.question || 'Вопрос',
+                wrong: wrongAnswer.text || wrongAnswer.option_text || 'Выбранный ответ',
+                correct: correctAnswer.text || correctAnswer.option_text || 'Правильный ответ'
+              });
+            }
+          }
+        });
+      }
+      
+      console.log('[AI TRAINER] Сформировано ошибок:', errors.length);
+      
+      // Вызываем Edge Function
+      const { data, error } = await supabase.functions.invoke('ai-trainer-advice', {
+        body: {
+          userId: currentUserId,
+          errors: errors,
+          correctCount: testResult.correct || 0,
+          totalCount: testResult.total || 0
+        }
+      });
+      
+      if (error) {
+        console.error('[AI TRAINER] Ошибка получения совета:', error);
+        // При ошибке просто скрываем блок, не показываем ошибку пользователю
+        setShowAiAdvice(false);
+        setAiTrainerAdvice({ 
+          loading: false, 
+          text: null, 
+          error: null
+        });
+        return;
+      }
+      
+      if (data && data.advice) {
+        console.log('[AI TRAINER] Получен совет:', data.advice);
+        setAiTrainerAdvice({ 
+          loading: false, 
+          text: data.advice, 
+          error: null
+        });
+      } else {
+        // Если нет совета, скрываем блок
+        setShowAiAdvice(false);
+        setAiTrainerAdvice({ 
+          loading: false, 
+          text: null, 
+          error: null
+        });
+      }
+      
+    } catch (error) {
+      console.error('[AI TRAINER] Ошибка запроса совета:', error);
+      // При ошибке скрываем блок
+      setShowAiAdvice(false);
+      setAiTrainerAdvice({ 
+        loading: false, 
+        text: null, 
+        error: null
+      });
+    }
+  };
+  
+  // 4. Сохранение результатов теста в базу данных
+  const saveTestResultsToDatabase = async (testResult) => {
+    // Получаем userId напрямую из Telegram
+    const tgUser = initTelegramWebAppSafe();
+    const currentUserId = tgUser?.id ? String(tgUser.id) : userId;
+    
+    if (!currentUserId || !selectedTopic) {
+      console.log('[AI TRAINER] Пропуск сохранения в БД - нет userId или selectedTopic');
+      return null;
+    }
+    
+    try {
+      console.log('[AI TRAINER] Сохранение результатов теста в БД');
+      
+      // Сохраняем результаты теста
+      const { data: resultData, error: resultError } = await supabase
+        .from('test_results')
+        .insert([{
+          user_id: Number(currentUserId), // Преобразуем в число для БД
+          topic_id: String(selectedTopic.id), // Преобразуем в строку для совместимости
+          is_exam: isExamMode || false,
+          total_questions: testResult.total,
+          correct_answers: testResult.correct,
+          percentage: testResult.percentage,
+          time_spent: testResult.time
+        }])
+        .select()
+        .single();
+      
+      if (resultError) {
+        console.error('[AI TRAINER] Ошибка сохранения результатов:', resultError);
+        return null;
+      }
+      
+      console.log('[AI TRAINER] Результаты сохранены, ID:', resultData.id);
+      
+      // Сохраняем ошибки пользователя
+      if (testResult.questions && testResult.userAnswers) {
+        const errors = [];
+        testResult.questions.forEach((question, index) => {
+          const userAnswer = testResult.userAnswers[index];
+          if (userAnswer && !userAnswer.isCorrect) {
+            const correctAnswer = question.answers.find(a => a.correct === true);
+            errors.push({
+              user_id: Number(currentUserId), // Преобразуем в число для БД
+              topic_id: String(selectedTopic.id), // Преобразуем в строку
+              question_id: String(question.id), // Преобразуем в строку
+              selected_option_id: String(userAnswer.selectedAnswerId), // Преобразуем в строку
+              correct_option_id: correctAnswer ? String(correctAnswer.id) : null // Преобразуем в строку
+            });
+          }
+        });
+        
+        if (errors.length > 0) {
+          // Используем upsert для обновления существующих ошибок
+          for (const error of errors) {
+            await supabase
+              .from('user_errors')
+              .upsert(error, {
+                onConflict: 'user_id,question_id',
+                ignoreDuplicates: false
+              });
+          }
+          console.log('[AI TRAINER] Сохранено ошибок:', errors.length);
+        }
+      }
+      
+      return resultData;
+      
+    } catch (error) {
+      console.error('[AI TRAINER] Ошибка сохранения в БД:', error);
+      return null;
+    }
+  };
 
   // ========== ФУНКЦИИ ДЛЯ РАБОТЫ С SUPABASE (ТЕМЫ И ВОПРОСЫ) ==========
   
@@ -1022,6 +1313,7 @@ function App() {
 
         // Получаем ID пользователя из Telegram (или фоллбек)
         const userId = tgUser?.id ? String(tgUser.id) : null;
+        setUserId(userId); // Сохраняем userId в состоянии для использования в других функциях
         const telegramUsername = tgUser?.username || null;
         void telegramUsername;
 
@@ -2645,6 +2937,17 @@ function App() {
       setTestStartTime(null);
       setElapsedTime(0);
       setScreen('topicDetail');
+      
+      // ========== ИИ-ТРЕНЕР: Сохраняем результаты в БД ==========
+      // Сохраняем результаты в БД (асинхронно, не блокируем UI)
+      saveTestResultsToDatabase(newResult).then(() => {
+        console.log('[AI TRAINER] Результаты сохранены в БД');
+      }).catch(err => {
+        console.error('[AI TRAINER] Ошибка сохранения в БД:', err);
+      });
+      
+      // Сохраняем результат для возможного запроса совета (по кнопке)
+      // Не вызываем getAITrainerAdvice автоматически - только по нажатию кнопки
     }
     } catch (error) {
       console.error('Критическая ошибка в saveTestResults:', error);
@@ -5856,6 +6159,109 @@ function App() {
               </div>
             </div>
 
+            {/* Блок с советом от ИИ-тренера (вверху, перед результатами) */}
+            <div className="ai-trainer-advice-block" style={{
+              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              borderRadius: '16px',
+              padding: '20px',
+              marginTop: '20px',
+              marginBottom: '20px',
+              color: '#ffffff',
+              boxShadow: '0 8px 24px rgba(102, 126, 234, 0.3)',
+              animation: showAiAdvice && aiTrainerAdvice ? 'slideIn 0.5s ease-out' : 'none'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
+                <span style={{ fontSize: '28px' }}>🤖</span>
+                <h3 style={{ margin: 0, fontSize: '18px', fontWeight: '700' }}>
+                  Совет от ИИ-инструктора
+                </h3>
+              </div>
+              
+              {!showAiAdvice || !aiTrainerAdvice ? (
+                // Показываем кнопку "Получить совет"
+                <div>
+                  <p style={{ margin: '0 0 16px 0', fontSize: '15px', lineHeight: '1.6', opacity: 0.9 }}>
+                    Получи персональный совет на основе твоих ошибок
+                  </p>
+                  <button 
+                    onClick={() => {
+                      if (latestResult) {
+                        getAITrainerAdvice(latestResult);
+                      }
+                    }}
+                    style={{
+                      width: '100%',
+                      background: 'rgba(255, 255, 255, 0.2)',
+                      border: 'none',
+                      borderRadius: '10px',
+                      padding: '14px 20px',
+                      color: '#ffffff',
+                      fontSize: '16px',
+                      fontWeight: '600',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s ease',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '8px'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.target.style.background = 'rgba(255, 255, 255, 0.3)';
+                      e.target.style.transform = 'translateY(-2px)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.target.style.background = 'rgba(255, 255, 255, 0.2)';
+                      e.target.style.transform = 'translateY(0)';
+                    }}
+                  >
+                    <span>✨</span>
+                    <span>Получить совет</span>
+                  </button>
+                </div>
+              ) : aiTrainerAdvice.loading ? (
+                // Показываем загрузку
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <div className="loading-spinner-small"></div>
+                  <span style={{ fontSize: '15px' }}>Инструктор анализирует твои ошибки...</span>
+                </div>
+              ) : aiTrainerAdvice.error ? (
+                null // Скрываем блок при ошибке
+              ) : aiTrainerAdvice.text ? (
+                // Показываем совет
+                <div>
+                  <p style={{ margin: 0, fontSize: '15px', lineHeight: '1.6' }}>
+                    {aiTrainerAdvice.text}
+                  </p>
+                  <button 
+                    onClick={() => {
+                      setShowAiAdvice(false);
+                      setAiTrainerAdvice(null);
+                    }}
+                    style={{
+                      marginTop: '16px',
+                      background: 'rgba(255, 255, 255, 0.2)',
+                      border: 'none',
+                      borderRadius: '8px',
+                      padding: '10px 16px',
+                      color: '#ffffff',
+                      fontSize: '14px',
+                      fontWeight: '600',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s ease'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.target.style.background = 'rgba(255, 255, 255, 0.3)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.target.style.background = 'rgba(255, 255, 255, 0.2)';
+                    }}
+                  >
+                    Понятно ✓
+                  </button>
+                </div>
+              ) : null}
+            </div>
+
             <div className="result-cards">
               <div className="result-card">
                 <div className="result-card-icon green">✓</div>
@@ -6375,11 +6781,70 @@ function App() {
                 {examResult.dateTime}
               </div>
             </div>
-          </div>
+            </div>
 
-          <button 
-            className="full-review-button"
-            onClick={() => {
+            {/* Блок с советом от ИИ-тренера */}
+            {showAiAdvice && aiTrainerAdvice && (
+              <div className="ai-trainer-advice-block" style={{
+                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                borderRadius: '16px',
+                padding: '20px',
+                marginTop: '20px',
+                color: '#ffffff',
+                boxShadow: '0 8px 24px rgba(102, 126, 234, 0.3)',
+                animation: 'slideIn 0.5s ease-out'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
+                  <span style={{ fontSize: '28px' }}>🤖</span>
+                  <h3 style={{ margin: 0, fontSize: '18px', fontWeight: '700' }}>
+                    Совет от ИИ-инструктора
+                  </h3>
+                </div>
+                
+                {aiTrainerAdvice.loading ? (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <div className="loading-spinner-small"></div>
+                    <span style={{ fontSize: '15px' }}>Инструктор анализирует твои ошибки...</span>
+                  </div>
+                ) : aiTrainerAdvice.error ? (
+                  null // Скрываем блок при ошибке
+                ) : aiTrainerAdvice.text ? (
+                  <p style={{ margin: 0, fontSize: '15px', lineHeight: '1.6' }}>
+                    {aiTrainerAdvice.text}
+                  </p>
+                ) : null}
+                
+                {!aiTrainerAdvice.loading && aiTrainerAdvice.text && (
+                  <button 
+                    onClick={() => setShowAiAdvice(false)}
+                    style={{
+                      marginTop: '16px',
+                      background: 'rgba(255, 255, 255, 0.2)',
+                      border: 'none',
+                      borderRadius: '8px',
+                      padding: '10px 16px',
+                      color: '#ffffff',
+                      fontSize: '14px',
+                      fontWeight: '600',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s ease'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.target.style.background = 'rgba(255, 255, 255, 0.3)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.target.style.background = 'rgba(255, 255, 255, 0.2)';
+                    }}
+                  >
+                    Понятно ✓
+                  </button>
+                )}
+              </div>
+            )}
+
+            <button 
+              className="full-review-button"
+              onClick={() => {
               setSelectedExamResult(examResult);
               setScreen('examFullReview');
             }}
@@ -6844,6 +7309,9 @@ function App() {
             
             const isIncorrect = userSelectedAnswer && !userSelectedAnswer.correct;
             const questionId = question.id || `q-${currentQuestionIndex}`;
+            
+            // ИИ-объяснение отключено в режиме экзамена
+            if (isExamMode) return null;
             
             if (!isIncorrect || !correctAnswerObj) return null;
             
