@@ -147,11 +147,17 @@ function App() {
   
   // ========== ИИ-ОБЪЯСНЕНИЕ ОШИБОК: Состояния ==========
   const [explanations, setExplanations] = useState({}) // { questionId: { explanation: string, loading: boolean, error: string } }
+  const requestedExplanationsRef = useRef(new Set()) // Отслеживание уже запрошенных объяснений
   
   // ========== ИИ-ОБЪЯСНЕНИЕ ОШИБОК: Функция для получения объяснения с эффектом печатания ==========
   // Система автоматического переключения моделей реализована в Edge Function
   // При ошибке 429 или 404 система автоматически переключается на следующую модель
-  const getExplanation = async (questionId, question, wrongAnswer, correctAnswer) => {
+  const getExplanation = useCallback(async (questionId, question, wrongAnswer, correctAnswer) => {
+    // Не делаем запросы к AI во время загрузки приложения
+    if (loading) {
+      return;
+    }
+    
     // Если объяснение уже загружено, не запрашиваем снова
     if (explanations[questionId]?.explanation) {
       return;
@@ -280,7 +286,7 @@ function App() {
         }
       }));
     }
-  };
+  }, [explanations, loading]);
   const [grantMessage, setGrantMessage] = useState(null)
   const [subscriptionInfo, setSubscriptionInfo] = useState(null) // /api/subscription/me
   const [showSubscriptionModal, setShowSubscriptionModal] = useState(false) // Модальное окно подписки
@@ -713,20 +719,20 @@ function App() {
 
         if (questionsErrorAlt) {
           console.error('❌ Альтернативный запрос тоже не удался:', questionsErrorAlt);
-          // Fallback на localStorage
-          const saved = JSON.parse(localStorage.getItem('dev_questions') || '[]');
-          setSavedQuestions(saved);
-          return;
-        }
+        // Fallback на localStorage
+        const saved = JSON.parse(localStorage.getItem('dev_questions') || '[]');
+        setSavedQuestions(saved);
+        return;
+      }
 
         // Если альтернативный запрос успешен, загружаем опции отдельно
         if (questionsDataAlt && questionsDataAlt.length > 0) {
           const questionIds = questionsDataAlt.map(q => q.id);
-          const { data: optionsData, error: optionsError } = await supabase
-            .from('options')
+        const { data: optionsData, error: optionsError } = await supabase
+          .from('options')
             .select('question_id, option_text, is_correct, created_at')
-            .in('question_id', questionIds)
-            .order('created_at', { ascending: true });
+          .in('question_id', questionIds)
+          .order('created_at', { ascending: true });
 
           // Объединяем вопросы с опциями
           const questionsWithOptions = questionsDataAlt.map(q => ({
@@ -758,7 +764,7 @@ function App() {
                 answerMap[`answer_${key}`] = option.option_text || '';
                 if (option.is_correct) {
                   correctKey = key;
-                }
+        }
               }
             });
 
@@ -834,9 +840,9 @@ function App() {
           options.forEach((option, index) => {
             if (index < answerKeys.length) {
               const key = answerKeys[index];
-              answerMap[`answer_${key}`] = option.option_text || '';
-              if (option.is_correct) {
-                correctKey = key;
+            answerMap[`answer_${key}`] = option.option_text || '';
+            if (option.is_correct) {
+              correctKey = key;
               }
             }
           });
@@ -944,9 +950,9 @@ function App() {
       .map(q => {
         const answers = buildAnswersFromSavedQuestion(q);
         return {
-          id: q.id,
-          text: q.question,
-          image: q.image_url,
+        id: q.id,
+        text: q.question,
+        image: q.image_url,
           answers: answers
         };
       });
@@ -2618,8 +2624,8 @@ function App() {
 
   // Автоматически запрашиваем объяснения для неправильных ответов в режиме полного обзора
   useEffect(() => {
-    // Выполняем только если мы на экране fullReview
-    if (screen !== 'fullReview') return;
+    // Выполняем только если мы на экране fullReview и приложение не загружается
+    if (screen !== 'fullReview' || loading) return;
     
     // Получаем результат: сначала из selectedResult, затем из results по selectedTopic, затем из всех results
     let reviewResult = selectedResult;
@@ -2646,8 +2652,8 @@ function App() {
     const questions = reviewResult.questions;
     const userAnswers = reviewResult.userAnswers;
     
-    // Автоматически запрашиваем объяснения для неправильных ответов
-    // Система fallback в Edge Function автоматически переключается между моделями
+    // Собираем все неправильные ответы для обработки
+    const incorrectAnswers = [];
     questions.forEach((question, index) => {
       const userAnswer = userAnswers[index];
       if (!userAnswer) return;
@@ -2668,10 +2674,34 @@ function App() {
       const questionId = question.id || `q-${index}`;
       
       if (isIncorrect && correctAnswer && userSelectedAnswer && !explanations[questionId]?.explanation && !explanations[questionId]?.loading) {
-        getExplanation(questionId, question.text, userSelectedAnswer.text, correctAnswer.text);
+        incorrectAnswers.push({
+          questionId,
+          questionText: question.text,
+          wrongAnswer: userSelectedAnswer.text,
+          correctAnswer: correctAnswer.text
+        });
       }
     });
-  }, [screen, selectedResult, selectedTopic, results, explanations, getExplanation]);
+    
+    // Запрашиваем объяснения с задержкой между запросами (чтобы не перегружать AI)
+    incorrectAnswers.forEach((item, index) => {
+      // Пропускаем, если уже запрошено
+      if (requestedExplanationsRef.current.has(item.questionId)) {
+        return;
+      }
+      
+      requestedExplanationsRef.current.add(item.questionId);
+      
+      setTimeout(() => {
+        getExplanation(item.questionId, item.questionText, item.wrongAnswer, item.correctAnswer);
+      }, index * 1500); // Задержка 1.5 секунды между запросами для снижения нагрузки
+    });
+    
+    // Очищаем ref при смене экрана
+    if (screen !== 'fullReview') {
+      requestedExplanationsRef.current.clear();
+    }
+  }, [screen, selectedResult, selectedTopic, results, loading, getExplanation]);
 
   // Форматирование времени для обычного теста (HH:MM:SS)
   const formatTime = (seconds) => {
@@ -3085,32 +3115,32 @@ function App() {
     // Автоматический переход к следующему вопросу ТОЛЬКО при правильном ответе
     // Если ответ неправильный, тест не переходит к следующему вопросу
     if (isCorrect) {
-      const isLastQuestion = currentQuestionIndex + 1 >= questions.length;
-      
-      if (!isLastQuestion) {
+    const isLastQuestion = currentQuestionIndex + 1 >= questions.length;
+    
+    if (!isLastQuestion) {
         // Небольшая пауза, чтобы пользователь успел увидеть подсветку правильного ответа
-        setTimeout(() => {
-          setCurrentQuestionIndex(prev => prev + 1);
-          setSelectedAnswer(null);
-          setIsAnswered(false);
-        }, 400);
-      } else {
-        // Если это был последний вопрос, проверяем, все ли вопросы отвечены,
-        // и при желании пользователя завершаем тест
-        setTimeout(() => {
-          const allAnswered = questions.every((q, idx) => 
-            updatedAnswers[idx] !== undefined && updatedAnswers[idx] !== null
-          );
-          
-          if (allAnswered) {
-            setTimeout(() => {
-              if (confirm('Все вопросы отвечены! Завершить тест?')) {
-                saveTestResults();
-              }
-            }, 400);
-          }
-        }, 150);
-      }
+      setTimeout(() => {
+        setCurrentQuestionIndex(prev => prev + 1);
+        setSelectedAnswer(null);
+        setIsAnswered(false);
+      }, 400);
+    } else {
+      // Если это был последний вопрос, проверяем, все ли вопросы отвечены,
+      // и при желании пользователя завершаем тест
+      setTimeout(() => {
+        const allAnswered = questions.every((q, idx) => 
+          updatedAnswers[idx] !== undefined && updatedAnswers[idx] !== null
+        );
+        
+        if (allAnswered) {
+          setTimeout(() => {
+            if (confirm('Все вопросы отвечены! Завершить тест?')) {
+              saveTestResults();
+            }
+          }, 400);
+        }
+      }, 150);
+    }
     }
     // Если ответ неправильный, тест остается на текущем вопросе
   }
@@ -6414,7 +6444,7 @@ function App() {
             <button className="back-button" onClick={() => {
               setSelectedResult(null);
               if (selectedTopic) {
-                setScreen('topicDetail');
+              setScreen('topicDetail');
               } else {
                 setScreen('topics');
               }
@@ -6464,7 +6494,7 @@ function App() {
           <button className="back-button" onClick={() => {
             setSelectedResult(null);
             if (selectedTopic) {
-              setScreen('topicDetail');
+            setScreen('topicDetail');
             } else {
               setScreen('topics');
             }
@@ -6781,7 +6811,7 @@ function App() {
                 {examResult.dateTime}
               </div>
             </div>
-            </div>
+          </div>
 
             {/* Блок с советом от ИИ-тренера */}
             {showAiAdvice && aiTrainerAdvice && (
@@ -6842,9 +6872,9 @@ function App() {
               </div>
             )}
 
-            <button 
-              className="full-review-button"
-              onClick={() => {
+          <button 
+            className="full-review-button"
+            onClick={() => {
               setSelectedExamResult(examResult);
               setScreen('examFullReview');
             }}
