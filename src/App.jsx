@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef, Suspense, lazy, useCallback, memo } from 'react'
+import { createPortal } from 'react-dom'
 import './App.css'
 import { initTelegramWebAppSafe, getTelegramColorScheme } from './telegram'
 import { supabase } from './supabase'
+import StatisticsScreen from './StatisticsScreen'
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'https://apptelegram-production-4131.up.railway.app';
 
@@ -66,7 +68,7 @@ function App() {
   const [userRole, setUserRole] = useState(null)
   const [userId, setUserId] = useState(null) // ID пользователя Telegram
   const [loading, setLoading] = useState(true)
-  const [screen, setScreen] = useState('topics') // 'topics', 'topicDetail', 'quiz', 'admin', 'fullReview', 'examSelect', 'examResult', 'examFullReview', 'registration'
+  const [screen, setScreen] = useState('topics') // 'topics', 'topicDetail', 'quiz', 'admin', 'fullReview', 'examSelect', 'examResult', 'examFullReview', 'registration', 'analytics'
   // Загружаем сохраненную тему из localStorage при инициализации
   const getSavedTheme = () => {
     try {
@@ -147,17 +149,11 @@ function App() {
   
   // ========== ИИ-ОБЪЯСНЕНИЕ ОШИБОК: Состояния ==========
   const [explanations, setExplanations] = useState({}) // { questionId: { explanation: string, loading: boolean, error: string } }
-  const requestedExplanationsRef = useRef(new Set()) // Отслеживание уже запрошенных объяснений
   
   // ========== ИИ-ОБЪЯСНЕНИЕ ОШИБОК: Функция для получения объяснения с эффектом печатания ==========
   // Система автоматического переключения моделей реализована в Edge Function
   // При ошибке 429 или 404 система автоматически переключается на следующую модель
-  const getExplanation = useCallback(async (questionId, question, wrongAnswer, correctAnswer) => {
-    // Не делаем запросы к AI во время загрузки приложения
-    if (loading) {
-      return;
-    }
-    
+  const getExplanation = async (questionId, question, wrongAnswer, correctAnswer) => {
     // Если объяснение уже загружено, не запрашиваем снова
     if (explanations[questionId]?.explanation) {
       return;
@@ -286,7 +282,7 @@ function App() {
         }
       }));
     }
-  }, [explanations, loading]);
+  };
   const [grantMessage, setGrantMessage] = useState(null)
   const [subscriptionInfo, setSubscriptionInfo] = useState(null) // /api/subscription/me
   const [showSubscriptionModal, setShowSubscriptionModal] = useState(false) // Модальное окно подписки
@@ -319,6 +315,11 @@ function App() {
   const [problematicQuizzes, setProblematicQuizzes] = useState([]) // Проблемные темы
   const [aiTrainerAdvice, setAiTrainerAdvice] = useState(null) // Совет от ИИ после теста
   const [showAiAdvice, setShowAiAdvice] = useState(false) // Показать блок с советом ИИ
+  
+  // ========== ЭКРАН СТАТИСТИКИ ==========
+  const [analyticsData, setAnalyticsData] = useState(null) // Статистика по темам
+  const [analyticsLoading, setAnalyticsLoading] = useState(false) // Загрузка статистики
+  const [analyticsAiVerdict, setAnalyticsAiVerdict] = useState(null) // AI-вердикт для статистики
 
   // ========== ФУНКЦИИ ПЕРСОНАЛЬНОГО ИИ-ТРЕНЕРА ==========
   
@@ -604,6 +605,225 @@ function App() {
     }
   };
 
+  // ========== ФУНКЦИИ ДЛЯ ЭКРАНА СТАТИСТИКИ ==========
+  
+  // Загрузка статистики по темам из test_results и user_errors
+  const loadAnalyticsData = async () => {
+    const tgUser = initTelegramWebAppSafe();
+    const currentUserId = tgUser?.id ? String(tgUser.id) : userId;
+    
+    if (!currentUserId) {
+      console.log('[ANALYTICS] Пропуск загрузки - нет userId');
+      return null;
+    }
+    
+    setAnalyticsLoading(true);
+    
+    try {
+      console.log('[ANALYTICS] Загрузка статистики для пользователя:', currentUserId);
+      
+      // Загружаем результаты тестов, сгруппированные по темам
+      const { data: testResults, error: testResultsError } = await supabase
+        .from('test_results')
+        .select('topic_id, total_questions, correct_answers, percentage')
+        .eq('user_id', Number(currentUserId))
+        .order('created_at', { ascending: false })
+        .limit(10000); // Большой лимит для всех результатов
+      
+      if (testResultsError) {
+        console.error('[ANALYTICS] Ошибка загрузки результатов тестов:', testResultsError);
+      }
+      
+      // Загружаем ошибки пользователя, сгруппированные по темам
+      const { data: userErrors, error: userErrorsError } = await supabase
+        .from('user_errors')
+        .select('topic_id, question_id, error_count')
+        .eq('user_id', Number(currentUserId))
+        .limit(10000); // Большой лимит для всех ошибок
+      
+      if (userErrorsError) {
+        console.error('[ANALYTICS] Ошибка загрузки ошибок:', userErrorsError);
+      }
+      
+      // Группируем результаты по темам
+      const topicStats = new Map();
+      
+      // Обрабатываем результаты тестов
+      if (testResults && testResults.length > 0) {
+        testResults.forEach(result => {
+          const topicId = String(result.topic_id);
+          if (!topicStats.has(topicId)) {
+            topicStats.set(topicId, {
+              topicId: topicId,
+              totalTests: 0,
+              totalQuestions: 0,
+              totalCorrect: 0,
+              averagePercentage: 0,
+              errorCount: 0
+            });
+          }
+          
+          const stats = topicStats.get(topicId);
+          stats.totalTests += 1;
+          stats.totalQuestions += result.total_questions || 0;
+          stats.totalCorrect += result.correct_answers || 0;
+          
+          // Вычисляем средний процент
+          const currentAvg = stats.averagePercentage;
+          const newPercentage = result.percentage || 0;
+          stats.averagePercentage = ((currentAvg * (stats.totalTests - 1)) + newPercentage) / stats.totalTests;
+        });
+      }
+      
+      // Обрабатываем ошибки
+      if (userErrors && userErrors.length > 0) {
+        const errorCountsByTopic = new Map();
+        userErrors.forEach(error => {
+          const topicId = String(error.topic_id);
+          errorCountsByTopic.set(topicId, (errorCountsByTopic.get(topicId) || 0) + (error.error_count || 1));
+        });
+        
+        // Добавляем количество ошибок к статистике тем
+        errorCountsByTopic.forEach((count, topicId) => {
+          if (!topicStats.has(topicId)) {
+            topicStats.set(topicId, {
+              topicId: topicId,
+              totalTests: 0,
+              totalQuestions: 0,
+              totalCorrect: 0,
+              averagePercentage: 0,
+              errorCount: 0
+            });
+          }
+          topicStats.get(topicId).errorCount = count;
+        });
+      }
+      
+      // Преобразуем Map в массив и добавляем информацию о теме
+      const analyticsArray = Array.from(topicStats.values()).map(stats => {
+        const topic = topics.find(t => String(t.id) === stats.topicId);
+        return {
+          ...stats,
+          topicName: topic ? topic.name : `Тема ${stats.topicId}`,
+          color: stats.averagePercentage < 50 ? 'red' : stats.averagePercentage < 80 ? 'yellow' : 'green'
+        };
+      });
+      
+      // Сортируем по количеству ошибок (для слабых мест)
+      const weakTopics = [...analyticsArray]
+        .sort((a, b) => b.errorCount - a.errorCount)
+        .slice(0, 3);
+      
+      setAnalyticsData({
+        topics: analyticsArray,
+        weakTopics: weakTopics,
+        totalTopics: analyticsArray.length
+      });
+      
+      console.log('[ANALYTICS] Статистика загружена:', analyticsArray.length, 'тем');
+      
+      return {
+        topics: analyticsArray,
+        weakTopics: weakTopics
+      };
+      
+    } catch (error) {
+      console.error('[ANALYTICS] Ошибка загрузки статистики:', error);
+      return null;
+    } finally {
+      setAnalyticsLoading(false);
+    }
+  };
+  
+  // Загрузка AI-вердикта для статистики
+  const loadAnalyticsAiVerdict = async () => {
+    const tgUser = initTelegramWebAppSafe();
+    const currentUserId = tgUser?.id ? String(tgUser.id) : userId;
+    
+    if (!currentUserId || !analyticsData) {
+      return;
+    }
+    
+    // Устанавливаем состояние загрузки
+    setAnalyticsAiVerdict({
+      loading: true,
+      text: null,
+      error: null
+    });
+    
+    try {
+      console.log('[ANALYTICS] Загрузка AI-вердикта для статистики');
+      console.log('[ANALYTICS] Данные статистики:', {
+        topicsCount: analyticsData.topics.length,
+        weakTopicsCount: analyticsData.weakTopics?.length || 0
+      });
+      
+      // Формируем данные для AI
+      const userErrorsArray = analyticsData.weakTopics && analyticsData.weakTopics.length > 0
+        ? analyticsData.weakTopics.map(topic => ({
+            topic_id: String(topic.topicId),
+            topic_name: String(topic.topicName),
+            error_count: Number(topic.errorCount) || 0,
+            percentage: Number(topic.averagePercentage) || 0
+          }))
+        : [];
+      
+      const avgScore = analyticsData.topics.length > 0
+        ? analyticsData.topics.reduce((sum, t) => sum + (Number(t.averagePercentage) || 0), 0) / analyticsData.topics.length
+        : 0;
+      
+      const requestData = {
+        userId: String(currentUserId),
+        userErrors: userErrorsArray,
+        totalScore: Math.round(avgScore * 100) / 100 // Округляем до 2 знаков
+      };
+      
+      console.log('[ANALYTICS] Отправка запроса:', {
+        userId: requestData.userId,
+        userErrorsCount: requestData.userErrors.length,
+        totalScore: requestData.totalScore
+      });
+      
+      const { data, error } = await supabase.functions.invoke('ai-trainer-advice', {
+        body: requestData
+      });
+      
+      console.log('[ANALYTICS] Ответ от Edge Function:', { data, error });
+      
+      if (error) {
+        console.error('[ANALYTICS] Ошибка запроса AI-вердикта:', error);
+        setAnalyticsAiVerdict({
+          loading: false,
+          text: null,
+          error: 'Не удалось получить вердикт ИИ'
+        });
+        return;
+      }
+      
+      if (data && data.advice) {
+        setAnalyticsAiVerdict({
+          loading: false,
+          text: data.advice.substring(0, 200), // Ограничиваем до 200 символов
+          error: null
+        });
+      } else {
+        setAnalyticsAiVerdict({
+          loading: false,
+          text: null,
+          error: null
+        });
+      }
+      
+    } catch (error) {
+      console.error('[ANALYTICS] Ошибка загрузки AI-вердикта:', error);
+      setAnalyticsAiVerdict({
+        loading: false,
+        text: null,
+        error: 'Ошибка загрузки вердикта'
+      });
+    }
+  };
+
   // ========== ФУНКЦИИ ДЛЯ РАБОТЫ С SUPABASE (ТЕМЫ И ВОПРОСЫ) ==========
   
   // Загрузка квизов (тем) из Supabase
@@ -612,7 +832,8 @@ function App() {
       const { data, error } = await supabase
         .from('quizzes')
         .select('*')
-        .order('created_at', { ascending: true });
+        .order('created_at', { ascending: true })
+        .limit(10000); // Большой лимит для загрузки всех тем
 
       if (error) {
         console.error('Ошибка загрузки квизов из Supabase:', error);
@@ -634,7 +855,8 @@ function App() {
         // Оптимизация: загружаем все вопросы одним запросом и считаем количество для каждой темы
         const { data: allQuestions, error: questionsError } = await supabase
               .from('questions')
-          .select('quiz_id');
+          .select('quiz_id')
+          .limit(100000); // Большой лимит для загрузки всех вопросов
 
         // Создаем Map для подсчета вопросов по темам
         const questionCounts = new Map();
@@ -654,6 +876,7 @@ function App() {
         }));
 
         setTopics(topicsWithCounts);
+        console.log(`✅ Загружено тем из Supabase: ${topicsWithCounts.length} (без лимитов)`);
       } else {
         // Если нет квизов в Supabase, используем дефолтные
         setTopics(defaultTopics);
@@ -701,11 +924,12 @@ function App() {
       }
 
       // Загружаем вопросы с опциями через вложенный select
-      // Используем простой синтаксис для совместимости
+      // УБИРАЕМ ЛИМИТЫ: загружаем ВСЕ вопросы без ограничений
       const { data: questionsData, error: questionsError } = await supabase
         .from('questions')
         .select('*, options(*)')
-        .order('created_at', { ascending: true });
+        .order('created_at', { ascending: true })
+        .limit(100000); // Большой лимит для загрузки всех вопросов
 
       if (questionsError) {
         console.error('❌ Ошибка загрузки вопросов из Supabase:', questionsError);
@@ -715,7 +939,8 @@ function App() {
         const { data: questionsDataAlt, error: questionsErrorAlt } = await supabase
           .from('questions')
           .select('id, quiz_id, question_text, image_url, created_at')
-          .order('created_at', { ascending: true });
+          .order('created_at', { ascending: true })
+          .limit(100000); // Большой лимит для загрузки всех вопросов
 
         if (questionsErrorAlt) {
           console.error('❌ Альтернативный запрос тоже не удался:', questionsErrorAlt);
@@ -732,7 +957,8 @@ function App() {
           .from('options')
             .select('question_id, option_text, is_correct, created_at')
           .in('question_id', questionIds)
-          .order('created_at', { ascending: true });
+          .order('created_at', { ascending: true })
+          .limit(100000); // Большой лимит для загрузки всех опций
 
           // Объединяем вопросы с опциями
           const questionsWithOptions = questionsDataAlt.map(q => ({
@@ -764,7 +990,7 @@ function App() {
                 answerMap[`answer_${key}`] = option.option_text || '';
                 if (option.is_correct) {
                   correctKey = key;
-        }
+                }
               }
             });
 
@@ -782,6 +1008,7 @@ function App() {
           });
 
           setSavedQuestions(formattedQuestions);
+          console.log(`✅ Загружено вопросов из Supabase (альтернативный запрос): ${formattedQuestions.length} (без лимитов)`);
           
           try {
             localStorage.setItem('dev_questions_cache', JSON.stringify(formattedQuestions));
@@ -816,7 +1043,8 @@ function App() {
             .from('options')
             .select('question_id, option_text, is_correct, created_at')
             .in('question_id', questionIds)
-            .order('created_at', { ascending: true });
+            .order('created_at', { ascending: true })
+            .limit(100000); // Большой лимит для загрузки всех опций
 
           if (!optionsError && optionsData) {
             optionsData.forEach(option => {
@@ -862,6 +1090,7 @@ function App() {
         
         // Сохраняем в состояние и кэш
         setSavedQuestions(formattedQuestions);
+        console.log(`✅ Загружено вопросов из Supabase: ${formattedQuestions.length} (без лимитов)`);
         
         // Кэшируем для быстрой загрузки в следующий раз
         try {
@@ -1450,6 +1679,25 @@ function App() {
       setSubscriptionLoaded(false);
     }
   }, [screen, userRole, loading, subscriptionLoaded]);
+
+  // Автоматическая загрузка статистики при открытии экрана analytics
+  useEffect(() => {
+    if (screen === 'analytics' && userId && !analyticsLoading) {
+      if (!analyticsData) {
+        loadAnalyticsData().then(data => {
+          if (data && data.topics && data.topics.length > 0) {
+            // Загружаем AI-вердикт после загрузки статистики
+            setTimeout(() => {
+              loadAnalyticsAiVerdict();
+            }, 500);
+          }
+        });
+      } else if (analyticsData && !analyticsAiVerdict) {
+        // Если данные уже загружены, но вердикт нет, загружаем вердикт
+        loadAnalyticsAiVerdict();
+      }
+    }
+  }, [screen, userId, analyticsLoading, analyticsData, analyticsAiVerdict]);
 
   const getUserHeaders = () => {
     try {
@@ -2624,8 +2872,8 @@ function App() {
 
   // Автоматически запрашиваем объяснения для неправильных ответов в режиме полного обзора
   useEffect(() => {
-    // Выполняем только если мы на экране fullReview и приложение не загружается
-    if (screen !== 'fullReview' || loading) return;
+    // Выполняем только если мы на экране fullReview
+    if (screen !== 'fullReview') return;
     
     // Получаем результат: сначала из selectedResult, затем из results по selectedTopic, затем из всех results
     let reviewResult = selectedResult;
@@ -2652,8 +2900,8 @@ function App() {
     const questions = reviewResult.questions;
     const userAnswers = reviewResult.userAnswers;
     
-    // Собираем все неправильные ответы для обработки
-    const incorrectAnswers = [];
+    // Автоматически запрашиваем объяснения для неправильных ответов
+    // Система fallback в Edge Function автоматически переключается между моделями
     questions.forEach((question, index) => {
       const userAnswer = userAnswers[index];
       if (!userAnswer) return;
@@ -2674,34 +2922,10 @@ function App() {
       const questionId = question.id || `q-${index}`;
       
       if (isIncorrect && correctAnswer && userSelectedAnswer && !explanations[questionId]?.explanation && !explanations[questionId]?.loading) {
-        incorrectAnswers.push({
-          questionId,
-          questionText: question.text,
-          wrongAnswer: userSelectedAnswer.text,
-          correctAnswer: correctAnswer.text
-        });
+        getExplanation(questionId, question.text, userSelectedAnswer.text, correctAnswer.text);
       }
     });
-    
-    // Запрашиваем объяснения с задержкой между запросами (чтобы не перегружать AI)
-    incorrectAnswers.forEach((item, index) => {
-      // Пропускаем, если уже запрошено
-      if (requestedExplanationsRef.current.has(item.questionId)) {
-        return;
-      }
-      
-      requestedExplanationsRef.current.add(item.questionId);
-      
-      setTimeout(() => {
-        getExplanation(item.questionId, item.questionText, item.wrongAnswer, item.correctAnswer);
-      }, index * 1500); // Задержка 1.5 секунды между запросами для снижения нагрузки
-    });
-    
-    // Очищаем ref при смене экрана
-    if (screen !== 'fullReview') {
-      requestedExplanationsRef.current.clear();
-    }
-  }, [screen, selectedResult, selectedTopic, results, loading, getExplanation]);
+  }, [screen, selectedResult, selectedTopic, results, explanations, getExplanation]);
 
   // Форматирование времени для обычного теста (HH:MM:SS)
   const formatTime = (seconds) => {
@@ -3446,7 +3670,8 @@ function App() {
             const { data: verifyOptions, error: verifyError } = await supabase
               .from('options')
               .select('*')
-              .eq('question_id', questionId);
+              .eq('question_id', questionId)
+              .limit(100); // Лимит для опций одного вопроса (обычно не больше 8)
             
             if (verifyError) {
               console.error('❌ Ошибка проверки сохраненных опций:', verifyError);
@@ -3935,12 +4160,20 @@ function App() {
 
   // Компонент переключения темы
   const ThemeToggleButton = () => {
-    return (
+    // Используем React Portal для рендеринга кнопки напрямую в body
+    const buttonElement = (
       <button
         className="theme-toggle-button"
         onClick={toggleTheme}
         title={isDarkMode ? 'Переключить на светлую тему' : 'Переключить на темную тему'}
         aria-label={isDarkMode ? 'Переключить на светлую тему' : 'Переключить на темную тему'}
+        style={{
+          position: 'fixed',
+          top: '16px',
+          left: '16px',
+          zIndex: 10001,
+          pointerEvents: 'auto'
+        }}
       >
         <div className="theme-icon-container">
           {/* Sun icon */}
@@ -3982,6 +4215,13 @@ function App() {
         </div>
       </button>
     );
+    
+    // Рендерим кнопку напрямую в body через Portal, чтобы она была закреплена относительно viewport
+    if (typeof document !== 'undefined' && document.body) {
+      return createPortal(buttonElement, document.body);
+    }
+    
+    return buttonElement;
   };
 
   // Определение тарифов
@@ -4351,7 +4591,7 @@ function App() {
     const showClock = !isActive && isPaymentProcessing;
     const showLock = !isActive && !isPaymentProcessing;
 
-    return (
+    const fullElement = (
       <>
         <div
           className="subscription-status-badge"
@@ -4541,6 +4781,13 @@ function App() {
         <PaymentModal />
       </>
     );
+    
+    // Рендерим бейдж напрямую в body через Portal, чтобы он был закреплен относительно viewport
+    if (typeof document !== 'undefined' && document.body) {
+      return createPortal(fullElement, document.body);
+    }
+    
+    return fullElement;
   };
 
   if (loading || userRole === null) {
@@ -6046,7 +6293,20 @@ function App() {
         </div>
         
         <div className="topics-header">
-          <h1 className="topics-title">Темы</h1>
+          <div className="topics-header-top">
+            <h1 className="topics-title">Темы</h1>
+            {userId && (
+              <button
+                onClick={() => {
+                  setScreen('statistics');
+                }}
+                className="analytics-button"
+                title="Статистика"
+              >
+                📊 Статистика
+              </button>
+            )}
+          </div>
           {(userRole === 'admin' || isAdmin) && (
             <button
               onClick={() => {
@@ -6706,7 +6966,6 @@ function App() {
     if (!examResult) {
       return (
         <>
-          <ThemeToggleButton />
         <div className="topics-container">
           <div className="topics-header">
             <button className="back-button" onClick={() => {
@@ -6725,7 +6984,6 @@ function App() {
 
     return (
       <>
-        <ThemeToggleButton />
       <div className="topic-detail-container">
         {/* Панель переключения между Тема и Экзамен */}
         <div className="mode-switch-panel">
@@ -6894,7 +7152,6 @@ function App() {
     if (!reviewResult || !reviewResult.questions || !reviewResult.userAnswers) {
       return (
         <>
-          <ThemeToggleButton />
         <div className="topic-detail-container">
           <div className="topic-detail-header">
             <button className="back-button" onClick={() => {
@@ -6916,7 +7173,6 @@ function App() {
 
     return (
       <>
-        <ThemeToggleButton />
       <div className="full-review-container">
         <div className="full-review-header">
           <button className="back-button" onClick={() => {
@@ -7106,6 +7362,163 @@ function App() {
           })}
         </div>
       </div>
+      </>
+    );
+  }
+
+  // ========== ЭКРАН СТАТИСТИКИ (ОБЪЕДИНЕННЫЙ) ==========
+  if (screen === 'statistics') {
+    return (
+      <>
+        <StatisticsScreen 
+          onBack={() => setScreen('topics')}
+          topics={topics}
+          onTopicSelect={(topic) => {
+            setSelectedTopic(topic);
+            setScreen('topicDetail');
+          }}
+        />
+      </>
+    );
+  }
+
+  // ========== ЭКРАН АНАЛИТИКИ (УДАЛЕН) ==========
+  if (screen === 'analytics') {
+    return (
+      <>
+        <div className="analytics-container">
+          <div className="analytics-header">
+            <button className="back-button" onClick={() => setScreen('topics')}>
+              ← Назад
+            </button>
+            <h1 className="analytics-title">Моя статистика</h1>
+          </div>
+
+          {analyticsLoading ? (
+            <div className="analytics-loading">
+              <div className="loading-spinner"></div>
+              <p>Загрузка статистики...</p>
+            </div>
+          ) : analyticsData && analyticsData.topics.length > 0 ? (
+            <div className="analytics-content">
+              {/* AI-Вердикт */}
+              <div className="analytics-ai-verdict">
+                <div className="analytics-ai-header">
+                  <span className="analytics-ai-icon">🤖</span>
+                  <h3>Вердикт ИИ-тренера</h3>
+                </div>
+                <div className="analytics-ai-content">
+                  {analyticsAiVerdict && analyticsAiVerdict.loading ? (
+                    <div className="analytics-ai-loading">
+                      <span>ИИ анализирует вашу статистику...</span>
+                    </div>
+                  ) : analyticsAiVerdict && analyticsAiVerdict.error ? (
+                    <div className="analytics-ai-error">{analyticsAiVerdict.error}</div>
+                  ) : analyticsAiVerdict && analyticsAiVerdict.text ? (
+                    <p>{analyticsAiVerdict.text}</p>
+                  ) : (
+                    <button 
+                      className="analytics-ai-button"
+                      onClick={loadAnalyticsAiVerdict}
+                    >
+                      Получить вердикт ИИ
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Блок слабых мест */}
+              {analyticsData.weakTopics && analyticsData.weakTopics.length > 0 && (
+                <div className="analytics-weak-topics">
+                  <h2 className="analytics-section-title">Слабые места</h2>
+                  <p className="analytics-section-subtitle">ТОП-3 темы с наибольшим количеством ошибок</p>
+                  <div className="analytics-weak-topics-list">
+                    {analyticsData.weakTopics.map((topic, index) => (
+                      <div key={topic.topicId} className="analytics-weak-topic-item">
+                        <div className="analytics-weak-topic-info">
+                          <div className="analytics-weak-topic-rank">#{index + 1}</div>
+                          <div className="analytics-weak-topic-details">
+                            <h3 className="analytics-weak-topic-name">{topic.topicName}</h3>
+                            <div className="analytics-weak-topic-stats">
+                              <span className="analytics-weak-topic-errors">
+                                {topic.errorCount} ошибок
+                              </span>
+                              <span className="analytics-weak-topic-percentage">
+                                {topic.averagePercentage.toFixed(0)}% правильных
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                        <button
+                          className="analytics-weak-topic-button"
+                          onClick={() => {
+                            const foundTopic = topics.find(t => String(t.id) === topic.topicId);
+                            if (foundTopic) {
+                              setSelectedTopic(foundTopic);
+                              setScreen('topicDetail');
+                            } else {
+                              alert('Тема не найдена');
+                            }
+                          }}
+                        >
+                          Подтянуть
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Визуализация по темам */}
+              <div className="analytics-topics">
+                <h2 className="analytics-section-title">Прогресс по темам</h2>
+                <div className="analytics-topics-list">
+                  {analyticsData.topics.map((topic) => (
+                    <div key={topic.topicId} className="analytics-topic-item">
+                      <div className="analytics-topic-header">
+                        <h3 className="analytics-topic-name">{topic.topicName}</h3>
+                        <span className={`analytics-topic-percentage analytics-topic-percentage-${topic.color}`}>
+                          {topic.averagePercentage.toFixed(0)}%
+                        </span>
+                      </div>
+                      <div className="analytics-topic-progress">
+                        <div 
+                          className={`analytics-topic-progress-bar analytics-topic-progress-${topic.color}`}
+                          style={{ width: `${Math.min(topic.averagePercentage, 100)}%` }}
+                        ></div>
+                      </div>
+                      <div className="analytics-topic-stats">
+                        <span className="analytics-topic-stat">
+                          Тестов: {topic.totalTests}
+                        </span>
+                        <span className="analytics-topic-stat">
+                          Ошибок: {topic.errorCount}
+                        </span>
+                        {topic.totalQuestions > 0 && (
+                          <span className="analytics-topic-stat">
+                            Вопросов: {topic.totalQuestions}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="analytics-empty">
+              <div className="analytics-empty-icon">📊</div>
+              <h3>Нет данных для отображения</h3>
+              <p>Пройдите тесты, чтобы увидеть свою статистику</p>
+              <button 
+                className="analytics-empty-button"
+                onClick={() => setScreen('topics')}
+              >
+                Перейти к тестам
+              </button>
+            </div>
+          )}
+        </div>
       </>
     );
   }
@@ -7476,8 +7889,6 @@ function App() {
   // Fallback - show topics if nothing else matches
   return (
     <>
-      <ThemeToggleButton />
-      <SubscriptionStatusBadge />
     <div className="topics-container">
         {/* Панель переключения между Тема и Экзамен */}
         <div className="mode-switch-panel">
