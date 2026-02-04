@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { supabase } from './supabase';
 import { initTelegramWebAppSafe } from './telegram';
 
-const StatisticsScreen = ({ onBack, topics: topicsProp, onTopicSelect }) => {
+const StatisticsScreen = ({ onBack, topics: topicsProp, onTopicSelect, checkAILimit, incrementAIUsage }) => {
   const [statsData, setStatsData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -483,6 +483,47 @@ const StatisticsScreen = ({ onBack, topics: topicsProp, onTopicSelect }) => {
       
       console.log('[ANALYTICS] Вызов Edge Function с данными:', JSON.stringify(requestData, null, 2));
       
+      // Проверяем лимит ИИ перед использованием (это другой тип использования)
+      if (checkAILimit) {
+        const limitCheck = await checkAILimit(false);
+        console.log('[AI_LIMIT] Проверка лимита для вердикта в статистике:', limitCheck);
+        
+        // СТРОГАЯ ПРОВЕРКА: если allowed === false ИЛИ remaining === 0, блокируем
+        if (!limitCheck.allowed || limitCheck.remaining === 0) {
+          console.log('[AI_LIMIT] ⛔⛔⛔ БЛОКИРУЕМ ЗАПРОС ВЕРДИКТА - ЛИМИТ ИСЧЕРПАН!');
+          const limitMessage = limitCheck.remaining === 0 
+            ? 'Лимит использования ИИ исчерпан. Оформите подписку для увеличения лимита.'
+            : `Осталось ${limitCheck.remaining} использований ИИ. Оформите подписку для увеличения лимита.`;
+          console.log('[AI_LIMIT] Лимит исчерпан, блокируем запрос вердикта:', limitMessage);
+          setAnalyticsAiVerdict({
+            loading: false,
+            text: null,
+            error: limitMessage
+          });
+          return; // ВАЖНО: выходим из функции, не отправляем запрос
+        }
+        
+        console.log('[AI_LIMIT] Лимит позволяет использовать ИИ для вердикта, отправляем запрос');
+        
+        // ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА ПЕРЕД ОТПРАВКОЙ ЗАПРОСА
+        const finalLimitCheck = await checkAILimit(false);
+        console.log('[AI_LIMIT] Финальная проверка перед отправкой вердикта:', finalLimitCheck);
+        
+        // СТРОГАЯ ПРОВЕРКА: если allowed === false ИЛИ remaining === 0, блокируем
+        if (!finalLimitCheck.allowed || finalLimitCheck.remaining === 0) {
+          console.log('[AI_LIMIT] ⛔⛔⛔ БЛОКИРУЕМ ЗАПРОС ВЕРДИКТА ПЕРЕД ОТПРАВКОЙ - ЛИМИТ ИСЧЕРПАН!');
+          const limitMessage = finalLimitCheck.remaining === 0 
+            ? 'Лимит использования ИИ исчерпан. Оформите подписку для увеличения лимита.'
+            : `Осталось ${finalLimitCheck.remaining} использований ИИ. Оформите подписку для увеличения лимита.`;
+          setAnalyticsAiVerdict({
+            loading: false,
+            text: null,
+            error: limitMessage
+          });
+          return; // ВАЖНО: выходим из функции, не отправляем запрос
+        }
+      }
+      
       let responseData = null;
       let responseError = null;
       
@@ -569,6 +610,14 @@ const StatisticsScreen = ({ onBack, topics: topicsProp, onTopicSelect }) => {
       if (responseData) {
         if (responseData.advice) {
           console.log('[ANALYTICS] Получен вердикт:', responseData.advice.substring(0, 100));
+          
+          // Увеличиваем счетчик использования ИИ после успешного запроса
+          if (incrementAIUsage) {
+            console.log('[AI_COUNTER] Перед вызовом incrementAIUsage для вердикта в статистике');
+            await incrementAIUsage(false);
+            console.log('[AI_COUNTER] После вызова incrementAIUsage для вердикта в статистике');
+          }
+          
           setAnalyticsAiVerdict({
             loading: false,
             text: responseData.advice.substring(0, 200),
