@@ -290,6 +290,9 @@ function App() {
   const [selectedTariff, setSelectedTariff] = useState(null) // Выбранный тариф для оплаты
   const [paymentSenderInfo, setPaymentSenderInfo] = useState('') // Информация об отправителе платежа
   const [showPaymentModal, setShowPaymentModal] = useState(false) // Видимость модального окна оплаты
+  const [showWelcomeModal, setShowWelcomeModal] = useState(false) // Модальное окно поздравления с регистрацией
+  const [trialDays, setTrialDays] = useState(0) // Количество дней пробной подписки
+  const [showConfetti, setShowConfetti] = useState(false) // Показать конфетти
   const [isPaymentProcessing, setIsPaymentProcessing] = useState(() => {
     // Загружаем статус обработки из localStorage при инициализации
     try {
@@ -907,14 +910,15 @@ function App() {
           const cacheTime = localStorage.getItem('dev_questions_cache_time');
           if (cached && cacheTime) {
             const cacheAge = Date.now() - parseInt(cacheTime, 10);
-            // Используем кэш, если он не старше 30 минут (увеличено для быстрой загрузки)
-            if (cacheAge < 30 * 60 * 1000) {
+            // Используем кэш, если он не старше 2 часов (для быстрой загрузки)
+            if (cacheAge < 2 * 60 * 60 * 1000) {
               const cachedQuestions = JSON.parse(cached);
               setSavedQuestions(cachedQuestions);
-              // Обновляем в фоне (не блокируем интерфейс)
+              console.log('✅ Используем кэшированные вопросы для быстрой загрузки');
+              // Обновляем в фоне (не блокируем интерфейс) - через 3 секунды
               setTimeout(() => {
                 loadQuestionsFromSupabase(false).catch(() => {});
-              }, 1000);
+              }, 3000);
               return;
             }
           }
@@ -1357,8 +1361,38 @@ function App() {
 
       setUserData(newUser);
       setUserRole('user');
+      
+      // Всегда создаем пробную подписку после регистрации через форму
+      console.log('✅ Пользователь зарегистрирован через форму, создаем пробную подписку на 3 дня');
+      const trialCreated = await createTrialSubscription(userId);
+      
+      // Устанавливаем данные для окна поздравления
+      setTrialDays(3);
+      
+      // Переходим на экран topics (это закроет экран регистрации)
       setScreen('topics');
+      
+      // ВСЕГДА показываем окно поздравления после регистрации через форму,
+      // независимо от того, была ли создана пробная подписка или уже существовала
+      setTimeout(() => {
+        console.log('🎉 Показываем окно поздравления с бесплатной подпиской на 3 дня');
+        setShowConfetti(true);
+        setShowWelcomeModal(true);
+        // Автоматически скрываем конфетти через 3 секунды
+        setTimeout(() => {
+          console.log('Скрываем конфетти');
+          setShowConfetti(false);
+        }, 3000);
+      }, 300);
+      
+      if (trialCreated) {
+        console.log('✅ Пробная подписка успешно создана');
+      } else {
+        console.log('ℹ️ Пробная подписка уже была создана ранее или не удалось создать');
+      }
+      
       // Загружаем подписку из таблицы subscriptions (не блокируем отображение)
+      // Если пробная подписка была создана, она будет загружена здесь
       loadMySubscription().catch(err => console.error('Ошибка загрузки подписки:', err));
     } catch (err) {
       console.error('Ошибка регистрации:', err);
@@ -1552,15 +1586,20 @@ function App() {
         const telegramUsername = tgUser?.username || null;
         void telegramUsername;
 
-        // Уменьшаем timeout для быстрой загрузки
-        timeoutId = setTimeout(() => setLoading(false), 800);
+        // Уменьшаем timeout для быстрой загрузки - показываем интерфейс быстрее
+        timeoutId = setTimeout(() => setLoading(false), 300);
 
-        // Параллельно загружаем темы, вопросы и проверяем админ-статус (все критичные запросы)
-        const [adminStatus] = await Promise.all([
-          checkAdminStatus(userId),
+        // Загружаем данные неблокирующе - сначала показываем интерфейс, потом загружаем данные
+        // Проверяем админ-статус (быстрый запрос)
+        const adminStatus = await checkAdminStatus(userId);
+        
+        // Загружаем темы и вопросы в фоне (не блокируем показ интерфейса)
+        Promise.all([
           loadTopicsFromSupabase(), // Загружаем темы параллельно
           loadQuestionsFromSupabase(true) // Загружаем вопросы параллельно (с кэшем)
-        ]);
+        ]).catch(err => {
+          console.error('Ошибка загрузки данных:', err);
+        });
 
         if (adminStatus) {
           console.log('✅ Пользователь является администратором (из таблицы admins)');
@@ -1581,26 +1620,39 @@ function App() {
             .single();
 
           if (!error && data) {
-            setUserData({
-              userId: String(data.id),
-              telegramUsername: data.username || null,
-              name: data.first_name || 'Без имени',
-              phone: data.phone || 'Не указан',
-              registrationDate: data.created_at || new Date().toISOString(),
-              lastVisit: data.created_at || new Date().toISOString(),
-              subscription: {
-                active: data.is_premium && data.premium_until && new Date(data.premium_until) > new Date(),
-                startDate: null,
-                endDate: data.premium_until || null
-              }
-            });
-            setUserRole('user');
-            setScreen('topics');
-            // Загружаем подписку в фоне (вопросы уже загружены параллельно при инициализации)
-            loadMySubscription().catch(err => console.error('Ошибка загрузки подписки:', err));
-            setLoading(false);
-            if (timeoutId) clearTimeout(timeoutId);
-            return;
+            // Проверяем, заполнена ли форма регистрации (есть ли имя и телефон)
+            // Если пользователь зарегистрирован, но не заполнил форму, показываем экран регистрации
+            const hasRegistrationData = data.first_name && data.first_name.trim() && 
+                                       (data.phone && data.phone.trim() || data.phone === null);
+            
+            // Если пользователь уже полностью зарегистрирован (есть имя и телефон), переходим на topics
+            // Если данных нет или они неполные, показываем экран регистрации
+            if (hasRegistrationData && data.phone && data.phone.trim()) {
+              setUserData({
+                userId: String(data.id),
+                telegramUsername: data.username || null,
+                name: data.first_name || 'Без имени',
+                phone: data.phone || 'Не указан',
+                registrationDate: data.created_at || new Date().toISOString(),
+                lastVisit: data.created_at || new Date().toISOString(),
+                subscription: {
+                  active: data.is_premium && data.premium_until && new Date(data.premium_until) > new Date(),
+                  startDate: null,
+                  endDate: data.premium_until || null
+                }
+              });
+              setUserRole('user');
+              setScreen('topics');
+              // Загружаем подписку в фоне (вопросы уже загружены параллельно при инициализации)
+              loadMySubscription().catch(err => console.error('Ошибка загрузки подписки:', err));
+              setLoading(false);
+              if (timeoutId) clearTimeout(timeoutId);
+              return;
+            } else {
+              // Пользователь есть в базе, но форма регистрации не заполнена - показываем экран регистрации
+              console.log('Пользователь найден, но форма регистрации не заполнена - показываем экран регистрации');
+              // Не переходим на topics, продолжаем показывать экран регистрации
+            }
           }
         }
 
@@ -1629,12 +1681,46 @@ function App() {
               .from('profiles')
               .upsert(upsertData, { onConflict: 'id' });
           }
+
+          // Проверяем, является ли пользователь новым (нет подписок в subscriptions)
+          // Это более надежный способ, чем проверка времени создания профиля
+          const telegramIdAsNumber = Math.floor(Number(userId));
+          if (telegramIdAsNumber && Number.isFinite(telegramIdAsNumber) && telegramIdAsNumber > 0) {
+            const { data: existingSubscriptions, error: subCheckError } = await supabase
+              .from('subscriptions')
+              .select('id')
+              .eq('telegram_id', telegramIdAsNumber)
+              .limit(1);
+
+            // Если ошибка не "не найдено", значит что-то пошло не так
+            if (subCheckError && subCheckError.code !== 'PGRST116') {
+              console.error('Ошибка проверки подписок при инициализации:', subCheckError);
+            } else if (!existingSubscriptions || existingSubscriptions.length === 0) {
+              // У пользователя нет подписок - это новый пользователь
+              console.log('Новый пользователь обнаружен при инициализации, создаем пробную подписку на 3 дня');
+              // Создаем пробную подписку асинхронно, не блокируя инициализацию
+              // НЕ показываем окно поздравления при инициализации - оно покажется только после регистрации через форму
+              createTrialSubscription(userId).then(trialCreated => {
+                if (trialCreated) {
+                  console.log('Пробная подписка создана при инициализации (окно поздравления покажется после регистрации)');
+                }
+              }).catch(err => 
+                console.error('Ошибка создания пробной подписки при инициализации:', err)
+              );
+            }
+          }
         }
 
+        // Сбрасываем окно поздравления при переходе на экран регистрации
+        setShowWelcomeModal(false);
+        setShowConfetti(false);
         setScreen('registration');
         setUserRole('user');
       } catch (_) {
         // Никогда не зависаем на лоадере
+        // Сбрасываем окно поздравления при переходе на экран регистрации
+        setShowWelcomeModal(false);
+        setShowConfetti(false);
         setScreen('registration');
         setUserRole('user');
       } finally {
@@ -1715,6 +1801,63 @@ function App() {
         'Content-Type': 'application/json',
         'x-telegram-user-id': '0'
       };
+    }
+  };
+
+  // Функция для создания пробной подписки на 3 дня для новых пользователей
+  const createTrialSubscription = async (telegramId) => {
+    try {
+      const telegramIdAsNumber = Math.floor(Number(telegramId));
+      
+      if (!telegramIdAsNumber || !Number.isFinite(telegramIdAsNumber) || telegramIdAsNumber <= 0) {
+        console.warn('Невалидный ID пользователя для создания пробной подписки:', telegramId);
+        return false;
+      }
+
+      // Проверяем, есть ли у пользователя какие-либо подписки (включая истекшие)
+      const { data: existingSubscriptions, error: checkError } = await supabase
+        .from('subscriptions')
+        .select('id')
+        .eq('telegram_id', telegramIdAsNumber)
+        .limit(1);
+
+      if (checkError && checkError.code !== 'PGRST116') {
+        console.error('Ошибка проверки существующих подписок:', checkError);
+        return false;
+      }
+
+      // Если у пользователя уже были подписки, не создаем пробную
+      if (existingSubscriptions && existingSubscriptions.length > 0) {
+        console.log('У пользователя уже были подписки, пробная подписка не создается');
+        return false;
+      }
+
+      // Создаем пробную подписку на 3 дня
+      const endDate = new Date();
+      endDate.setDate(endDate.getDate() + 3); // 3 дня пробного периода
+      const endDateISO = endDate.toISOString();
+
+      console.log('Создание пробной подписки на 3 дня для нового пользователя:', telegramIdAsNumber);
+
+      const { data, error } = await supabase
+        .from('subscriptions')
+        .insert({
+          telegram_id: telegramIdAsNumber,
+          end_date: endDateISO
+        })
+        .select()
+        .single();
+
+      if (error) {
+        console.error('Ошибка создания пробной подписки:', error);
+        return false;
+      }
+
+      console.log('Пробная подписка успешно создана:', data);
+      return true;
+    } catch (err) {
+      console.error('Исключение при создании пробной подписки:', err);
+      return false;
     }
   };
 
@@ -1925,22 +2068,84 @@ function App() {
 
   const getSubscriptionTimeRemaining = () => {
     if (!subscriptionInfo || !subscriptionInfo.subscriptionExpiresAt) return null;
-    const now = Date.now();
-    const expires = new Date(subscriptionInfo.subscriptionExpiresAt).getTime();
-    const remaining = expires - now;
-    if (remaining <= 0) return null;
-
-    const days = Math.floor(remaining / (1000 * 60 * 60 * 24));
-    const hours = Math.floor((remaining % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-    const minutes = Math.floor((remaining % (1000 * 60 * 60)) / (1000 * 60));
-
-    if (days > 0) {
-      return `${days} ${days === 1 ? 'день' : days < 5 ? 'дня' : 'дней'}`;
+    
+    try {
+      // Получаем текущую дату и дату окончания подписки
+      const now = new Date();
+      const expires = new Date(subscriptionInfo.subscriptionExpiresAt);
+      
+      // Проверяем, что дата окончания в будущем
+      if (expires <= now) return null;
+      
+      // Вычисляем разницу в миллисекундах
+      const remaining = expires.getTime() - now.getTime();
+      if (remaining <= 0) return null;
+      
+      // Вычисляем количество полных дней (используем Math.floor для точного подсчета)
+      const days = Math.floor(remaining / (1000 * 60 * 60 * 24));
+      
+      // Если дней больше 0, показываем дни
+      if (days > 0) {
+        // Правильное склонение для русского языка
+        let dayWord;
+        const lastDigit = days % 10;
+        const lastTwoDigits = days % 100;
+        
+        if (lastTwoDigits >= 11 && lastTwoDigits <= 14) {
+          dayWord = 'дней';
+        } else if (lastDigit === 1) {
+          dayWord = 'день';
+        } else if (lastDigit >= 2 && lastDigit <= 4) {
+          dayWord = 'дня';
+        } else {
+          dayWord = 'дней';
+        }
+        return `${days} ${dayWord}`;
+      }
+      
+      // Если дней нет, вычисляем часы
+      const hours = Math.floor(remaining / (1000 * 60 * 60));
+      if (hours > 0) {
+        let hourWord;
+        const lastDigit = hours % 10;
+        const lastTwoDigits = hours % 100;
+        
+        if (lastTwoDigits >= 11 && lastTwoDigits <= 14) {
+          hourWord = 'часов';
+        } else if (lastDigit === 1) {
+          hourWord = 'час';
+        } else if (lastDigit >= 2 && lastDigit <= 4) {
+          hourWord = 'часа';
+        } else {
+          hourWord = 'часов';
+        }
+        return `${hours} ${hourWord}`;
+      }
+      
+      // Если часов нет, вычисляем минуты
+      const minutes = Math.floor(remaining / (1000 * 60));
+      if (minutes > 0) {
+        let minuteWord;
+        const lastDigit = minutes % 10;
+        const lastTwoDigits = minutes % 100;
+        
+        if (lastTwoDigits >= 11 && lastTwoDigits <= 14) {
+          minuteWord = 'минут';
+        } else if (lastDigit === 1) {
+          minuteWord = 'минута';
+        } else if (lastDigit >= 2 && lastDigit <= 4) {
+          minuteWord = 'минуты';
+        } else {
+          minuteWord = 'минут';
+        }
+        return `${minutes} ${minuteWord}`;
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('Ошибка вычисления оставшегося времени подписки:', error);
+      return null;
     }
-    if (hours > 0) {
-      return `${hours} ${hours === 1 ? 'час' : hours < 5 ? 'часа' : 'часов'}`;
-    }
-    return `${minutes} ${minutes === 1 ? 'минута' : minutes < 5 ? 'минуты' : 'минут'}`;
   };
 
   const handlePayment = () => {
@@ -4790,6 +4995,173 @@ function App() {
     return fullElement;
   };
 
+  // Компонент модального окна поздравления (рендерится через Portal)
+  const WelcomeModal = () => {
+    // Проверяем, что мы в браузере и document.body доступен
+    if (typeof document === 'undefined' || !document.body) {
+      return null;
+    }
+    
+    // Всегда рендерим через Portal, чтобы окно было доступно на всех экранах
+    try {
+      return createPortal(
+        <>
+          {showWelcomeModal && (
+            <div className="welcome-modal-overlay" onClick={() => {
+              console.log('Закрываем окно поздравления');
+              setShowWelcomeModal(false);
+            }}>
+              <div className="welcome-modal-content" onClick={(e) => e.stopPropagation()}>
+                <div className="welcome-modal-header">
+                  <h2 className="welcome-modal-title">🎉 Поздравляем!</h2>
+                  <button className="welcome-modal-close" onClick={() => {
+                    console.log('Закрываем окно поздравления через кнопку');
+                    setShowWelcomeModal(false);
+                  }}>
+                    ✕
+                  </button>
+                </div>
+                <div className="welcome-modal-body">
+                  <div className="welcome-icon">🎊</div>
+                  <h3 className="welcome-subtitle">Регистрация успешна!</h3>
+                  <p className="welcome-description">
+                    Вам предоставлена <strong>бесплатная</strong> пробная подписка на <strong>{trialDays} {trialDays === 1 ? 'день' : trialDays < 5 ? 'дня' : 'дней'}</strong>
+                  </p>
+                  <p className="welcome-description">
+                    Начните изучать правила дорожного движения прямо сейчас!
+                  </p>
+                  <button 
+                    className="welcome-button"
+                    onClick={() => {
+                      console.log('Закрываем окно поздравления через кнопку "Начать обучение"');
+                      setShowWelcomeModal(false);
+                    }}
+                  >
+                    Начать обучение
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+          {showConfetti && <Confetti />}
+        </>,
+        document.body
+      );
+    } catch (error) {
+      console.error('Ошибка при рендеринге WelcomeModal:', error);
+      return null;
+    }
+  };
+
+  // Компонент конфетти
+  const Confetti = () => {
+    useEffect(() => {
+      if (!showConfetti) return;
+      
+      // Проверяем, что document и window доступны
+      if (typeof document === 'undefined' || typeof window === 'undefined') return;
+      
+      const canvas = document.createElement('canvas');
+      canvas.style.position = 'fixed';
+      canvas.style.top = '0';
+      canvas.style.left = '0';
+      canvas.style.width = '100%';
+      canvas.style.height = '100%';
+      canvas.style.pointerEvents = 'none';
+      canvas.style.zIndex = '10000';
+      
+      if (!document.body) return;
+      
+      document.body.appendChild(canvas);
+      
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        document.body.removeChild(canvas);
+        return;
+      }
+      
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+      
+      const confetti = [];
+      const colors = ['#FFD700', '#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A', '#98D8C8', '#F7DC6F', '#BB8FCE'];
+      
+      // Создаем конфетти с двух сторон
+      for (let i = 0; i < 100; i++) {
+        confetti.push({
+          x: Math.random() < 0.5 ? Math.random() * 200 : window.innerWidth - Math.random() * 200, // Слева или справа
+          y: -10,
+          r: Math.random() * 6 + 4,
+          d: Math.random() * 100 + 50,
+          color: colors[Math.floor(Math.random() * colors.length)],
+          tilt: Math.random() * 10 - 5,
+          tiltAngleIncrement: Math.random() * 0.07 + 0.05,
+          tiltAngle: 0
+        });
+      }
+      
+      let animationId;
+      const animate = () => {
+        if (!ctx || !canvas) return;
+        
+        try {
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          
+          confetti.forEach((c, i) => {
+            ctx.beginPath();
+            ctx.lineWidth = c.r / 2;
+            ctx.strokeStyle = c.color;
+            ctx.moveTo(c.x + c.tilt + c.r, c.y);
+            ctx.lineTo(c.x + c.tilt, c.y + c.tilt + c.r);
+            ctx.stroke();
+            
+            c.tiltAngle += c.tiltAngleIncrement;
+            c.y += (Math.cos(c.d) + 1 + c.r / 2) / 2;
+            c.x += Math.sin(c.d);
+            c.tilt = Math.sin(c.tiltAngle) * 15;
+            
+            if (c.y > canvas.height) {
+              confetti[i] = {
+                x: Math.random() < 0.5 ? Math.random() * 200 : window.innerWidth - Math.random() * 200,
+                y: -10,
+                r: c.r,
+                d: c.d,
+                color: c.color,
+                tilt: Math.random() * 10 - 5,
+                tiltAngleIncrement: c.tiltAngleIncrement,
+                tiltAngle: 0
+              };
+            }
+          });
+          
+          animationId = requestAnimationFrame(animate);
+        } catch (error) {
+          console.error('Ошибка в анимации конфетти:', error);
+          if (animationId) {
+            cancelAnimationFrame(animationId);
+          }
+        }
+      };
+      
+      animate();
+      
+      return () => {
+        if (animationId) {
+          cancelAnimationFrame(animationId);
+        }
+        if (canvas && document.body && document.body.contains(canvas)) {
+          try {
+            document.body.removeChild(canvas);
+          } catch (error) {
+            console.error('Ошибка при удалении canvas:', error);
+          }
+        }
+      };
+    }, [showConfetti]);
+    
+    return null;
+  };
+
   if (loading || userRole === null) {
     return <LoadingScreen />;
   }
@@ -6071,7 +6443,9 @@ function App() {
   // Registration screen (shown only once for new users)
   if (screen === 'registration') {
     return (
-      <div className="registration-screen-container">
+      <>
+        <WelcomeModal />
+        <div className="registration-screen-container">
         <div className="registration-card">
           <div className="registration-icon-wrapper">
             <div className="registration-icon">👤</div>
@@ -6165,6 +6539,7 @@ function App() {
           </form>
         </div>
       </div>
+      </>
     );
   }
 
@@ -6267,6 +6642,7 @@ function App() {
       <>
         <ThemeToggleButton />
         <SubscriptionStatusBadge />
+        <WelcomeModal />
         <div className="topics-container">
           {/* Логотип avto_GO */}
           <div className="app-logo">
@@ -7942,6 +8318,9 @@ function App() {
       {showPaymentModal && selectedTariff && (
         <PaymentModal />
       )}
+
+      {/* WelcomeModal рендерится через компонент, который использует Portal */}
+      <WelcomeModal />
     </>
   )
 }
