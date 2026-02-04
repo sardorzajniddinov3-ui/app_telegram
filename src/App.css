@@ -606,10 +606,12 @@ body[data-theme="dark"] .app-logo-go {
 }
 
 .topics-header-top {
-  display: flex;
+  display: flex !important;
   justify-content: space-between;
   align-items: center;
   width: 100%;
+  position: relative;
+  z-index: 1;
 }
 
 .analytics-button {
@@ -622,9 +624,12 @@ body[data-theme="dark"] .app-logo-go {
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s ease;
-  display: flex;
+  display: flex !important;
   align-items: center;
   gap: 6px;
+  visibility: visible !important;
+  opacity: 1 !important;
+  z-index: 1;
 }
 
 .analytics-button:hover {

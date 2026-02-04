@@ -6295,17 +6295,15 @@ function App() {
         <div className="topics-header">
           <div className="topics-header-top">
             <h1 className="topics-title">Темы</h1>
-            {userId && (
-              <button
-                onClick={() => {
-                  setScreen('statistics');
-                }}
-                className="analytics-button"
-                title="Статистика"
-              >
-                📊 Статистика
-              </button>
-            )}
+            <button
+              onClick={() => {
+                setScreen('statistics');
+              }}
+              className="analytics-button"
+              title="Статистика"
+            >
+              📊 Статистика
+            </button>
           </div>
           {(userRole === 'admin' || isAdmin) && (
             <button
