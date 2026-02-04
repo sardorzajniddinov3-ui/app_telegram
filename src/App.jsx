@@ -153,11 +153,32 @@ function App() {
   // ========== ИИ-ОБЪЯСНЕНИЕ ОШИБОК: Функция для получения объяснения с эффектом печатания ==========
   // Система автоматического переключения моделей реализована в Edge Function
   // При ошибке 429 или 404 система автоматически переключается на следующую модель
-  const getExplanation = async (questionId, question, wrongAnswer, correctAnswer) => {
+  const getExplanation = async (questionId, question, wrongAnswer, correctAnswer, isHintInTest = false) => {
     // Если объяснение уже загружено, не запрашиваем снова
     if (explanations[questionId]?.explanation) {
       return;
     }
+    
+    // Проверяем лимит ИИ перед использованием
+    const limitCheck = await checkAILimit(isHintInTest);
+    console.log('[AI_LIMIT] Проверка лимита для объяснения:', limitCheck, 'isHintInTest:', isHintInTest);
+    
+    // СТРОГАЯ ПРОВЕРКА: блокируем если allowed === false ИЛИ remaining === 0
+    if (!limitCheck.allowed || limitCheck.remaining === 0) {
+      console.log('[AI_LIMIT] ⛔⛔⛔ БЛОКИРУЕМ ЗАПРОС ОБЪЯСНЕНИЯ - ЛИМИТ ИСЧЕРПАН!');
+      console.log('[AI_LIMIT] Детали блокировки:', { allowed: limitCheck.allowed, remaining: limitCheck.remaining });
+      const limitMessage = limitCheck.remaining === 0 
+        ? 'Лимит использования ИИ исчерпан. Оформите подписку для увеличения лимита.'
+        : `Осталось ${limitCheck.remaining} использований ИИ. Оформите подписку для увеличения лимита.`;
+      console.log('[AI_LIMIT] Лимит исчерпан, блокируем запрос:', limitMessage);
+      setExplanations(prev => ({
+        ...prev,
+        [questionId]: { loading: false, explanation: null, error: limitMessage, streaming: false }
+      }));
+      return; // ВАЖНО: выходим из функции, не отправляем запрос
+    }
+    
+    console.log('[AI_LIMIT] Лимит позволяет использовать ИИ, отправляем запрос');
     
     // Устанавливаем состояние загрузки
     setExplanations(prev => ({
@@ -167,6 +188,23 @@ function App() {
     
     try {
       console.log('Запрос объяснения для вопроса:', { questionId, question, wrongAnswer, correctAnswer });
+      
+      // ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА ПЕРЕД ОТПРАВКОЙ ЗАПРОСА
+      const finalLimitCheck = await checkAILimit(isHintInTest);
+      console.log('[AI_LIMIT] Финальная проверка перед отправкой объяснения:', finalLimitCheck);
+      
+      // СТРОГАЯ ПРОВЕРКА: если allowed === false ИЛИ remaining === 0, блокируем
+      if (!finalLimitCheck.allowed || finalLimitCheck.remaining === 0) {
+        console.log('[AI_LIMIT] ⛔⛔⛔ БЛОКИРУЕМ ЗАПРОС ОБЪЯСНЕНИЯ ПЕРЕД ОТПРАВКОЙ - ЛИМИТ ИСЧЕРПАН!');
+        const limitMessage = finalLimitCheck.remaining === 0 
+          ? 'Лимит использования ИИ исчерпан. Оформите подписку для увеличения лимита.'
+          : `Осталось ${finalLimitCheck.remaining} использований ИИ. Оформите подписку для увеличения лимита.`;
+        setExplanations(prev => ({
+          ...prev,
+          [questionId]: { loading: false, explanation: null, error: limitMessage, streaming: false }
+        }));
+        return; // ВАЖНО: выходим из функции, не отправляем запрос
+      }
       
       const { data, error } = await supabase.functions.invoke('explain-answer', {
         body: {
@@ -205,6 +243,11 @@ function App() {
       
       // Получаем полный текст объяснения
       const fullExplanation = data.explanation;
+      
+      // Увеличиваем счетчик использования ИИ после успешного запроса
+      console.log('[AI_COUNTER] Перед вызовом incrementAIUsage для объяснения, isHintInTest:', isHintInTest);
+      await incrementAIUsage(isHintInTest);
+      console.log('[AI_COUNTER] После вызова incrementAIUsage для объяснения');
       
       // Начинаем эффект печатания: показываем текст посимвольно
       setExplanations(prev => ({
@@ -438,6 +481,26 @@ function App() {
       return;
     }
     
+    // Проверяем лимит ИИ перед использованием (это не подсказка в тесте, а другой тип использования)
+    const limitCheck = await checkAILimit(false);
+    console.log('[AI_LIMIT] Проверка лимита для совета:', limitCheck);
+    console.log('[AI_LIMIT] limitCheck.allowed:', limitCheck.allowed, 'limitCheck.remaining:', limitCheck.remaining);
+    
+    // СТРОГАЯ ПРОВЕРКА: блокируем если allowed === false ИЛИ remaining === 0
+    if (!limitCheck.allowed || limitCheck.remaining === 0) {
+      console.log('[AI_LIMIT] ⛔⛔⛔ БЛОКИРУЕМ ЗАПРОС СОВЕТА - ЛИМИТ ИСЧЕРПАН!');
+      console.log('[AI_LIMIT] Детали блокировки:', { allowed: limitCheck.allowed, remaining: limitCheck.remaining });
+      const limitMessage = limitCheck.remaining === 0 
+        ? 'Лимит использования ИИ исчерпан. Оформите подписку для увеличения лимита.'
+        : `Осталось ${limitCheck.remaining} использований ИИ. Оформите подписку для увеличения лимита.`;
+      console.log('[AI_LIMIT] Лимит исчерпан, блокируем запрос совета:', limitMessage);
+      setAiTrainerAdvice({ loading: false, text: null, error: limitMessage });
+      setShowAiAdvice(true);
+      return; // ВАЖНО: выходим из функции, не отправляем запрос
+    }
+    
+    console.log('[AI_LIMIT] Лимит позволяет использовать ИИ для совета, отправляем запрос');
+    
     try {
       console.log('[AI TRAINER] Запрос совета от ИИ для результата:', {
         correct: testResult.correct,
@@ -482,6 +545,21 @@ function App() {
       
       console.log('[AI TRAINER] Сформировано ошибок:', errors.length);
       
+      // ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА ПЕРЕД ОТПРАВКОЙ ЗАПРОСА
+      const finalLimitCheck = await checkAILimit(false);
+      console.log('[AI_LIMIT] Финальная проверка перед отправкой совета:', finalLimitCheck);
+      
+      // СТРОГАЯ ПРОВЕРКА: если allowed === false ИЛИ remaining === 0, блокируем
+      if (!finalLimitCheck.allowed || finalLimitCheck.remaining === 0) {
+        console.log('[AI_LIMIT] ⛔⛔⛔ БЛОКИРУЕМ ЗАПРОС СОВЕТА ПЕРЕД ОТПРАВКОЙ - ЛИМИТ ИСЧЕРПАН!');
+        const limitMessage = finalLimitCheck.remaining === 0 
+          ? 'Лимит использования ИИ исчерпан. Оформите подписку для увеличения лимита.'
+          : `Осталось ${finalLimitCheck.remaining} использований ИИ. Оформите подписку для увеличения лимита.`;
+        setAiTrainerAdvice({ loading: false, text: null, error: limitMessage });
+        setShowAiAdvice(true);
+        return; // ВАЖНО: выходим из функции, не отправляем запрос
+      }
+      
       // Вызываем Edge Function
       const { data, error } = await supabase.functions.invoke('ai-trainer-advice', {
         body: {
@@ -506,6 +584,10 @@ function App() {
       
       if (data && data.advice) {
         console.log('[AI TRAINER] Получен совет:', data.advice);
+        // Увеличиваем счетчик использования ИИ после успешного запроса
+        console.log('[AI_COUNTER] Перед вызовом incrementAIUsage для совета');
+        await incrementAIUsage(false);
+        console.log('[AI_COUNTER] После вызова incrementAIUsage для совета');
         setAiTrainerAdvice({ 
           loading: false, 
           text: data.advice, 
@@ -787,6 +869,46 @@ function App() {
         totalScore: requestData.totalScore
       });
       
+      // Проверяем лимит ИИ перед использованием (это другой тип использования)
+      const limitCheck = await checkAILimit(false);
+      console.log('[AI_LIMIT] Проверка лимита для вердикта в статистике:', limitCheck);
+      
+      // СТРОГАЯ ПРОВЕРКА: блокируем если allowed === false ИЛИ remaining === 0
+      if (!limitCheck.allowed || limitCheck.remaining === 0) {
+        console.log('[AI_LIMIT] ⛔⛔⛔ БЛОКИРУЕМ ЗАПРОС ВЕРДИКТА - ЛИМИТ ИСЧЕРПАН!');
+        console.log('[AI_LIMIT] Детали блокировки:', { allowed: limitCheck.allowed, remaining: limitCheck.remaining });
+        const limitMessage = limitCheck.remaining === 0 
+          ? 'Лимит использования ИИ исчерпан. Оформите подписку для увеличения лимита.'
+          : `Осталось ${limitCheck.remaining} использований ИИ. Оформите подписку для увеличения лимита.`;
+        console.log('[AI_LIMIT] Лимит исчерпан, блокируем запрос вердикта:', limitMessage);
+        setAnalyticsAiVerdict({
+          loading: false,
+          text: null,
+          error: limitMessage
+        });
+        return; // ВАЖНО: выходим из функции, не отправляем запрос
+      }
+      
+      console.log('[AI_LIMIT] Лимит позволяет использовать ИИ для вердикта, отправляем запрос');
+      
+      // ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА ПЕРЕД ОТПРАВКОЙ ЗАПРОСА
+      const finalLimitCheck = await checkAILimit(false);
+      console.log('[AI_LIMIT] Финальная проверка перед отправкой вердикта (App.jsx):', finalLimitCheck);
+      
+      // СТРОГАЯ ПРОВЕРКА: если allowed === false ИЛИ remaining === 0, блокируем
+      if (!finalLimitCheck.allowed || finalLimitCheck.remaining === 0) {
+        console.log('[AI_LIMIT] ⛔⛔⛔ БЛОКИРУЕМ ЗАПРОС ВЕРДИКТА ПЕРЕД ОТПРАВКОЙ - ЛИМИТ ИСЧЕРПАН!');
+        const limitMessage = finalLimitCheck.remaining === 0 
+          ? 'Лимит использования ИИ исчерпан. Оформите подписку для увеличения лимита.'
+          : `Осталось ${finalLimitCheck.remaining} использований ИИ. Оформите подписку для увеличения лимита.`;
+        setAnalyticsAiVerdict({
+          loading: false,
+          text: null,
+          error: limitMessage
+        });
+        return; // ВАЖНО: выходим из функции, не отправляем запрос
+      }
+      
       const { data, error } = await supabase.functions.invoke('ai-trainer-advice', {
         body: requestData
       });
@@ -804,6 +926,11 @@ function App() {
       }
       
       if (data && data.advice) {
+        // Увеличиваем счетчик использования ИИ после успешного запроса
+        console.log('[AI_COUNTER] Перед вызовом incrementAIUsage для вердикта в статистике');
+        await incrementAIUsage(false);
+        console.log('[AI_COUNTER] После вызова incrementAIUsage для вердикта в статистике');
+        
         setAnalyticsAiVerdict({
           loading: false,
           text: data.advice.substring(0, 200), // Ограничиваем до 200 символов
@@ -910,16 +1037,21 @@ function App() {
           const cacheTime = localStorage.getItem('dev_questions_cache_time');
           if (cached && cacheTime) {
             const cacheAge = Date.now() - parseInt(cacheTime, 10);
-            // Используем кэш, если он не старше 2 часов (для быстрой загрузки)
-            if (cacheAge < 2 * 60 * 60 * 1000) {
-              const cachedQuestions = JSON.parse(cached);
-              setSavedQuestions(cachedQuestions);
-              console.log('✅ Используем кэшированные вопросы для быстрой загрузки');
-              // Обновляем в фоне (не блокируем интерфейс) - через 3 секунды
-              setTimeout(() => {
-                loadQuestionsFromSupabase(false).catch(() => {});
-              }, 3000);
-              return;
+            // Используем кэш, если он не старше 7 дней (для мгновенной загрузки)
+            if (cacheAge < 7 * 24 * 60 * 60 * 1000) {
+              try {
+                const cachedQuestions = JSON.parse(cached);
+                setSavedQuestions(cachedQuestions);
+                console.log('✅ Используем кэшированные вопросы для мгновенной загрузки:', cachedQuestions.length, 'вопросов');
+                // Обновляем в фоне (не блокируем интерфейс) - через 10 секунд после загрузки страницы
+                setTimeout(() => {
+                  loadQuestionsFromSupabase(false).catch(() => {});
+                }, 10000);
+                return;
+              } catch (e) {
+                console.error('Ошибка парсинга кэша:', e);
+                // Продолжаем загрузку из БД
+              }
             }
           }
         } catch (e) {
@@ -928,10 +1060,10 @@ function App() {
       }
 
       // Загружаем вопросы с опциями через вложенный select
-      // УБИРАЕМ ЛИМИТЫ: загружаем ВСЕ вопросы без ограничений
+      // ОПТИМИЗАЦИЯ: загружаем только нужные поля для ускорения запроса
       const { data: questionsData, error: questionsError } = await supabase
         .from('questions')
-        .select('*, options(*)')
+        .select('id, quiz_id, question_text, image_url, created_at, options(id, option_text, is_correct, created_at)')
         .order('created_at', { ascending: true })
         .limit(100000); // Большой лимит для загрузки всех вопросов
 
@@ -1586,20 +1718,23 @@ function App() {
         const telegramUsername = tgUser?.username || null;
         void telegramUsername;
 
-        // Уменьшаем timeout для быстрой загрузки - показываем интерфейс быстрее
-        timeoutId = setTimeout(() => setLoading(false), 300);
-
-        // Загружаем данные неблокирующе - сначала показываем интерфейс, потом загружаем данные
-        // Проверяем админ-статус (быстрый запрос)
-        const adminStatus = await checkAdminStatus(userId);
-        
-        // Загружаем темы и вопросы в фоне (не блокируем показ интерфейса)
-        Promise.all([
-          loadTopicsFromSupabase(), // Загружаем темы параллельно
-          loadQuestionsFromSupabase(true) // Загружаем вопросы параллельно (с кэшем)
+        // Загружаем данные ПАРАЛЛЕЛЬНО для быстрой загрузки
+        // Сначала загружаем из кэша для мгновенного отображения
+        const loadDataPromise = Promise.all([
+          loadTopicsFromSupabase(),
+          loadQuestionsFromSupabase(true) // Используем кэш для мгновенной загрузки
         ]).catch(err => {
           console.error('Ошибка загрузки данных:', err);
         });
+        
+        // Проверяем админ-статус (быстрый запрос)
+        const adminStatus = await checkAdminStatus(userId);
+        
+        // Ждем загрузки данных из кэша (быстро) перед показом интерфейса
+        await loadDataPromise;
+        
+        // Показываем интерфейс после загрузки данных из кэша
+        timeoutId = setTimeout(() => setLoading(false), 100);
 
         if (adminStatus) {
           console.log('✅ Пользователь является администратором (из таблицы admins)');
@@ -1628,26 +1763,26 @@ function App() {
             // Если пользователь уже полностью зарегистрирован (есть имя и телефон), переходим на topics
             // Если данных нет или они неполные, показываем экран регистрации
             if (hasRegistrationData && data.phone && data.phone.trim()) {
-              setUserData({
-                userId: String(data.id),
-                telegramUsername: data.username || null,
-                name: data.first_name || 'Без имени',
-                phone: data.phone || 'Не указан',
-                registrationDate: data.created_at || new Date().toISOString(),
-                lastVisit: data.created_at || new Date().toISOString(),
-                subscription: {
-                  active: data.is_premium && data.premium_until && new Date(data.premium_until) > new Date(),
-                  startDate: null,
-                  endDate: data.premium_until || null
-                }
-              });
-              setUserRole('user');
-              setScreen('topics');
+            setUserData({
+              userId: String(data.id),
+              telegramUsername: data.username || null,
+              name: data.first_name || 'Без имени',
+              phone: data.phone || 'Не указан',
+              registrationDate: data.created_at || new Date().toISOString(),
+              lastVisit: data.created_at || new Date().toISOString(),
+              subscription: {
+                active: data.is_premium && data.premium_until && new Date(data.premium_until) > new Date(),
+                startDate: null,
+                endDate: data.premium_until || null
+              }
+            });
+            setUserRole('user');
+            setScreen('topics');
               // Загружаем подписку в фоне (вопросы уже загружены параллельно при инициализации)
               loadMySubscription().catch(err => console.error('Ошибка загрузки подписки:', err));
               setLoading(false);
               if (timeoutId) clearTimeout(timeoutId);
-              return;
+            return;
             } else {
               // Пользователь есть в базе, но форма регистрации не заполнена - показываем экран регистрации
               console.log('Пользователь найден, но форма регистрации не заполнена - показываем экран регистрации');
@@ -1945,10 +2080,29 @@ function App() {
         const endDate = new Date(data.end_date);
         const isActive = endDate > new Date();
         
+        // Проверяем, изменилась ли подписка (новая подписка)
+        const previousEndDate = subscriptionInfo?.subscriptionExpiresAt;
+        const isNewSubscription = previousEndDate !== data.end_date;
+        
         setSubscriptionInfo({
           active: isActive,
           subscriptionExpiresAt: data.end_date
         });
+        
+        // Если обнаружена новая подписка, сбрасываем счетчик ИИ
+        if (isActive && isNewSubscription) {
+          console.log('Обнаружена новая подписка, сбрасываем счетчик ИИ');
+          try {
+            saveAIUsageCount({ hints: 0, other: 0 }, data.end_date);
+            setAiUsageCount({ hints: 0, other: 0 });
+          } catch (e) {
+            console.error('Ошибка сброса счетчика ИИ:', e);
+          }
+        } else if (isActive) {
+          // Обновляем счетчик при загрузке подписки (проверяем актуальность)
+          const updatedCount = loadAIUsageCount(data.end_date);
+          setAiUsageCount(updatedCount);
+        }
         
         // Если подписка активна, сбрасываем статус обработки платежа
         if (isActive) {
@@ -2079,13 +2233,13 @@ function App() {
       
       // Вычисляем разницу в миллисекундах
       const remaining = expires.getTime() - now.getTime();
-      if (remaining <= 0) return null;
-      
+    if (remaining <= 0) return null;
+
       // Вычисляем количество полных дней (используем Math.floor для точного подсчета)
-      const days = Math.floor(remaining / (1000 * 60 * 60 * 24));
-      
+    const days = Math.floor(remaining / (1000 * 60 * 60 * 24));
+
       // Если дней больше 0, показываем дни
-      if (days > 0) {
+    if (days > 0) {
         // Правильное склонение для русского языка
         let dayWord;
         const lastDigit = days % 10;
@@ -2105,7 +2259,7 @@ function App() {
       
       // Если дней нет, вычисляем часы
       const hours = Math.floor(remaining / (1000 * 60 * 60));
-      if (hours > 0) {
+    if (hours > 0) {
         let hourWord;
         const lastDigit = hours % 10;
         const lastTwoDigits = hours % 100;
@@ -4436,7 +4590,12 @@ function App() {
       name: 'Тест',
       price: 15000,
       days: 7,
-      features: ['Доступ ко всем вопросам', 'Без рекламы'],
+      features: ['Доступ ко всем вопросам', 'Без рекламы', 'ИИ: 7 запросов в любом режиме'],
+      aiLimits: {
+        hintsInTests: 7, // Лимит подсказок в тестах
+        otherUsage: 7, // Лимит использования в других местах
+        unlimited: false
+      },
       color: 'border-gray-600'
     },
     {
@@ -4444,7 +4603,12 @@ function App() {
       name: 'Базовый',
       price: 35000,
       days: 20,
-      features: ['Выгоднее на 15%', 'Полная статистика'],
+      features: ['Выгоднее на 15%', 'Полная статистика', 'ИИ: подсказки в тестах без лимита', 'ИИ: 10 запросов в других местах'],
+      aiLimits: {
+        hintsInTests: -1, // -1 означает без ограничений
+        otherUsage: 10,
+        unlimited: false
+      },
       color: 'border-blue-500'
     },
     {
@@ -4452,11 +4616,438 @@ function App() {
       name: 'PRO Максимум',
       price: 49000,
       days: 45,
-      features: ['ХИТ ПРОДАЖ 🔥', 'Максимальная выгода', 'Приоритетная поддержка'],
+      features: ['ХИТ ПРОДАЖ 🔥', 'Максимальная выгода', 'Приоритетная поддержка', 'ИИ: без ограничений'],
+      aiLimits: {
+        hintsInTests: -1,
+        otherUsage: -1,
+        unlimited: true
+      },
       isRecommended: true,
       color: 'border-yellow-500 shadow-yellow-900/20'
     }
   ];
+
+  // ========== СИСТЕМА ЛИМИТОВ ИИ ==========
+  // Получение текущего тарифа пользователя
+  const getCurrentTariff = () => {
+    // Проверяем активную подписку и определяем тариф
+    if (!subscriptionInfo || !subscriptionInfo.active) {
+      return null; // Нет активной подписки
+    }
+    
+    // Получаем информацию о подписке из payment_requests для определения тарифа
+    // Пока используем дефолтный тариф "test" если не можем определить
+    // TODO: Добавить поле tariff_id в таблицу subscriptions
+    return tariffs.find(t => t.id === 'test') || null;
+  };
+
+  // Проверка, является ли подписка пробной (3 дня и создана недавно)
+  const isTrialSubscription = () => {
+    if (!subscriptionInfo || !subscriptionInfo.active || !subscriptionInfo.subscriptionExpiresAt) {
+      return false;
+    }
+    
+    const endDate = new Date(subscriptionInfo.subscriptionExpiresAt);
+    const now = new Date();
+    const daysDiff = Math.ceil((endDate - now) / (1000 * 60 * 60 * 24));
+    
+    // Пробная подписка: 3 дня и создана недавно (в течение последних 3 дней)
+    // Проверяем, что до окончания подписки осталось примерно 3 дня или меньше
+    return daysDiff <= 3 && daysDiff > 0;
+  };
+
+  // Получение лимитов ИИ для текущего тарифа
+  const getAILimits = () => {
+    // Сначала проверяем, является ли подписка пробной
+    if (isTrialSubscription()) {
+      // Для пробного периода: 4 запроса ИИ в любом режиме
+      return { hintsInTests: 4, otherUsage: 4, unlimited: false };
+    }
+    
+    const tariff = getCurrentTariff();
+    if (!tariff || !tariff.aiLimits) {
+      // Если нет подписки, лимиты очень строгие
+      return { hintsInTests: 0, otherUsage: 0, unlimited: false };
+    }
+    return tariff.aiLimits;
+  };
+
+  // Загрузка счетчика использования ИИ из базы данных (с fallback на localStorage)
+  // Лимиты привязаны к подписке и не обновляются до окончания подписки
+  const loadAIUsageCount = async (subscriptionEndDate = null) => {
+    try {
+      // Используем переданный subscriptionEndDate или берем из состояния
+      const currentSubscriptionEndDate = subscriptionEndDate || subscriptionInfo?.subscriptionExpiresAt || null;
+      
+      // Если нет userId, используем localStorage как fallback
+      if (!userId) {
+        console.log('[AI_COUNTER] Нет userId, используем localStorage');
+        const saved = localStorage.getItem('ai_usage_count');
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (!currentSubscriptionEndDate || parsed.subscriptionEndDate !== currentSubscriptionEndDate) {
+            return { hints: 0, other: 0 };
+          }
+          return { hints: parsed.hints || 0, other: parsed.other || 0 };
+        }
+        return { hints: 0, other: 0 };
+      }
+      
+      // Если нет активной подписки, возвращаем 0
+      if (!currentSubscriptionEndDate) {
+        console.log('[AI_COUNTER] Нет активной подписки, возвращаем 0');
+        return { hints: 0, other: 0 };
+      }
+      
+      // Загружаем из базы данных
+      const { data, error } = await supabase
+        .from('ai_usage_counter')
+        .select('hints_count, other_count, subscription_end_date')
+        .eq('user_id', userId)
+        .eq('subscription_end_date', currentSubscriptionEndDate)
+        .single();
+      
+      if (error && error.code !== 'PGRST116') { // PGRST116 = no rows returned
+        console.error('[AI_COUNTER] Ошибка загрузки из БД:', error);
+        // Fallback на localStorage
+        const saved = localStorage.getItem('ai_usage_count');
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (parsed.subscriptionEndDate === currentSubscriptionEndDate) {
+            return { hints: parsed.hints || 0, other: parsed.other || 0 };
+          }
+        }
+        return { hints: 0, other: 0 };
+      }
+      
+      if (data) {
+        console.log('[AI_COUNTER] Загружено из БД:', data);
+        // Проверяем, не истекла ли подписка
+        const subscriptionEnd = new Date(currentSubscriptionEndDate);
+        const now = new Date();
+        if (subscriptionEnd < now) {
+          console.log('[AI_COUNTER] Подписка истекла, возвращаем 0');
+          return { hints: 0, other: 0 };
+        }
+        return { hints: data.hints_count || 0, other: data.other_count || 0 };
+      }
+      
+      // Если записи нет в БД, проверяем localStorage
+      console.log('[AI_COUNTER] Записи нет в БД, проверяем localStorage');
+      const saved = localStorage.getItem('ai_usage_count');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed.subscriptionEndDate === currentSubscriptionEndDate) {
+          // Мигрируем данные из localStorage в БД
+          await saveAIUsageCount({ hints: parsed.hints || 0, other: parsed.other || 0 }, currentSubscriptionEndDate);
+          return { hints: parsed.hints || 0, other: parsed.other || 0 };
+        }
+      }
+      
+      return { hints: 0, other: 0 };
+    } catch (e) {
+      console.error('[AI_COUNTER] Ошибка загрузки счетчика ИИ:', e);
+      // Fallback на localStorage
+      const saved = localStorage.getItem('ai_usage_count');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return { hints: parsed.hints || 0, other: parsed.other || 0 };
+      }
+      return { hints: 0, other: 0 };
+    }
+  };
+
+  // Сохранение счетчика использования ИИ в базу данных (с fallback на localStorage)
+  // Сохраняем вместе с end_date подписки для проверки актуальности
+  const saveAIUsageCount = async (count, subscriptionEndDate = null) => {
+    try {
+      const currentSubscriptionEndDate = subscriptionEndDate || subscriptionInfo?.subscriptionExpiresAt || null;
+      const dataToSave = {
+        subscriptionEndDate: currentSubscriptionEndDate,
+        hints: count.hints || 0,
+        other: count.other || 0
+      };
+      
+      // Сохраняем в localStorage как fallback
+      localStorage.setItem('ai_usage_count', JSON.stringify(dataToSave));
+      console.log('[AI_COUNTER] Сохранено в localStorage:', dataToSave);
+      
+      // Если нет userId, только localStorage
+      if (!userId) {
+        console.log('[AI_COUNTER] Нет userId, сохраняем только в localStorage');
+        return;
+      }
+      
+      // Если нет активной подписки, только localStorage
+      if (!currentSubscriptionEndDate) {
+        console.log('[AI_COUNTER] Нет активной подписки, сохраняем только в localStorage');
+        return;
+      }
+      
+      // Сохраняем в базу данных (upsert - обновляем если есть, создаем если нет)
+      const { data, error } = await supabase
+        .from('ai_usage_counter')
+        .upsert({
+          user_id: userId,
+          subscription_end_date: currentSubscriptionEndDate,
+          hints_count: count.hints || 0,
+          other_count: count.other || 0,
+          updated_at: new Date().toISOString()
+        }, {
+          onConflict: 'user_id,subscription_end_date'
+        })
+        .select()
+        .single();
+      
+      if (error) {
+        console.error('[AI_COUNTER] Ошибка сохранения в БД:', error);
+        // Продолжаем работу с localStorage
+      } else {
+        console.log('[AI_COUNTER] Сохранено в БД:', data);
+      }
+    } catch (e) {
+      console.error('[AI_COUNTER] Ошибка сохранения счетчика ИИ:', e);
+      // Продолжаем работу с localStorage
+    }
+  };
+
+  // Проверка лимита ИИ перед использованием
+  const checkAILimit = async (isHintInTest = false) => {
+    // ВАЖНО: Принудительно загружаем актуальные данные из БД перед проверкой
+    // Не используем состояние, так как оно может быть устаревшим
+    const limits = getAILimits();
+    
+    // Загружаем данные напрямую из БД, не используя кэш
+    const currentSubscriptionEndDate = subscriptionInfo?.subscriptionExpiresAt || null;
+    let usage = { hints: 0, other: 0 };
+    
+    if (userId && currentSubscriptionEndDate) {
+      try {
+        // Загружаем напрямую из БД
+        const { data, error } = await supabase
+          .from('ai_usage_counter')
+          .select('hints_count, other_count, subscription_end_date')
+          .eq('user_id', userId)
+          .eq('subscription_end_date', currentSubscriptionEndDate)
+          .maybeSingle(); // Используем maybeSingle вместо single, чтобы не было ошибки если записи нет
+        
+        if (!error && data) {
+          usage = { hints: data.hints_count || 0, other: data.other_count || 0 };
+          console.log('[AI_LIMIT] Загружено из БД для проверки:', usage);
+        } else if (error && error.code !== 'PGRST116') {
+          // PGRST116 = no rows returned, это нормально
+          console.error('[AI_LIMIT] Ошибка загрузки из БД:', error);
+        } else {
+          // Записи нет в БД (PGRST116) - это нормально, используем fallback
+          console.log('[AI_LIMIT] Записи нет в БД, используем fallback');
+          // Fallback на localStorage
+          const saved = localStorage.getItem('ai_usage_count');
+          if (saved) {
+            const parsed = JSON.parse(saved);
+            if (parsed.subscriptionEndDate === currentSubscriptionEndDate) {
+              usage = { hints: parsed.hints || 0, other: parsed.other || 0 };
+              console.log('[AI_LIMIT] Загружено из localStorage для проверки:', usage);
+            }
+          }
+        }
+      } catch (e) {
+        console.error('[AI_LIMIT] Ошибка загрузки для проверки:', e);
+        // Fallback на localStorage
+        const saved = localStorage.getItem('ai_usage_count');
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (parsed.subscriptionEndDate === currentSubscriptionEndDate) {
+            usage = { hints: parsed.hints || 0, other: parsed.other || 0 };
+          }
+        }
+      }
+    } else {
+      // Fallback на localStorage
+      const saved = localStorage.getItem('ai_usage_count');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed.subscriptionEndDate === currentSubscriptionEndDate) {
+          usage = { hints: parsed.hints || 0, other: parsed.other || 0 };
+        }
+      }
+    }
+    
+    console.log('[AI_LIMIT] checkAILimit вызван:', {
+      isHintInTest,
+      limits,
+      usage,
+      isTrial: isTrialSubscription(),
+      subscriptionEndDate: currentSubscriptionEndDate
+    });
+    
+    // PRO Максимум - без ограничений
+    if (limits.unlimited) {
+      console.log('[AI_LIMIT] Без ограничений (PRO)');
+      return { allowed: true, remaining: -1 };
+    }
+    
+    // Для пробной подписки: общий лимит 4 запроса (суммируем все использования)
+    if (isTrialSubscription()) {
+      const totalUsed = usage.hints + usage.other;
+      const remaining = 4 - totalUsed;
+      
+      // СТРОГАЯ ПРОВЕРКА: если remaining <= 0, то НЕ разрешаем
+      if (remaining <= 0) {
+        console.log('[AI_LIMIT] ⛔ ЛИМИТ ИСЧЕРПАН ДЛЯ ПРОБНОЙ ПОДПИСКИ! Блокируем запрос.');
+        console.log('[AI_LIMIT] Детали:', { 
+          totalUsed, 
+          remaining, 
+          allowed: false,
+          willBlock: true,
+          hints: usage.hints,
+          other: usage.other
+        });
+        return { allowed: false, remaining: 0 };
+      }
+      
+      const allowed = true; // remaining > 0, значит разрешено
+      console.log('[AI_LIMIT] Пробная подписка:', { 
+        totalUsed, 
+        remaining, 
+        allowed,
+        willBlock: false,
+        hints: usage.hints,
+        other: usage.other
+      });
+      
+      return { allowed: true, remaining: Math.max(0, remaining) };
+    }
+    
+    if (isHintInTest) {
+      // Подсказка в тесте
+      if (limits.hintsInTests === -1) {
+        // Без ограничений для подсказок в тестах (Базовый тариф)
+        console.log('[AI_LIMIT] Без ограничений для подсказок в тестах');
+        return { allowed: true, remaining: -1 };
+      }
+      const remaining = limits.hintsInTests - usage.hints;
+      
+      // СТРОГАЯ ПРОВЕРКА: если remaining <= 0, то НЕ разрешаем
+      if (remaining <= 0) {
+        console.log('[AI_LIMIT] ⛔ ЛИМИТ ИСЧЕРПАН ДЛЯ ПОДСКАЗОК В ТЕСТЕ! Блокируем запрос.');
+        console.log('[AI_LIMIT] Детали:', { 
+          limit: limits.hintsInTests, 
+          used: usage.hints, 
+          remaining,
+          willBlock: true
+        });
+        return { allowed: false, remaining: 0 };
+      }
+      
+      const allowed = true; // remaining > 0, значит разрешено
+      console.log('[AI_LIMIT] Подсказка в тесте:', { 
+        limit: limits.hintsInTests, 
+        used: usage.hints, 
+        remaining, 
+        allowed,
+        willBlock: false
+      });
+      
+      return { allowed: true, remaining: Math.max(0, remaining) };
+    } else {
+      // Использование в других местах
+      if (limits.otherUsage === -1) {
+        console.log('[AI_LIMIT] Без ограничений для других использований');
+        return { allowed: true, remaining: -1 };
+      }
+      const remaining = limits.otherUsage - usage.other;
+      
+      // СТРОГАЯ ПРОВЕРКА: если remaining <= 0, то НЕ разрешаем
+      if (remaining <= 0) {
+        console.log('[AI_LIMIT] ⛔ ЛИМИТ ИСЧЕРПАН! Блокируем запрос.');
+        console.log('[AI_LIMIT] Детали:', { 
+          limit: limits.otherUsage, 
+          used: usage.other, 
+          remaining,
+          willBlock: true
+        });
+        return { allowed: false, remaining: 0 };
+      }
+      
+      const allowed = true; // remaining > 0, значит разрешено
+      console.log('[AI_LIMIT] Другие использования:', { 
+        limit: limits.otherUsage, 
+        used: usage.other, 
+        remaining, 
+        allowed,
+        willBlock: false
+      });
+      
+      return { allowed: true, remaining: Math.max(0, remaining) };
+    }
+  };
+
+  // Увеличение счетчика использования ИИ
+  const incrementAIUsage = async (isHintInTest = false) => {
+    console.log('[AI_COUNTER] ========== incrementAIUsage вызван ==========');
+    console.log('[AI_COUNTER] Параметры: isHintInTest =', isHintInTest);
+    console.log('[AI_COUNTER] subscriptionInfo:', subscriptionInfo);
+    
+    const usage = await loadAIUsageCount();
+    console.log('[AI_COUNTER] Загруженное использование:', usage);
+    const beforeCount = { ...usage };
+    
+    if (isHintInTest) {
+      usage.hints += 1;
+      console.log('[AI_COUNTER] Увеличиваем hints:', beforeCount.hints, '->', usage.hints);
+    } else {
+      usage.other += 1;
+      console.log('[AI_COUNTER] Увеличиваем other:', beforeCount.other, '->', usage.other);
+    }
+    
+    const subscriptionEndDate = subscriptionInfo?.subscriptionExpiresAt || null;
+    console.log('[AI_COUNTER] subscriptionEndDate:', subscriptionEndDate);
+    
+    await saveAIUsageCount(usage, subscriptionEndDate);
+    
+    // Обновляем состояние сразу после сохранения
+    // Создаем новый объект, чтобы React увидел изменение
+    const newState = { hints: Number(usage.hints), other: Number(usage.other) };
+    console.log('[AI_COUNTER] Обновляем состояние aiUsageCount на:', newState);
+    
+    // Обновляем состояние с помощью функционального обновления для гарантии
+    setAiUsageCount(prev => {
+      const updated = { hints: Number(usage.hints), other: Number(usage.other) };
+      console.log('[AI_COUNTER] setAiUsageCount callback: обновляем с', JSON.stringify(prev), 'на', JSON.stringify(updated));
+      return updated;
+    });
+    
+    // Принудительно обновляем состояние через setTimeout для гарантии
+    setTimeout(async () => {
+      const updated = await loadAIUsageCount();
+      console.log('[AI_COUNTER] Проверка после обновления, загружено из БД/localStorage:', updated);
+      setAiUsageCount(prev => {
+        const newUpdated = { hints: Number(updated.hints) || 0, other: Number(updated.other) || 0 };
+        console.log('[AI_COUNTER] setTimeout setAiUsageCount: обновляем с', prev, 'на', newUpdated);
+        return newUpdated;
+      });
+    }, 50);
+    console.log('[AI_COUNTER] Сохранено:', usage, 'для подписки:', subscriptionEndDate);
+    console.log('[AI_COUNTER] ========== incrementAIUsage завершен ==========');
+    
+    return usage;
+  };
+
+  // Инициализация счетчика использования ИИ
+  const [aiUsageCount, setAiUsageCount] = useState({ hints: 0, other: 0 });
+  
+  // Загружаем счетчик при инициализации и изменении подписки
+  useEffect(() => {
+    const loadCounter = async () => {
+      const count = await loadAIUsageCount();
+      console.log('[AI_COUNTER] Загрузка счетчика (useEffect):', count);
+      setAiUsageCount(count);
+    };
+    
+    if (subscriptionInfo || userId) {
+      loadCounter();
+    }
+  }, [subscriptionInfo?.subscriptionExpiresAt, userId]);
 
   // Функция для сохранения запроса на оплату в Supabase
   const handlePaymentRequest = async (tariff, senderInfo) => {
@@ -4768,7 +5359,7 @@ function App() {
               <div className="tariff-currency">сум</div>
               <div className="tariff-duration-compact">за {tariff.days} дней</div>
               <ul className="tariff-features-compact">
-                {tariff.features.slice(0, 3).map((feature, index) => (
+                {tariff.features.map((feature, index) => (
                   <li key={index} className="tariff-feature-compact">
                     <span className="tariff-feature-icon-compact">✓</span>
                     <span>{feature}</span>
@@ -4790,6 +5381,37 @@ function App() {
     if (userRole === 'admin' || loading || userRole === null) return null;
 
     const isActive = hasActiveSubscription();
+    // Используем состояние напрямую из aiUsageCount
+    // Создаем ключ для отслеживания изменений
+    const usageKey = `${aiUsageCount?.hints || 0}-${aiUsageCount?.other || 0}`;
+    const [renderKey, setRenderKey] = useState(0);
+    
+    // Синхронизируем при изменении aiUsageCount
+    // Используем отдельные значения для отслеживания изменений
+    const hintsValue = aiUsageCount?.hints || 0;
+    const otherValue = aiUsageCount?.other || 0;
+    
+    useEffect(() => {
+      console.log('[AI_COUNTER] ========== SubscriptionStatusBadge useEffect ==========');
+      console.log('[AI_COUNTER] aiUsageCount изменился:', aiUsageCount);
+      console.log('[AI_COUNTER] hintsValue:', hintsValue, 'otherValue:', otherValue);
+      console.log('[AI_COUNTER] usageKey:', usageKey);
+      console.log('[AI_COUNTER] Текущий renderKey:', renderKey);
+      // Принудительно обновляем компонент
+      const newKey = renderKey + 1;
+      console.log('[AI_COUNTER] Устанавливаем новый renderKey:', newKey);
+      setRenderKey(newKey);
+    }, [hintsValue, otherValue]);
+    
+    // Используем состояние напрямую
+    const currentUsage = aiUsageCount;
+    
+    // Отладочная информация
+    console.log('[AI_COUNTER] ========== SubscriptionStatusBadge render ==========');
+    console.log('[AI_COUNTER] currentUsage (localUsage):', currentUsage);
+    console.log('[AI_COUNTER] aiUsageCount state:', aiUsageCount);
+    const loadedFromStorage = loadAIUsageCount();
+    console.log('[AI_COUNTER] Загружено из localStorage:', loadedFromStorage);
     
     // Определяем, что показывать: корона, часы или замок
     const showCrown = isActive;
@@ -4799,11 +5421,22 @@ function App() {
     const fullElement = (
       <>
         <div
+          key={`subscription-badge-${usageKey}-${renderKey}`}
           className="subscription-status-badge"
           onClick={() => setShowSubscriptionModal(true)}
+          title={(() => {
+            if (!isActive) return 'Подписка неактивна';
+            const limits = getAILimits();
+            const usage = currentUsage;
+            if (limits.unlimited) return 'ИИ: без ограничений';
+            const totalLimit = isTrialSubscription() ? 4 : (limits.hintsInTests === -1 ? limits.otherUsage : limits.hintsInTests);
+            const totalUsed = isTrialSubscription() ? (usage.hints + usage.other) : (limits.hintsInTests === -1 ? usage.other : usage.hints);
+            const remaining = totalLimit - totalUsed;
+            return `ИИ: ${remaining} из ${totalLimit}`;
+          })()}
         >
           {showCrown ? (
-            <div className="subscription-badge-active">
+            <div className="subscription-badge-active" style={{ position: 'relative' }}>
               <svg
                 className="subscription-badge-icon"
                 width="18"
@@ -4819,6 +5452,34 @@ function App() {
                 <path d="M5 16L3 5l5.5 5L12 4l3.5 6L21 5l-2 11H5z" />
                 <path d="M12 18l-1-4 1-4 1 4-1 4z" />
               </svg>
+              {(() => {
+                const limits = getAILimits();
+                const usage = currentUsage;
+                if (limits.unlimited) return null;
+                const totalLimit = isTrialSubscription() ? 4 : (limits.hintsInTests === -1 ? limits.otherUsage : limits.hintsInTests);
+                const totalUsed = isTrialSubscription() ? (usage.hints + usage.other) : (limits.hintsInTests === -1 ? usage.other : usage.hints);
+                const remaining = totalLimit - totalUsed;
+                if (remaining <= 0) return null;
+                return (
+                  <span style={{
+                    position: 'absolute',
+                    top: '-8px',
+                    right: '-8px',
+                    backgroundColor: remaining <= 2 ? '#f44336' : '#4CAF50',
+                    color: '#fff',
+                    borderRadius: '10px',
+                    padding: '2px 6px',
+                    fontSize: '10px',
+                    fontWeight: 'bold',
+                    minWidth: '20px',
+                    textAlign: 'center',
+                    lineHeight: '1.2',
+                    zIndex: 10000
+                  }}>
+                    {remaining}
+                  </span>
+                );
+              })()}
             </div>
           ) : showClock ? (
             <div className="subscription-badge-inactive">
@@ -4955,6 +5616,32 @@ function App() {
                             </span>
                           </div>
                         )}
+                        {(() => {
+                          const limits = getAILimits();
+                          const usage = aiUsageCount;
+                          if (limits.unlimited) {
+                            return (
+                              <div className="subscription-detail-item">
+                                <span className="subscription-detail-label">ИИ запросы:</span>
+                                <span className="subscription-detail-value highlight" style={{ color: '#4CAF50' }}>
+                                  Без ограничений
+                                </span>
+                      </div>
+                            );
+                          }
+                          // Для пробной подписки и других тарифов показываем общий лимит
+                          const totalLimit = isTrialSubscription() ? 4 : (limits.hintsInTests === -1 ? limits.otherUsage : limits.hintsInTests);
+                          const totalUsed = isTrialSubscription() ? (usage.hints + usage.other) : (limits.hintsInTests === -1 ? usage.other : usage.hints);
+                          const remaining = totalLimit - totalUsed;
+                          return (
+                            <div className="subscription-detail-item">
+                              <span className="subscription-detail-label">ИИ запросы:</span>
+                              <span className="subscription-detail-value highlight" style={{ color: remaining > 0 ? '#4CAF50' : '#f44336' }}>
+                                {remaining > 0 ? `Осталось ${remaining} из ${totalLimit}` : `Лимит исчерпан (${totalLimit})`}
+                              </span>
+                    </div>
+                          );
+                        })()}
                       </div>
                     </div>
                     <button className="subscription-renew-button" onClick={(e) => {
@@ -5020,7 +5707,7 @@ function App() {
                   }}>
                     ✕
                   </button>
-                </div>
+        </div>
                 <div className="welcome-modal-body">
                   <div className="welcome-icon">🎊</div>
                   <h3 className="welcome-subtitle">Регистрация успешна!</h3>
@@ -5039,7 +5726,7 @@ function App() {
                   >
                     Начать обучение
                   </button>
-                </div>
+      </div>
               </div>
             </div>
           )}
@@ -6445,7 +7132,7 @@ function App() {
     return (
       <>
         <WelcomeModal />
-        <div className="registration-screen-container">
+      <div className="registration-screen-container">
         <div className="registration-card">
           <div className="registration-icon-wrapper">
             <div className="registration-icon">👤</div>
@@ -6670,7 +7357,7 @@ function App() {
         
         <div className="topics-header">
           <div className="topics-header-top">
-            <h1 className="topics-title">Темы</h1>
+          <h1 className="topics-title">Темы</h1>
             <button
               onClick={() => {
                 setScreen('statistics');
@@ -7751,6 +8438,8 @@ function App() {
             setSelectedTopic(topic);
             setScreen('topicDetail');
           }}
+          checkAILimit={checkAILimit}
+          incrementAIUsage={incrementAIUsage}
         />
       </>
     );
