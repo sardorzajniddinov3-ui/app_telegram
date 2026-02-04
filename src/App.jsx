@@ -752,13 +752,33 @@ function App() {
           stats.totalTests += 1;
           stats.totalQuestions += result.total_questions || 0;
           stats.totalCorrect += result.correct_answers || 0;
-          
-          // Вычисляем средний процент
-          const currentAvg = stats.averagePercentage;
-          const newPercentage = result.percentage || 0;
-          stats.averagePercentage = ((currentAvg * (stats.totalTests - 1)) + newPercentage) / stats.totalTests;
         });
       }
+      
+      // Вычисляем средний процент для каждой темы на основе правильных ответов
+      topicStats.forEach((stats, topicId) => {
+        if (stats.totalQuestions > 0) {
+          // Вычисляем процент как отношение правильных ответов к общему количеству вопросов
+          stats.averagePercentage = (stats.totalCorrect / stats.totalQuestions) * 100;
+          console.log(`[ANALYTICS] Тема ${topicId}: правильных ${stats.totalCorrect} из ${stats.totalQuestions} = ${stats.averagePercentage.toFixed(2)}%`);
+        } else if (stats.totalTests > 0 && testResults) {
+          // Если нет вопросов, но есть тесты, используем средний процент из результатов
+          // Собираем все проценты для этой темы
+          const topicResults = testResults.filter(r => String(r.topic_id) === topicId);
+          if (topicResults.length > 0) {
+            const sumPercentage = topicResults.reduce((sum, r) => sum + (r.percentage || 0), 0);
+            stats.averagePercentage = sumPercentage / topicResults.length;
+            console.log(`[ANALYTICS] Тема ${topicId}: средний процент из ${topicResults.length} тестов = ${stats.averagePercentage.toFixed(2)}%`);
+          }
+        } else {
+          // Если нет данных, устанавливаем 0
+          stats.averagePercentage = 0;
+          console.log(`[ANALYTICS] Тема ${topicId}: нет данных, прогресс = 0%`);
+        }
+        
+        // Ограничиваем процент от 0 до 100
+        stats.averagePercentage = Math.max(0, Math.min(100, stats.averagePercentage));
+      });
       
       // Обрабатываем ошибки
       if (userErrors && userErrors.length > 0) {
@@ -784,6 +804,31 @@ function App() {
         });
       }
       
+      // Пересчитываем процент для всех тем после добавления ошибок
+      // (на случай, если тема была добавлена только через ошибки)
+      topicStats.forEach((stats, topicId) => {
+        if (stats.totalQuestions > 0) {
+          // Вычисляем процент как отношение правильных ответов к общему количеству вопросов
+          stats.averagePercentage = (stats.totalCorrect / stats.totalQuestions) * 100;
+          console.log(`[ANALYTICS] Тема ${topicId} (после обработки ошибок): правильных ${stats.totalCorrect} из ${stats.totalQuestions} = ${stats.averagePercentage.toFixed(2)}%`);
+        } else if (stats.totalTests > 0 && testResults) {
+          // Если нет вопросов, но есть тесты, используем средний процент из результатов
+          const topicResults = testResults.filter(r => String(r.topic_id) === topicId);
+          if (topicResults.length > 0) {
+            const sumPercentage = topicResults.reduce((sum, r) => sum + (r.percentage || 0), 0);
+            stats.averagePercentage = sumPercentage / topicResults.length;
+            console.log(`[ANALYTICS] Тема ${topicId} (после обработки ошибок): средний процент из ${topicResults.length} тестов = ${stats.averagePercentage.toFixed(2)}%`);
+          }
+        } else if (stats.errorCount > 0 && stats.totalQuestions === 0 && stats.totalTests === 0) {
+          // Если есть только ошибки, но нет тестов, процент = 0
+          stats.averagePercentage = 0;
+          console.log(`[ANALYTICS] Тема ${topicId}: только ошибки (${stats.errorCount}), нет тестов, прогресс = 0%`);
+        }
+        
+        // Ограничиваем процент от 0 до 100
+        stats.averagePercentage = Math.max(0, Math.min(100, stats.averagePercentage));
+      });
+      
       // Преобразуем Map в массив и добавляем информацию о теме
       const analyticsArray = Array.from(topicStats.values()).map(stats => {
         const topic = topics.find(t => String(t.id) === stats.topicId);
@@ -798,6 +843,12 @@ function App() {
       const weakTopics = [...analyticsArray]
         .sort((a, b) => b.errorCount - a.errorCount)
         .slice(0, 3);
+      
+      // Логируем итоговые данные для отладки
+      console.log('[ANALYTICS] Итоговая статистика:');
+      analyticsArray.forEach(topic => {
+        console.log(`  - ${topic.topicName}: ${topic.averagePercentage.toFixed(2)}% (тестов: ${topic.totalTests}, вопросов: ${topic.totalQuestions}, правильных: ${topic.totalCorrect}, ошибок: ${topic.errorCount})`);
+      });
       
       setAnalyticsData({
         topics: analyticsArray,
@@ -1041,15 +1092,49 @@ function App() {
             if (cacheAge < 7 * 24 * 60 * 60 * 1000) {
               try {
                 const cachedQuestions = JSON.parse(cached);
-                setSavedQuestions(cachedQuestions);
-                console.log('✅ Используем кэшированные вопросы для мгновенной загрузки:', cachedQuestions.length, 'вопросов');
-                // Обновляем в фоне (не блокируем интерфейс) - через 10 секунд после загрузки страницы
-                setTimeout(() => {
-                  loadQuestionsFromSupabase(false).catch(() => {});
-                }, 10000);
-                return;
+                
+                // Проверяем валидность кэша - проверяем несколько вопросов на наличие answer_* полей
+                let validQuestionsCount = 0;
+                const sampleSize = Math.min(10, cachedQuestions.length);
+                
+                for (let i = 0; i < sampleSize; i++) {
+                  const q = cachedQuestions[i];
+                  if (q && (q.answer_a || q.answer_b || q.answer_c || q.answer_d)) {
+                    validQuestionsCount++;
+                  }
+                }
+                
+                // Если хотя бы 80% вопросов имеют опции, считаем кэш валидным
+                const isValidCache = validQuestionsCount >= sampleSize * 0.8;
+                
+                if (isValidCache && cachedQuestions.length > 0) {
+                  setSavedQuestions(cachedQuestions);
+                  console.log('✅ Используем кэшированные вопросы для мгновенной загрузки:', cachedQuestions.length, 'вопросов');
+                  // Обновляем в фоне (не блокируем интерфейс) - через 10 секунд после загрузки страницы
+                  setTimeout(() => {
+                    loadQuestionsFromSupabase(false).catch(() => {});
+                  }, 10000);
+                  return;
+                } else {
+                  console.warn(`⚠️ Кэш невалиден (только ${validQuestionsCount}/${sampleSize} вопросов имеют опции), загружаем из БД`);
+                  // Очищаем невалидный кэш
+                  try {
+                    localStorage.removeItem('dev_questions_cache');
+                    localStorage.removeItem('dev_questions_cache_time');
+                  } catch (e) {
+                    console.error('Ошибка очистки кэша:', e);
+                  }
+                  // Продолжаем загрузку из БД
+                }
               } catch (e) {
                 console.error('Ошибка парсинга кэша:', e);
+                // Очищаем поврежденный кэш
+                try {
+                  localStorage.removeItem('dev_questions_cache');
+                  localStorage.removeItem('dev_questions_cache_time');
+                } catch (e2) {
+                  console.error('Ошибка очистки кэша:', e2);
+                }
                 // Продолжаем загрузку из БД
               }
             }
@@ -1060,21 +1145,23 @@ function App() {
       }
 
       // Загружаем вопросы с опциями через вложенный select
-      // ОПТИМИЗАЦИЯ: загружаем только нужные поля для ускорения запроса
+      // Используем полный select для загрузки всех полей и связанных опций
+      console.log('[LOAD] Начинаем загрузку вопросов с вложенными опциями...');
       const { data: questionsData, error: questionsError } = await supabase
         .from('questions')
-        .select('id, quiz_id, question_text, image_url, created_at, options(id, option_text, is_correct, created_at)')
+        .select('*, options(*)')
         .order('created_at', { ascending: true })
         .limit(100000); // Большой лимит для загрузки всех вопросов
 
       if (questionsError) {
         console.error('❌ Ошибка загрузки вопросов из Supabase:', questionsError);
+        console.log('[LOAD] Переходим на альтернативный запрос без вложенных опций...');
         
-        // Пробуем альтернативный запрос без вложенного select
-        console.log('🔄 Пробуем альтернативный запрос...');
+        // Пробуем альтернативный запрос с вложенными опциями
+        console.log('🔄 Пробуем альтернативный запрос с опциями...');
         const { data: questionsDataAlt, error: questionsErrorAlt } = await supabase
           .from('questions')
-          .select('id, quiz_id, question_text, image_url, created_at')
+          .select('*, options(*)')
           .order('created_at', { ascending: true })
           .limit(100000); // Большой лимит для загрузки всех вопросов
 
@@ -1089,37 +1176,103 @@ function App() {
         // Если альтернативный запрос успешен, загружаем опции отдельно
         if (questionsDataAlt && questionsDataAlt.length > 0) {
           const questionIds = questionsDataAlt.map(q => q.id);
-        const { data: optionsData, error: optionsError } = await supabase
-          .from('options')
-            .select('question_id, option_text, is_correct, created_at')
-          .in('question_id', questionIds)
-          .order('created_at', { ascending: true })
-          .limit(100000); // Большой лимит для загрузки всех опций
+          
+          // Разбиваем на батчи по 100 элементов, чтобы избежать ошибки 400
+          const batchSize = 100;
+          let allOptionsData = [];
+          
+          for (let i = 0; i < questionIds.length; i += batchSize) {
+            const batch = questionIds.slice(i, i + batchSize);
+            const { data: batchOptionsData, error: batchOptionsError } = await supabase
+              .from('options')
+              .select('question_id, option_text, is_correct, created_at')
+              .in('question_id', batch)
+              .order('created_at', { ascending: true });
+            
+            if (batchOptionsError) {
+              console.error(`❌ Ошибка загрузки опций для батча ${i / batchSize + 1}:`, batchOptionsError);
+            } else if (batchOptionsData) {
+              allOptionsData = allOptionsData.concat(batchOptionsData);
+            }
+          }
+          
+          const optionsData = allOptionsData;
+          const optionsError = allOptionsData.length === 0 ? { message: 'No options loaded' } : null;
+
+          console.log(`[OPTIONS] Загружено опций из БД: ${allOptionsData.length}`);
+          if (allOptionsData.length > 0) {
+            console.log(`[OPTIONS] Пример опции:`, allOptionsData[0]);
+            const uniqueQuestionIds = new Set(allOptionsData.map(o => o.question_id));
+            console.log(`[OPTIONS] Уникальных question_id в опциях: ${uniqueQuestionIds.size}`);
+            console.log(`[OPTIONS] Примеры question_id из опций:`, Array.from(uniqueQuestionIds).slice(0, 5));
+          } else {
+            console.error(`[OPTIONS] ❌ КРИТИЧЕСКАЯ ОШИБКА: Не загружено ни одной опции!`);
+          }
 
           // Объединяем вопросы с опциями
-          const questionsWithOptions = questionsDataAlt.map(q => ({
-            ...q,
-            options: (optionsData || []).filter(opt => opt.question_id === q.id)
-          }));
+          const questionsWithOptions = questionsDataAlt.map(q => {
+            // Нормализуем сравнение ID (может быть UUID в разных форматах)
+            const questionOptions = (allOptionsData || []).filter(opt => {
+              const optId = String(opt.question_id || '').trim();
+              const qId = String(q.id || '').trim();
+              return optId === qId;
+            });
+            // Логируем только первые 5 вопросов без опций, чтобы не спамить
+            if (questionOptions.length === 0 && questionsDataAlt.indexOf(q) < 5) {
+              console.warn(`[OPTIONS] ⚠️ Вопрос ${q.id} не имеет опций. Всего опций: ${allOptionsData.length}`);
+              if (allOptionsData.length > 0) {
+                const sampleOptIds = allOptionsData.slice(0, 3).map(o => o.question_id);
+                console.log(`[OPTIONS] Примеры question_id из опций:`, sampleOptIds);
+                console.log(`[OPTIONS] ID вопроса для сравнения: "${q.id}" (тип: ${typeof q.id})`);
+              }
+            }
+            return {
+              ...q,
+              options: questionOptions
+            };
+          });
 
           // Продолжаем обработку с объединенными данными
           const optionsByQuestion = new Map();
           questionsWithOptions.forEach(q => {
             if (q.options && Array.isArray(q.options) && q.options.length > 0) {
               optionsByQuestion.set(q.id, q.options);
+              console.log(`[OPTIONS] Вопрос ${q.id}: добавлено ${q.options.length} опций в Map`);
+            } else {
+              console.warn(`[OPTIONS] Вопрос ${q.id}: опции не найдены или пусты`);
             }
           });
+          
+          console.log(`[OPTIONS] Всего вопросов с опциями: ${optionsByQuestion.size} из ${questionsWithOptions.length}`);
 
           // Обрабатываем данные
           const formattedQuestions = questionsWithOptions.map(q => {
-            const options = (optionsByQuestion.get(q.id) || []).sort((a, b) => {
+            // Берем опции из вложенного массива options (из связанной таблицы)
+            let options = optionsByQuestion.get(q.id) || [];
+            
+            // Если опций нет в Map, но они есть в объекте вопроса (из вложенного select)
+            if (options.length === 0 && q.options && Array.isArray(q.options) && q.options.length > 0) {
+              options = q.options;
+              optionsByQuestion.set(q.id, options);
+            }
+            
+            // Сортируем опции по created_at
+            options = options.sort((a, b) => {
               return (a.created_at || '').localeCompare(b.created_at || '');
             });
 
+            // Проверка: если массив options пустой, выводим ошибку
+            if (options.length === 0) {
+              console.error(`[DB_ERROR] У вопроса ${q.id} нет записей в таблице options`);
+            } else {
+              console.log(`[OPTIONS] Вопрос ${q.id}: найдено ${options.length} опций из связанной таблицы`);
+            }
+            
             const answerMap = {};
             let correctKey = 'a';
             const answerKeys = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
             
+            // Преобразуем опции из связанной таблицы в поля answer_a, answer_b и т.д.
             options.forEach((option, index) => {
               if (index < answerKeys.length) {
                 const key = answerKeys[index];
@@ -1130,7 +1283,7 @@ function App() {
               }
             });
 
-            return {
+            const formattedQuestion = {
               id: q.id,
               quiz_id: q.quiz_id, // Используем quiz_id вместо topic_id
               topic_id: q.quiz_id, // Оставляем для обратной совместимости
@@ -1141,16 +1294,43 @@ function App() {
               answers_count: options.length || 0,
               created_at: q.created_at
             };
+            
+            // Проверяем, что хотя бы один ответ есть
+            if (Object.keys(answerMap).length === 0) {
+              console.error(`[OPTIONS] ❌ Вопрос ${q.id} не имеет опций после форматирования!`);
+            }
+            
+            return formattedQuestion;
           });
 
-          setSavedQuestions(formattedQuestions);
-          console.log(`✅ Загружено вопросов из Supabase (альтернативный запрос): ${formattedQuestions.length} (без лимитов)`);
+          // Сохраняем ВСЕ вопросы, даже без опций (чтобы хотя бы вопросы показывались)
+          // Опции могут загрузиться позже или быть добавлены вручную
+          const questionsToSave = formattedQuestions.map(q => {
+            // Если нет опций, создаем пустые поля, чтобы вопрос все равно сохранился
+            if (!q.answer_a && !q.answer_b && !q.answer_c && !q.answer_d) {
+              console.warn(`[OPTIONS] ⚠️ Вопрос ${q.id} без опций, но сохраняем для отображения`);
+              // Добавляем пустые поля, чтобы структура была правильной
+              return {
+                ...q,
+                answer_a: '',
+                answer_b: '',
+                answer_c: '',
+                answer_d: '',
+                correct: 'a' // Дефолтное значение
+              };
+            }
+            return q;
+          });
+          
+          setSavedQuestions(questionsToSave);
+          console.log(`✅ Загружено вопросов из Supabase (альтернативный запрос): ${questionsToSave.length} из ${formattedQuestions.length} (без лимитов)`);
           
           try {
-            localStorage.setItem('dev_questions_cache', JSON.stringify(formattedQuestions));
+            localStorage.setItem('dev_questions_cache', JSON.stringify(questionsToSave));
             localStorage.setItem('dev_questions_cache_time', String(Date.now()));
+            console.log(`[CACHE] Сохранено ${questionsToSave.length} вопросов в кэш`);
           } catch (e) {
-            // Игнорируем ошибки localStorage
+            console.error('[CACHE] Ошибка сохранения в кэш:', e);
           }
           
           return;
@@ -1163,27 +1343,56 @@ function App() {
       }
 
       if (questionsData && questionsData.length > 0) {
+        console.log(`[LOAD] ✅ Основной запрос успешен: загружено ${questionsData.length} вопросов`);
         // Оптимизация: сразу обрабатываем опции из вложенного select
         // Используем Map для быстрого доступа
         const optionsByQuestion = new Map();
+        let questionsWithOptionsCount = 0;
+        let questionsWithoutOptions = [];
+        
         questionsData.forEach(q => {
           if (q.options && Array.isArray(q.options) && q.options.length > 0) {
             optionsByQuestion.set(q.id, q.options);
+            questionsWithOptionsCount++;
+          } else {
+            // Проверка: если массив options пустой, выводим ошибку
+            console.error(`[DB_ERROR] У вопроса ${q.id} нет записей в таблице options`);
+            questionsWithoutOptions.push(q.id);
           }
         });
+        
+        console.log(`[LOAD] Вопросов с опциями во вложенном формате: ${questionsWithOptionsCount} из ${questionsData.length}`);
+        if (questionsWithoutOptions.length > 0) {
+          console.warn(`[DB_ERROR] Вопросов без опций: ${questionsWithoutOptions.length}`, questionsWithoutOptions.slice(0, 10));
+        }
 
         // Если опций нет в вложенном формате, загружаем отдельно (редкий случай)
         if (optionsByQuestion.size === 0 && questionsData.length > 0) {
-          const questionIds = questionsData.map(q => q.id);
-          const { data: optionsData, error: optionsError } = await supabase
-            .from('options')
-            .select('question_id, option_text, is_correct, created_at')
-            .in('question_id', questionIds)
-            .order('created_at', { ascending: true })
-            .limit(100000); // Большой лимит для загрузки всех опций
+        const questionIds = questionsData.map(q => q.id);
+          
+          // Разбиваем на батчи по 100 элементов, чтобы избежать ошибки 400
+          const batchSize = 100;
+          let allOptionsData = [];
+          
+          for (let i = 0; i < questionIds.length; i += batchSize) {
+            const batch = questionIds.slice(i, i + batchSize);
+            const { data: batchOptionsData, error: batchOptionsError } = await supabase
+          .from('options')
+              .select('question_id, option_text, is_correct, created_at')
+              .in('question_id', batch)
+          .order('created_at', { ascending: true });
 
-          if (!optionsError && optionsData) {
-            optionsData.forEach(option => {
+            if (batchOptionsError) {
+              console.error(`❌ Ошибка загрузки опций для батча ${i / batchSize + 1}:`, batchOptionsError);
+            } else if (batchOptionsData) {
+              allOptionsData = allOptionsData.concat(batchOptionsData);
+            }
+          }
+          
+          const optionsData = allOptionsData;
+          
+          if (optionsData && optionsData.length > 0) {
+          optionsData.forEach(option => {
               const existing = optionsByQuestion.get(option.question_id) || [];
               existing.push(option);
               optionsByQuestion.set(option.question_id, existing);
@@ -1193,14 +1402,30 @@ function App() {
 
         // Оптимизированное преобразование данных (используем предварительно отсортированные опции)
         const formattedQuestions = questionsData.map(q => {
-          const options = (optionsByQuestion.get(q.id) || []).sort((a, b) => {
+          // Берем опции из вложенного массива options (из связанной таблицы)
+          let options = optionsByQuestion.get(q.id) || [];
+          
+          // Если опций нет в Map, но они есть в объекте вопроса (из вложенного select)
+          if (options.length === 0 && q.options && Array.isArray(q.options) && q.options.length > 0) {
+            options = q.options;
+            optionsByQuestion.set(q.id, options);
+          }
+          
+          // Сортируем опции по created_at
+          options = options.sort((a, b) => {
             return (a.created_at || '').localeCompare(b.created_at || '');
           });
+          
+          // Проверка: если массив options пустой, выводим ошибку
+          if (options.length === 0) {
+            console.error(`[DB_ERROR] У вопроса ${q.id} нет записей в таблице options`);
+          }
 
           const answerMap = {};
           let correctKey = 'a';
           const answerKeys = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
           
+          // Преобразуем опции из связанной таблицы в поля answer_a, answer_b и т.д.
           options.forEach((option, index) => {
             if (index < answerKeys.length) {
               const key = answerKeys[index];
@@ -1224,16 +1449,34 @@ function App() {
           };
         });
         
+        // Сохраняем ВСЕ вопросы, даже без опций (чтобы хотя бы вопросы показывались)
+        const questionsToSave = formattedQuestions.map(q => {
+          // Если нет опций, создаем пустые поля, чтобы вопрос все равно сохранился
+          if (!q.answer_a && !q.answer_b && !q.answer_c && !q.answer_d) {
+            console.warn(`[OPTIONS] ⚠️ Вопрос ${q.id} без опций, но сохраняем для отображения`);
+            return {
+              ...q,
+              answer_a: '',
+              answer_b: '',
+              answer_c: '',
+              answer_d: '',
+              correct: 'a' // Дефолтное значение
+            };
+          }
+          return q;
+        });
+        
         // Сохраняем в состояние и кэш
-        setSavedQuestions(formattedQuestions);
-        console.log(`✅ Загружено вопросов из Supabase: ${formattedQuestions.length} (без лимитов)`);
+        setSavedQuestions(questionsToSave);
+        console.log(`✅ Загружено вопросов из Supabase: ${questionsToSave.length} из ${formattedQuestions.length} (без лимитов)`);
         
         // Кэшируем для быстрой загрузки в следующий раз
         try {
-          localStorage.setItem('dev_questions_cache', JSON.stringify(formattedQuestions));
+          localStorage.setItem('dev_questions_cache', JSON.stringify(questionsToSave));
           localStorage.setItem('dev_questions_cache_time', String(Date.now()));
+          console.log(`[CACHE] Сохранено ${questionsToSave.length} вопросов в кэш`);
         } catch (e) {
-          // Игнорируем ошибки localStorage
+          console.error('[CACHE] Ошибка сохранения в кэш:', e);
         }
       } else {
         // Если база возвращает 0 вопросов, не делаем повторный запрос
@@ -1289,6 +1532,9 @@ function App() {
     return answers;
   };
 
+  // Кэш для отслеживания уже залогированных тем (чтобы не спамить консоль)
+  const warnedTopicsCacheRef = useRef(new Set());
+
   // Function to get merged questions (static + saved from Supabase)
   const getMergedQuestions = (topicId) => {
     const staticQuestions = questionsData[topicId] || [];
@@ -1297,20 +1543,11 @@ function App() {
     const normalizedTopicId = String(topicId).trim();
     
     // Используем savedQuestions из состояния (загружены из Supabase)
-    let debugCount = 0;
     const savedForTopic = savedQuestions
       .filter(q => {
         // Используем quiz_id как основной идентификатор (синхронизация с БД)
         const qQuizId = String(q.quiz_id || q.topic_id || '').trim();
-        const matches = qQuizId === normalizedTopicId;
-        
-        // Отладочное логирование только в dev режиме (первые 3 вопроса)
-        if (process.env.NODE_ENV === 'development' && debugCount < 3) {
-          console.log(`🔍 Сравнение: qQuizId="${qQuizId}" === normalizedTopicId="${normalizedTopicId}" = ${matches}`);
-          debugCount++;
-        }
-        
-        return matches;
+        return qQuizId === normalizedTopicId;
       })
       .map(q => {
         const answers = buildAnswersFromSavedQuestion(q);
@@ -1324,8 +1561,10 @@ function App() {
     
     const allQuestions = [...staticQuestions, ...savedForTopic];
     
-    // Логируем только если нет вопросов (для отладки)
-    if (allQuestions.length === 0) {
+    // Логируем только если нет вопросов И еще не логировали для этой темы
+    if (allQuestions.length === 0 && !warnedTopicsCacheRef.current.has(normalizedTopicId)) {
+      warnedTopicsCacheRef.current.add(normalizedTopicId);
+      // Логируем только один раз для каждой темы
       console.warn(`[QUIZ] Вопросы для ID ${normalizedTopicId} не найдены в БД`, {
         staticQuestionsCount: staticQuestions.length,
         savedQuestionsTotal: savedQuestions.length,
@@ -1901,24 +2140,32 @@ function App() {
     }
   }, [screen, userRole, loading, subscriptionLoaded]);
 
+  // Проверка подписки при появлении ID пользователя
+  useEffect(() => {
+    if (userId) {
+      loadMySubscription().catch(err => console.error('Ошибка загрузки подписки:', err));
+    }
+  }, [userId]); // Сработает только один раз при появлении ID пользователя
+
   // Автоматическая загрузка статистики при открытии экрана analytics
+  // ВАЖНО: Загружаем данные заново каждый раз при открытии экрана для актуальности
   useEffect(() => {
     if (screen === 'analytics' && userId && !analyticsLoading) {
-      if (!analyticsData) {
-        loadAnalyticsData().then(data => {
-          if (data && data.topics && data.topics.length > 0) {
-            // Загружаем AI-вердикт после загрузки статистики
-            setTimeout(() => {
-              loadAnalyticsAiVerdict();
-            }, 500);
-          }
-        });
-      } else if (analyticsData && !analyticsAiVerdict) {
-        // Если данные уже загружены, но вердикт нет, загружаем вердикт
-        loadAnalyticsAiVerdict();
-      }
+      console.log('[ANALYTICS] Открыт экран аналитики, загружаем актуальные данные...');
+      // Всегда загружаем данные заново для актуальности прогресса
+      loadAnalyticsData().then(data => {
+        if (data && data.topics && data.topics.length > 0) {
+          console.log('[ANALYTICS] Данные загружены, загружаем AI-вердикт...');
+          // Загружаем AI-вердикт после загрузки статистики
+          setTimeout(() => {
+            loadAnalyticsAiVerdict();
+          }, 500);
+        }
+      }).catch(err => {
+        console.error('[ANALYTICS] Ошибка загрузки данных:', err);
+      });
     }
-  }, [screen, userId, analyticsLoading, analyticsData, analyticsAiVerdict]);
+  }, [screen, userId]); // Убрали analyticsLoading и analyticsData из зависимостей, чтобы загружать каждый раз
 
   const getUserHeaders = () => {
     try {
@@ -3082,8 +3329,13 @@ function App() {
     const questions = getMergedQuestions(selectedTopic.id);
     
     if (!questions || questions.length === 0) {
-      alert('В этой теме пока нет вопросов. Пожалуйста, попробуйте другую тему или обратитесь к администратору.');
-      console.error('Нет вопросов для темы:', selectedTopic.id, selectedTopic.name);
+      const topicIdStr = String(selectedTopic.id).trim();
+      // Показываем alert только один раз (не спамим)
+      if (!warnedTopicsCacheRef.current.has(topicIdStr)) {
+        warnedTopicsCacheRef.current.add(topicIdStr);
+        alert('В этой теме пока нет вопросов. Пожалуйста, попробуйте другую тему или обратитесь к администратору.');
+        console.error('Нет вопросов для темы:', selectedTopic.id, selectedTopic.name);
+      }
       return;
     }
     
