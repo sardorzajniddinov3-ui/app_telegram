@@ -1066,24 +1066,31 @@ function App() {
         const { data: allQuestions, error: questionsError } = await supabase
               .from('questions')
           .select('quiz_id')
-          .limit(100000); // Большой лимит для загрузки всех вопросов
+          .range(0, 9999); // Явно указываем диапазон для загрузки до 10000 вопросов (обход ограничения Supabase в 1000 строк)
 
         // Создаем Map для подсчета вопросов по темам
+        // Нормализуем ID для корректного сравнения (приводим к строке)
         const questionCounts = new Map();
         if (!questionsError && allQuestions) {
           allQuestions.forEach(q => {
-            const quizId = q.quiz_id;
-            questionCounts.set(quizId, (questionCounts.get(quizId) || 0) + 1);
+            const quizId = String(q.quiz_id || '').trim();
+            if (quizId) {
+              questionCounts.set(quizId, (questionCounts.get(quizId) || 0) + 1);
+            }
           });
         }
 
         // Формируем темы с количеством вопросов
-        const topicsWithCounts = data.map((quiz, index) => ({
-              id: quiz.id, // UUID, но в коде может использоваться как строка
-              name: quiz.title || quiz.name || 'Без названия',
-          questionCount: questionCounts.get(quiz.id) || 0,
-          order: index + 1 // Используем порядок из массива
-        }));
+        const topicsWithCounts = data.map((quiz, index) => {
+          // Нормализуем ID темы для сравнения
+          const normalizedQuizId = String(quiz.id).trim();
+          return {
+            id: quiz.id, // UUID, но в коде может использоваться как строка
+            name: quiz.title || quiz.name || 'Без названия',
+            questionCount: questionCounts.get(normalizedQuizId) || 0,
+            order: index + 1 // Используем порядок из массива
+          };
+        });
 
         setTopics(topicsWithCounts);
         console.log(`✅ Загружено тем из Supabase: ${topicsWithCounts.length} (без лимитов)`);
@@ -1180,7 +1187,7 @@ function App() {
         .from('questions')
         .select('*, options(*)')
         .order('created_at', { ascending: true })
-        .limit(100000); // Большой лимит для загрузки всех вопросов
+        .range(0, 9999); // Явно указываем диапазон для загрузки до 10000 вопросов (обход ограничения Supabase в 1000 строк)
 
       if (questionsError) {
         console.error('❌ Ошибка загрузки вопросов из Supabase:', questionsError);
@@ -1192,7 +1199,7 @@ function App() {
           .from('questions')
           .select('*, options(*)')
           .order('created_at', { ascending: true })
-          .limit(100000); // Большой лимит для загрузки всех вопросов
+          .range(0, 9999); // Явно указываем диапазон для загрузки до 10000 вопросов (обход ограничения Supabase в 1000 строк)
 
         if (questionsErrorAlt) {
           console.error('❌ Альтернативный запрос тоже не удался:', questionsErrorAlt);
@@ -1561,7 +1568,7 @@ function App() {
             } catch (e) {
               // Игнорируем ошибки очистки
             }
-          } else {
+      } else {
             localStorage.setItem('dev_questions_cache', cacheData);
             localStorage.setItem('dev_questions_cache_time', String(Date.now()));
             console.log(`[CACHE] Сохранено ${questionsToSave.length} вопросов в кэш (${(cacheSize / 1024).toFixed(2)}KB)`);
@@ -1923,6 +1930,32 @@ function App() {
           subscriptionEndDate = subscription.end_date;
         }
 
+        // Определяем тариф по ai_limit_total из profiles
+        // Сравниваем с лимитами тарифов для определения названия тарифа
+        let tariffName = null;
+        const aiLimitTotal = profile.ai_limit_total || 0;
+        
+        // Находим тариф по ai_limit_total
+        // Сначала проверяем PRO (unlimited = 999999)
+        if (aiLimitTotal >= 999999) {
+          tariffName = 'PRO Максимум';
+        } else {
+          // Для остальных тарифов ищем точное совпадение
+          const matchingTariff = tariffs.find(t => {
+            if (t.aiLimits?.unlimited) return false; // PRO уже обработан выше
+            const tariffLimit = t.aiLimits?.otherUsage === -1 ? 999999 : (t.aiLimits?.otherUsage || 0);
+            return tariffLimit === aiLimitTotal;
+          });
+          
+          if (matchingTariff) {
+            tariffName = matchingTariff.name;
+          } else if (aiLimitTotal === 3) {
+            tariffName = 'Пробный (3 дня)'; // Пробная подписка
+          } else if (aiLimitTotal > 0) {
+            tariffName = `Кастомный (${aiLimitTotal})`; // Кастомный лимит
+          }
+        }
+
         return {
           userId: userId,
         telegramUsername: profile.username || null,
@@ -1934,7 +1967,7 @@ function App() {
             active: hasActiveSubscription,
             startDate: subscription?.start_date || null,
             endDate: subscriptionEndDate,
-            tier: subscription?.subscription_tier || null // Добавляем тариф
+            tier: tariffName // Определяем тариф по ai_limit_total из profiles
           }
         };
       });
@@ -2139,8 +2172,8 @@ function App() {
         checkAdminStatus(userId).then(adminStatus => {
           if (adminStatus) {
             console.log('✅ Пользователь является администратором (из таблицы admins)');
-            setUserRole('admin');
-            setScreen('topics');
+              setUserRole('admin');
+              setScreen('topics');
           }
         }).catch(err => console.error('Ошибка проверки админ-статуса:', err));
         
@@ -2703,6 +2736,12 @@ function App() {
   };
 
   const hasActiveSubscription = () => {
+    // АДМИНЫ ИМЕЮТ ПОЛНЫЙ ДОСТУП - всегда возвращаем true
+    const isUserAdmin = isAdmin || userRole === 'admin';
+    if (isUserAdmin) {
+      return true;
+    }
+    
     const s = subscriptionInfo;
     if (!s) return false;
     
@@ -2922,8 +2961,8 @@ function App() {
         // Обновляем существующую подписку
         console.log('Обновление существующей подписки с тарифом:', subscriptionTier);
         const updateData = {
-          end_date: endDateISO,
-          subscription_tier: subscriptionTier
+          end_date: endDateISO
+          // Убрали subscription_tier, так как эта колонка не существует в таблице subscriptions
         };
         const { data, error } = await supabase
           .from('subscriptions')
@@ -2941,8 +2980,8 @@ function App() {
         console.log('Создание новой подписки с тарифом:', subscriptionTier);
         const insertData = {
           telegram_id: telegramIdAsNumber,
-          end_date: endDateISO,
-          subscription_tier: subscriptionTier
+          end_date: endDateISO
+          // Убрали subscription_tier, так как эта колонка не существует в таблице subscriptions
         };
         const { data, error } = await supabase
           .from('subscriptions')
@@ -4616,9 +4655,9 @@ function App() {
       // Небольшая задержка, чтобы база данных успела обработать запрос
       await new Promise(resolve => setTimeout(resolve, 500));
       
-      // Перезагружаем вопросы из Supabase
-      console.log('🔄 Перезагрузка вопросов из Supabase...');
-      await loadQuestionsFromSupabase();
+      // Перезагружаем вопросы из Supabase БЕЗ кэша, чтобы получить свежие данные
+      console.log('🔄 Перезагрузка вопросов из Supabase (без кэша)...');
+      await loadQuestionsFromSupabase(false);
       
       // Обновляем количество вопросов в квизе
       await updateTopicQuestionCount(quizId);
@@ -4662,17 +4701,22 @@ function App() {
   // Функция для обновления количества вопросов в квизе
   const updateTopicQuestionCount = async (quizId) => {
     try {
+      // Нормализуем quizId для запроса
+      const normalizedQuizId = String(quizId).trim();
+      
       const { count, error } = await supabase
         .from('questions')
         .select('id', { count: 'exact', head: true })
-        .eq('quiz_id', quizId);
+        .eq('quiz_id', normalizedQuizId);
 
       if (!error && count !== null && count !== undefined) {
         // Обновляем локальное состояние (в таблице quizzes нет поля question_count, но мы обновляем локально)
+        // Нормализуем ID для сравнения
         setTopics(prevTopics => 
-          prevTopics.map(t => 
-            t.id === quizId ? { ...t, questionCount: count } : t
-          )
+          prevTopics.map(t => {
+            const normalizedTopicId = String(t.id).trim();
+            return normalizedTopicId === normalizedQuizId ? { ...t, questionCount: count } : t;
+          })
         );
       }
     } catch (err) {
@@ -5182,6 +5226,12 @@ function App() {
   // ========== СИСТЕМА ЛИМИТОВ ИИ ==========
   // Получение текущего тарифа пользователя
   const getCurrentTariff = () => {
+    // АДМИНЫ ИМЕЮТ ПОЛНЫЙ ДОСТУП - возвращаем PRO тариф
+    const isUserAdmin = isAdmin || userRole === 'admin';
+    if (isUserAdmin) {
+      return tariffs.find(t => t.id === 'pro') || null;
+    }
+    
     // Проверяем активную подписку и определяем тариф
     if (!subscriptionInfo || !subscriptionInfo.active) {
       return null; // Нет активной подписки
@@ -5195,6 +5245,12 @@ function App() {
 
   // Проверка, является ли подписка пробной (3 дня и создана недавно)
   const isTrialSubscription = () => {
+    // АДМИНЫ НЕ ИМЕЮТ ПРОБНОЙ ПОДПИСКИ
+    const isUserAdmin = isAdmin || userRole === 'admin';
+    if (isUserAdmin) {
+      return false;
+    }
+    
     if (!subscriptionInfo || !subscriptionInfo.active || !subscriptionInfo.subscriptionExpiresAt) {
       return false;
     }
@@ -5345,6 +5401,12 @@ function App() {
 
   // Получение лимитов ИИ для текущего тарифа
   const getAILimits = () => {
+    // АДМИНЫ ИМЕЮТ БЕЗЛИМИТНЫЙ ДОСТУП
+    const isUserAdmin = isAdmin || userRole === 'admin';
+    if (isUserAdmin) {
+      return { hintsInTests: -1, otherUsage: -1, unlimited: true };
+    }
+    
     // Сначала проверяем, является ли подписка пробной
     if (isTrialSubscription()) {
       // Для пробного периода: 4 запроса ИИ в любом режиме
@@ -5438,6 +5500,13 @@ function App() {
   // Обновление ai_queries_count в таблице profiles (универсальная функция)
   const updateAIQueriesCountInProfile = async () => {
     try {
+      // АДМИНЫ НЕ УВЕЛИЧИВАЮТ СЧЕТЧИК - у них безлимитный доступ
+      const isUserAdmin = isAdmin || userRole === 'admin';
+      if (isUserAdmin) {
+        console.log('[AI_PROFILE] Админ - пропускаем обновление счетчика');
+        return;
+      }
+      
       if (!userId) {
         console.log('[AI_PROFILE] Нет userId, пропускаем обновление ai_queries_count в profiles');
         return;
@@ -5510,6 +5579,17 @@ function App() {
       if (!userId) {
         console.log('[AI_LIMITS] Нет userId, пропускаем загрузку лимитов');
         return { used: 0, total: 0 };
+      }
+      
+      // АДМИНЫ ИМЕЮТ БЕЗЛИМИТНЫЙ ДОСТУП
+      const isUserAdmin = isAdmin || userRole === 'admin';
+      if (isUserAdmin) {
+        console.log('[AI_LIMITS] Админ - устанавливаем безлимитные значения');
+        setUserProfile({
+          ai_queries_count: 0,
+          ai_limit_total: 999999 // Безлимитный доступ для админа
+        });
+        return { used: 0, total: 999999 };
       }
       
       const userIdNumber = Number(userId);
@@ -5889,7 +5969,7 @@ function App() {
     if (userRole === 'admin' || loading || userRole === null) return null;
 
     const isActive = hasActiveSubscription();
-    
+
     // Используем данные напрямую из userProfile (ai_queries_count и ai_limit_total)
     const aiQueriesCount = userProfile.ai_queries_count || 0;
     const aiLimitTotal = userProfile.ai_limit_total || 0;
@@ -6460,7 +6540,13 @@ function App() {
     // Admin topic questions screen
     if (adminScreen === 'topicQuestions' && adminSelectedTopic) {
       const staticQuestions = questionsData[adminSelectedTopic.id] || [];
-      const topicSavedQuestions = savedQuestions.filter(q => q.topic_id === adminSelectedTopic.id);
+      // Фильтруем вопросы по quiz_id или topic_id (для обратной совместимости)
+      // Нормализуем ID для сравнения (приводим к строке)
+      const normalizedTopicId = String(adminSelectedTopic.id).trim();
+      const topicSavedQuestions = savedQuestions.filter(q => {
+        const qQuizId = String(q.quiz_id || q.topic_id || '').trim();
+        return qQuizId === normalizedTopicId;
+      });
       const allQuestions = [
         ...staticQuestions.map(q => ({ ...q, isStatic: true })),
         ...topicSavedQuestions.map(q => ({
@@ -6972,7 +7058,7 @@ function App() {
                   {grantLoading ? 'Выдача...' : 'Выдать подписку'}
                 </button>
                 {grantMessage && (
-                  <p style={{ marginTop: '10px', color: grantMessage.startsWith('Подписка выдана') ? '#2e7d32' : '#f44336' }}>
+                  <p style={{ marginTop: '10px', color: (grantMessage.startsWith('Подписка') && grantMessage.includes('выдана')) ? '#2e7d32' : '#f44336' }}>
                     {grantMessage}
                   </p>
                 )}
@@ -7185,9 +7271,9 @@ function App() {
                                   Тариф: <strong>{selectedUser.subscription.tier === 'pro' ? 'PRO Максимум' : 
                                          selectedUser.subscription.tier === 'test' ? 'Тест' : 
                                          selectedUser.subscription.tier === 'standard' ? 'Базовый' : selectedUser.subscription.tier}</strong>
-                                </div>
-                              )}
-                            </div>
+                </div>
+              )}
+                  </div>
                           ) : (
                             <span style={{ color: 'var(--text-secondary)' }}>Неактивна</span>
                           )}
@@ -7935,11 +8021,12 @@ function App() {
             // Если questionCount не установлен, вычисляем из savedQuestions
             if (!questionCount || questionCount === 0) {
             const staticCount = questionsData[topic.id]?.length || 0;
+              // Нормализуем ID темы для сравнения
+              const normalizedTopicId = String(topic.id).trim();
               const savedCount = savedQuestions.filter(q => {
-                // Сравниваем topic_id с учетом возможных различий типов (UUID vs число)
-                return q.topic_id === topic.id || 
-                       String(q.topic_id) === String(topic.id) ||
-                       (Number(q.topic_id) === Number(topic.id) && !isNaN(Number(q.topic_id)) && !isNaN(Number(topic.id)));
+                // Используем quiz_id как основной идентификатор (синхронизация с БД)
+                const qQuizId = String(q.quiz_id || q.topic_id || '').trim();
+                return qQuizId === normalizedTopicId;
               }).length;
               questionCount = staticCount + savedCount;
             }
@@ -7963,6 +8050,18 @@ function App() {
   }
 
   if (screen === 'topicDetail') {
+    // Проверяем подписку для не-админов - блокируем доступ к деталям темы без подписки
+    const isUserAdmin = isAdmin || userRole === 'admin';
+    const hasSubscription = hasActiveSubscription();
+    
+    if (!isUserAdmin && !hasSubscription) {
+      // Если пользователь попал на экран topicDetail без подписки, перенаправляем обратно
+      alert('Для решения тестов необходима активная подписка. Пожалуйста, оформите подписку.');
+      setShowSubscriptionModal(true);
+      setScreen('topics');
+      return null;
+    }
+    
     const topicResults = results[selectedTopic.id] || [];
     const latestResult = topicResults[0];
     const questions = getMergedQuestions(selectedTopic.id);
@@ -7988,7 +8087,15 @@ function App() {
         </div>
         <div className="topic-detail-header">
           <button className="back-button" onClick={handleBackToTopics}>← Назад</button>
-          <button className="start-test-button-header" onClick={handleStartTest}>
+          <button 
+            className="start-test-button-header" 
+            onClick={handleStartTest}
+            disabled={!isUserAdmin && !hasSubscription}
+            style={{
+              opacity: (!isUserAdmin && !hasSubscription) ? 0.5 : 1,
+              cursor: (!isUserAdmin && !hasSubscription) ? 'not-allowed' : 'pointer'
+            }}
+          >
             Начать тест
           </button>
         </div>
@@ -9083,6 +9190,16 @@ function App() {
   }
 
   if (screen === 'quiz') {
+    // Проверяем подписку для не-админов - блокируем доступ к тесту без подписки
+    const isUserAdmin = isAdmin || userRole === 'admin';
+    if (!isUserAdmin && !hasActiveSubscription()) {
+      // Если пользователь попал на экран quiz без подписки, перенаправляем обратно
+      alert('Для решения тестов необходима активная подписка. Пожалуйста, оформите подписку.');
+      setShowSubscriptionModal(true);
+      setScreen('topics');
+      return null;
+    }
+    
     // ========== ЭКЗАМЕН: Используем сохраненные вопросы теста ==========
     // Для экзамена используем testQuestions, для теста по теме - из selectedTopic
     let questions = testQuestions.length > 0 
@@ -9476,11 +9593,12 @@ function App() {
           // Если questionCount не установлен, вычисляем из savedQuestions
           if (!questionCount || questionCount === 0) {
             const staticCount = questionsData[topic.id]?.length || 0;
+            // Нормализуем ID темы для сравнения
+            const normalizedTopicId = String(topic.id).trim();
             const savedCount = savedQuestions.filter(q => {
-              // Сравниваем topic_id с учетом возможных различий типов (UUID vs число)
-              return q.topic_id === topic.id || 
-                     String(q.topic_id) === String(topic.id) ||
-                     (Number(q.topic_id) === Number(topic.id) && !isNaN(Number(q.topic_id)) && !isNaN(Number(topic.id)));
+              // Используем quiz_id как основной идентификатор (синхронизация с БД)
+              const qQuizId = String(q.quiz_id || q.topic_id || '').trim();
+              return qQuizId === normalizedTopicId;
             }).length;
             questionCount = staticCount + savedCount;
           }
