@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { supabase } from './supabase';
 import { initTelegramWebAppSafe } from './telegram';
 
-const StatisticsScreen = ({ onBack, topics: topicsProp, onTopicSelect, checkAILimit, incrementAIUsage }) => {
+const StatisticsScreen = ({ onBack, topics: topicsProp, onTopicSelect, checkAILimit }) => {
   const [statsData, setStatsData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -611,12 +611,7 @@ const StatisticsScreen = ({ onBack, topics: topicsProp, onTopicSelect, checkAILi
         if (responseData.advice) {
           console.log('[ANALYTICS] Получен вердикт:', responseData.advice.substring(0, 100));
           
-          // Увеличиваем счетчик использования ИИ после успешного запроса
-          if (incrementAIUsage) {
-            console.log('[AI_COUNTER] Перед вызовом incrementAIUsage для вердикта в статистике');
-            await incrementAIUsage(false);
-            console.log('[AI_COUNTER] После вызова incrementAIUsage для вердикта в статистике');
-          }
+          // Счетчик обновляется автоматически через updateAIQueriesCountInProfile в App.jsx
           
           setAnalyticsAiVerdict({
             loading: false,
