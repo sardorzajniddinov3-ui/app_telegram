@@ -1867,6 +1867,10 @@ function App() {
       
       if (trialCreated) {
         console.log('✅ Пробная подписка успешно создана');
+        // Перезагружаем подписку, чтобы обновить состояние
+        setTimeout(() => {
+          loadMySubscription();
+        }, 500);
       } else {
         console.log('ℹ️ Пробная подписка уже была создана ранее или не удалось создать');
       }
@@ -2296,30 +2300,22 @@ function App() {
           // Проверка подписок и создание пробной подписки - делаем полностью асинхронно, не блокируя инициализацию
           const telegramIdAsNumber = Math.floor(Number(userId));
           if (telegramIdAsNumber && Number.isFinite(telegramIdAsNumber) && telegramIdAsNumber > 0) {
-            // Выполняем проверку подписок в фоне, не блокируя инициализацию
-            supabase
-              .from('subscriptions')
-              .select('id')
-              .eq('telegram_id', telegramIdAsNumber)
-              .limit(1)
-              .then(({ data: existingSubscriptions, error: subCheckError }) => {
-                // Если ошибка не "не найдено", значит что-то пошло не так
-                if (subCheckError && subCheckError.code !== 'PGRST116') {
-                  console.error('Ошибка проверки подписок при инициализации:', subCheckError);
-                } else if (!existingSubscriptions || existingSubscriptions.length === 0) {
-                  // У пользователя нет подписок - это новый пользователь
-                  console.log('Новый пользователь обнаружен при инициализации, создаем пробную подписку на 3 дня');
-                  // Создаем пробную подписку асинхронно, не блокируя инициализацию
-                  createTrialSubscription(userId).then(trialCreated => {
-                    if (trialCreated) {
-                      console.log('Пробная подписка создана при инициализации');
-                    }
-                  }).catch(err => 
-                    console.error('Ошибка создания пробной подписки при инициализации:', err)
-                  );
-                }
-              })
-              .catch(err => console.error('Ошибка проверки подписок:', err));
+            // Вызываем createTrialSubscription, которая сама проверит наличие подписок
+            // и создаст пробную только для новых пользователей
+            console.log('Проверка необходимости создания пробной подписки для нового пользователя:', telegramIdAsNumber);
+            createTrialSubscription(userId).then(trialCreated => {
+              if (trialCreated) {
+                console.log('✅ Пробная подписка создана при инициализации');
+                // Перезагружаем подписку, чтобы обновить состояние
+                setTimeout(() => {
+                  loadMySubscription();
+                }, 500);
+              } else {
+                console.log('ℹ️ Пробная подписка не создана (уже существует или пользователь не новый)');
+              }
+            }).catch(err => {
+              console.error('Ошибка создания пробной подписки при инициализации:', err);
+            });
           }
         }
 
@@ -2435,21 +2431,40 @@ function App() {
         return false;
       }
 
-      // Проверяем, есть ли у пользователя какие-либо подписки (включая истекшие)
-      const { data: existingSubscriptions, error: checkError } = await supabase
+      // Проверяем, есть ли у пользователя активные подписки (не истекшие)
+      const now = new Date().toISOString();
+      const { data: activeSubscriptions, error: checkError } = await supabase
+        .from('subscriptions')
+        .select('id, end_date')
+        .eq('telegram_id', telegramIdAsNumber)
+        .gt('end_date', now) // Только активные (не истекшие) подписки
+        .limit(1);
+
+      if (checkError && checkError.code !== 'PGRST116') {
+        console.error('Ошибка проверки активных подписок:', checkError);
+        return false;
+      }
+
+      // Если у пользователя уже есть активная подписка, не создаем пробную
+      if (activeSubscriptions && activeSubscriptions.length > 0) {
+        console.log('У пользователя уже есть активная подписка, пробная подписка не создается');
+        return false;
+      }
+      
+      // Также проверяем, была ли уже создана пробная подписка ранее (даже если истекла)
+      // Это нужно, чтобы не создавать пробную подписку повторно
+      const { data: anySubscriptions, error: anyCheckError } = await supabase
         .from('subscriptions')
         .select('id')
         .eq('telegram_id', telegramIdAsNumber)
         .limit(1);
 
-      if (checkError && checkError.code !== 'PGRST116') {
-        console.error('Ошибка проверки существующих подписок:', checkError);
-        return false;
-      }
-
-      // Если у пользователя уже были подписки, не создаем пробную
-      if (existingSubscriptions && existingSubscriptions.length > 0) {
-        console.log('У пользователя уже были подписки, пробная подписка не создается');
+      if (anyCheckError && anyCheckError.code !== 'PGRST116') {
+        console.error('Ошибка проверки всех подписок:', anyCheckError);
+        // Продолжаем создание, если ошибка не критична
+      } else if (anySubscriptions && anySubscriptions.length > 0) {
+        // У пользователя уже была подписка (даже истекшая) - не создаем пробную повторно
+        console.log('У пользователя уже была подписка ранее, пробная подписка не создается повторно');
         return false;
       }
 
@@ -2474,7 +2489,7 @@ function App() {
         return false;
       }
 
-      console.log('Пробная подписка успешно создана:', data);
+      console.log('✅ Пробная подписка успешно создана:', data);
       
       // Устанавливаем лимит ИИ = 3 для пользователя с пробной подпиской
       const { error: updateLimitError } = await supabase
@@ -2492,11 +2507,17 @@ function App() {
       } else {
         console.log('✅ Лимит ИИ установлен на 3 для пользователя с пробной подпиской');
         // Обновляем состояние пользователя
-        setUserProfile({
+        setUserProfile(prev => ({
+          ...prev,
           ai_queries_count: 0,
           ai_limit_total: 3
-        });
+        }));
       }
+      
+      // Перезагружаем подписку, чтобы обновить состояние в приложении
+      setTimeout(() => {
+        loadMySubscription();
+      }, 300);
       
       return true;
     } catch (err) {
