@@ -92,6 +92,152 @@ function App() {
   const [selectedAnswer, setSelectedAnswer] = useState(null)
   const [isAnswered, setIsAnswered] = useState(false)
   const [results, setResults] = useState({})
+  
+  // Функция для сохранения результатов в localStorage
+  const saveResultsToLocalStorage = (resultsToSave) => {
+    try {
+      const tgUser = initTelegramWebAppSafe();
+      const currentUserId = tgUser?.id ? String(tgUser.id) : userId;
+      if (currentUserId) {
+        const storageKey = `test_results_${currentUserId}`;
+        // Сохраняем только необходимые данные (без больших объектов questions и userAnswers)
+        const resultsToStore = {};
+        Object.keys(resultsToSave).forEach(topicId => {
+          if (Array.isArray(resultsToSave[topicId])) {
+            resultsToStore[topicId] = resultsToSave[topicId].map(result => ({
+              id: result.id,
+              correct: result.correct,
+              total: result.total,
+              answered: result.answered,
+              percentage: result.percentage,
+              time: result.time,
+              timeFormatted: result.timeFormatted,
+              timeSpent: result.timeSpent,
+              dateTime: result.dateTime
+              // Не сохраняем userAnswers и questions в localStorage для экономии места
+            }));
+          } else {
+            resultsToStore[topicId] = resultsToSave[topicId];
+          }
+        });
+        localStorage.setItem(storageKey, JSON.stringify(resultsToStore));
+        console.log('[RESULTS] Результаты сохранены в localStorage');
+      }
+    } catch (error) {
+      console.error('[RESULTS] Ошибка сохранения результатов в localStorage:', error);
+    }
+  };
+  
+  // Функция для загрузки результатов из localStorage
+  const loadResultsFromLocalStorage = () => {
+    try {
+      const tgUser = initTelegramWebAppSafe();
+      const currentUserId = tgUser?.id ? String(tgUser.id) : userId;
+      if (currentUserId) {
+        const storageKey = `test_results_${currentUserId}`;
+        const saved = localStorage.getItem(storageKey);
+        if (saved) {
+          const parsedResults = JSON.parse(saved);
+          console.log('[RESULTS] Результаты загружены из localStorage:', Object.keys(parsedResults).length, 'тем');
+          return parsedResults;
+        }
+      }
+    } catch (error) {
+      console.error('[RESULTS] Ошибка загрузки результатов из localStorage:', error);
+    }
+    return {};
+  };
+  
+  // Функция для загрузки результатов из БД
+  const loadResultsFromDatabase = async () => {
+    try {
+      const tgUser = initTelegramWebAppSafe();
+      const currentUserId = tgUser?.id ? String(tgUser.id) : userId;
+      
+      if (!currentUserId) {
+        return {};
+      }
+      
+      console.log('[RESULTS] Загрузка результатов из БД для пользователя:', currentUserId);
+      
+      // Загружаем результаты тестов из БД
+      const { data: testResults, error } = await supabase
+        .from('test_results')
+        .select('id, topic_id, total_questions, correct_answers, percentage, time_spent, created_at')
+        .eq('user_id', Number(currentUserId))
+        .order('created_at', { ascending: false })
+        .limit(1000); // Загружаем последние 1000 результатов
+      
+      if (error) {
+        console.error('[RESULTS] Ошибка загрузки результатов из БД:', error);
+        return {};
+      }
+      
+      if (!testResults || testResults.length === 0) {
+        console.log('[RESULTS] Нет результатов в БД');
+        return {};
+      }
+      
+      // Группируем результаты по темам
+      const resultsByTopic = {};
+      
+      testResults.forEach(result => {
+        const topicId = String(result.topic_id || '').trim();
+        if (!topicId) return;
+        
+        if (!resultsByTopic[topicId]) {
+          resultsByTopic[topicId] = [];
+        }
+        
+        const formatTimeSpent = (seconds) => {
+          if (!seconds) return '0 секунд';
+          const mins = Math.floor(seconds / 60);
+          const secs = seconds % 60;
+          if (mins > 0 && secs > 0) {
+            return `${mins} ${mins === 1 ? 'минута' : mins < 5 ? 'минуты' : 'минут'} ${secs} ${secs === 1 ? 'секунда' : secs < 5 ? 'секунды' : 'секунд'}`;
+          } else if (mins > 0) {
+            return `${mins} ${mins === 1 ? 'минута' : mins < 5 ? 'минуты' : 'минут'}`;
+          } else {
+            return `${secs} ${secs === 1 ? 'секунда' : secs < 5 ? 'секунды' : 'секунд'}`;
+          }
+        };
+        
+        const formatTime = (seconds) => {
+          if (!seconds) return '00:00';
+          const mins = Math.floor(seconds / 60);
+          const secs = seconds % 60;
+          return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+        };
+        
+        const date = new Date(result.created_at);
+        const dateTime = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}:${String(date.getSeconds()).padStart(2, '0')}`;
+        
+        resultsByTopic[topicId].push({
+          id: result.id || `ID${topicId}${String(Date.parse(result.created_at)).slice(-6)}`,
+          correct: result.correct_answers || 0,
+          total: result.total_questions || 0,
+          answered: result.total_questions || 0,
+          percentage: result.percentage || 0,
+          time: result.time_spent || 0,
+          timeFormatted: formatTime(result.time_spent || 0),
+          timeSpent: formatTimeSpent(result.time_spent || 0),
+          dateTime: dateTime
+        });
+      });
+      
+      // Ограничиваем до 5 результатов на тему
+      Object.keys(resultsByTopic).forEach(topicId => {
+        resultsByTopic[topicId] = resultsByTopic[topicId].slice(0, 5);
+      });
+      
+      console.log('[RESULTS] Загружено результатов из БД:', Object.keys(resultsByTopic).length, 'тем');
+      return resultsByTopic;
+      
+    } catch (error) {
+      console.error('[RESULTS] Ошибка загрузки результатов из БД:', error);
+      return {};
+    }
+  };
   const [correctAnswersCount, setCorrectAnswersCount] = useState(0)
   const [testStartTime, setTestStartTime] = useState(null)
   const [elapsedTime, setElapsedTime] = useState(0)
@@ -685,27 +831,38 @@ function App() {
         const errors = [];
         testResult.questions.forEach((question, index) => {
           const userAnswer = testResult.userAnswers[index];
-          if (userAnswer && !userAnswer.isCorrect) {
-            const correctAnswer = question.answers.find(a => a.correct === true);
-            errors.push({
-              user_id: Number(currentUserId), // Преобразуем в число для БД
-              topic_id: String(selectedTopic.id), // Преобразуем в строку
-              question_id: String(question.id), // Преобразуем в строку
-              selected_option_id: String(userAnswer.selectedAnswerId), // Преобразуем в строку
-              correct_option_id: correctAnswer ? String(correctAnswer.id) : null // Преобразуем в строку
-            });
+          // Проверяем, что ответ есть, и он неправильный (isCorrect === false или undefined/null)
+          if (userAnswer && userAnswer.selectedAnswerId !== undefined && userAnswer.selectedAnswerId !== null) {
+            // Если isCorrect явно false или не установлен, считаем ответ неправильным
+            const isIncorrect = userAnswer.isCorrect === false || userAnswer.isCorrect === undefined || userAnswer.isCorrect === null;
+            
+            if (isIncorrect) {
+              const correctAnswer = question.answers.find(a => a.correct === true);
+              errors.push({
+                user_id: Number(currentUserId), // Преобразуем в число для БД
+                topic_id: String(selectedTopic.id), // Преобразуем в строку
+                question_id: String(question.id), // Преобразуем в строку
+                selected_option_id: String(userAnswer.selectedAnswerId), // Преобразуем в строку
+                correct_option_id: correctAnswer ? String(correctAnswer.id) : null // Преобразуем в строку
+              });
+            }
           }
         });
         
         if (errors.length > 0) {
           // Используем upsert для обновления существующих ошибок
+          // Если в таблице есть error_count, он должен увеличиваться автоматически или через триггер
           for (const error of errors) {
-            await supabase
+            const { error: upsertError } = await supabase
               .from('user_errors')
               .upsert(error, {
                 onConflict: 'user_id,question_id',
                 ignoreDuplicates: false
               });
+            
+            if (upsertError) {
+              console.error('[AI TRAINER] Ошибка сохранения ошибки пользователя:', upsertError);
+            }
           }
           console.log('[AI TRAINER] Сохранено ошибок:', errors.length);
         }
@@ -748,6 +905,23 @@ function App() {
         console.error('[ANALYTICS] Ошибка загрузки результатов тестов:', testResultsError);
       }
       
+      // Логируем загруженные результаты для отладки
+      if (testResults && testResults.length > 0) {
+        console.log('[ANALYTICS] Загружено результатов тестов:', testResults.length);
+        const uniqueTopicIds = [...new Set(testResults.map(r => r.topic_id))];
+        console.log('[ANALYTICS] Уникальные topic_id в результатах:', uniqueTopicIds);
+        testResults.slice(0, 5).forEach((r, i) => {
+          console.log(`[ANALYTICS] Результат ${i + 1}:`, {
+            topic_id: r.topic_id,
+            percentage: r.percentage,
+            correct: r.correct_answers,
+            total: r.total_questions
+          });
+        });
+      } else {
+        console.log('[ANALYTICS] Нет результатов тестов в БД');
+      }
+      
       // Загружаем ошибки пользователя, сгруппированные по темам
       const { data: userErrors, error: userErrorsError } = await supabase
         .from('user_errors')
@@ -759,13 +933,73 @@ function App() {
         console.error('[ANALYTICS] Ошибка загрузки ошибок:', userErrorsError);
       }
       
+      // Загружаем общее количество вопросов в каждой теме из БД
+      const { data: allQuestions, error: questionsError } = await supabase
+        .from('questions')
+        .select('quiz_id, id')
+        .range(0, 9999); // Загружаем все вопросы
+      
+      if (questionsError) {
+        console.error('[ANALYTICS] Ошибка загрузки вопросов:', questionsError);
+      }
+      
+      // Функция нормализации ID для консистентного сравнения
+      const normalizeTopicId = (id) => {
+        if (!id) return null;
+        const str = String(id).trim();
+        return str || null;
+      };
+      
+      // Создаем Map для подсчета общего количества вопросов по темам
+      const totalQuestionsByTopic = new Map();
+      if (allQuestions && allQuestions.length > 0) {
+        allQuestions.forEach(q => {
+          const topicId = normalizeTopicId(q.quiz_id);
+          if (topicId) {
+            totalQuestionsByTopic.set(topicId, (totalQuestionsByTopic.get(topicId) || 0) + 1);
+          }
+        });
+      }
+      
+      console.log('[ANALYTICS] Вопросы по темам:', Array.from(totalQuestionsByTopic.entries()).map(([id, count]) => ({ topicId: id, count })));
+      
+      // Создаем Map для подсчета ошибок по темам (ключ - topic_id, значение - Set question_id)
+      const errorsByTopic = new Map();
+      if (userErrors && userErrors.length > 0) {
+        userErrors.forEach(error => {
+          const topicId = normalizeTopicId(error.topic_id);
+          const questionId = String(error.question_id || '').trim();
+          if (topicId && questionId) {
+            if (!errorsByTopic.has(topicId)) {
+              errorsByTopic.set(topicId, new Set());
+            }
+            errorsByTopic.get(topicId).add(questionId);
+          }
+        });
+      }
+      
+      console.log('[ANALYTICS] Ошибки по темам:', Array.from(errorsByTopic.entries()).map(([id, set]) => ({ topicId: id, errorCount: set.size })));
+      
+      // Создаем Set всех вопросов с ошибками для быстрой проверки
+      const questionsWithErrors = new Set();
+      if (userErrors && userErrors.length > 0) {
+        userErrors.forEach(error => {
+          const questionId = String(error.question_id || '').trim();
+          if (questionId) {
+            questionsWithErrors.add(questionId);
+          }
+        });
+      }
+      
       // Группируем результаты по темам
       const topicStats = new Map();
       
       // Обрабатываем результаты тестов
       if (testResults && testResults.length > 0) {
         testResults.forEach(result => {
-          const topicId = String(result.topic_id);
+          const topicId = normalizeTopicId(result.topic_id);
+          if (!topicId) return;
+          
           if (!topicStats.has(topicId)) {
             topicStats.set(topicId, {
               topicId: topicId,
@@ -773,7 +1007,9 @@ function App() {
               totalQuestions: 0,
               totalCorrect: 0,
               averagePercentage: 0,
-              errorCount: 0
+              errorCount: 0,
+              totalQuestionsInTopic: totalQuestionsByTopic.get(topicId) || 0,
+              correctlySolvedQuestions: new Set() // Уникальные вопросы, решенные правильно
             });
           }
           
@@ -784,83 +1020,116 @@ function App() {
         });
       }
       
-      // Вычисляем средний процент для каждой темы на основе правильных ответов
+      // Обрабатываем ошибки и определяем правильно решенные вопросы
+      // Используем уже созданный errorsByTopic для подсчета ошибок
+      errorsByTopic.forEach((errorQuestionsSet, topicId) => {
+        // Инициализируем статистику для темы, если её еще нет
+        if (!topicStats.has(topicId)) {
+          topicStats.set(topicId, {
+            topicId: topicId,
+            totalTests: 0,
+            totalQuestions: 0,
+            totalCorrect: 0,
+            averagePercentage: 0,
+            errorCount: 0,
+            totalQuestionsInTopic: totalQuestionsByTopic.get(topicId) || 0,
+            correctlySolvedQuestions: new Set()
+          });
+        }
+        
+        // Устанавливаем количество уникальных вопросов с ошибками
+        topicStats.get(topicId).errorCount = errorQuestionsSet.size;
+      });
+      
+      // Вычисляем процент для каждой темы на основе результатов тестов
+      // Используем средний процент из test_results, так как это наиболее точный показатель прогресса
       topicStats.forEach((stats, topicId) => {
-        if (stats.totalQuestions > 0) {
-          // Вычисляем процент как отношение правильных ответов к общему количеству вопросов
-          stats.averagePercentage = (stats.totalCorrect / stats.totalQuestions) * 100;
-          console.log(`[ANALYTICS] Тема ${topicId}: правильных ${stats.totalCorrect} из ${stats.totalQuestions} = ${stats.averagePercentage.toFixed(2)}%`);
-        } else if (stats.totalTests > 0 && testResults) {
-          // Если нет вопросов, но есть тесты, используем средний процент из результатов
-          // Собираем все проценты для этой темы
-          const topicResults = testResults.filter(r => String(r.topic_id) === topicId);
+        console.log(`[ANALYTICS] Обработка темы ${topicId}:`, {
+          totalTests: stats.totalTests,
+          totalQuestions: stats.totalQuestions,
+          totalCorrect: stats.totalCorrect,
+          errorCount: stats.errorCount,
+          totalQuestionsInTopic: stats.totalQuestionsInTopic
+        });
+        
+        // Приоритет 1: Используем средний процент из результатов тестов (самый точный)
+        if (stats.totalTests > 0 && testResults) {
+          // Фильтруем результаты для этой конкретной темы
+          const topicResults = testResults.filter(r => {
+            const normalizedResultTopicId = normalizeTopicId(r.topic_id);
+            const matches = normalizedResultTopicId === topicId;
+            if (matches) {
+              console.log(`[ANALYTICS] Найден результат для темы ${topicId}:`, {
+                resultTopicId: r.topic_id,
+                normalizedResultTopicId: normalizedResultTopicId,
+                percentage: r.percentage,
+                correct: r.correct_answers,
+                total: r.total_questions
+              });
+            }
+            return matches;
+          });
+          
+          console.log(`[ANALYTICS] Тема ${topicId}: найдено ${topicResults.length} результатов из ${testResults.length} всего`);
+          
           if (topicResults.length > 0) {
-            const sumPercentage = topicResults.reduce((sum, r) => sum + (r.percentage || 0), 0);
+            // Вычисляем средний процент из всех тестов по теме
+            const sumPercentage = topicResults.reduce((sum, r) => {
+              // Используем percentage из результата, или вычисляем из correct_answers / total_questions
+              const percentage = r.percentage || (r.total_questions > 0 ? (r.correct_answers / r.total_questions) * 100 : 0);
+              console.log(`[ANALYTICS] Тема ${topicId}: результат с процентом ${percentage.toFixed(2)}%`);
+              return sum + percentage;
+            }, 0);
             stats.averagePercentage = sumPercentage / topicResults.length;
-            console.log(`[ANALYTICS] Тема ${topicId}: средний процент из ${topicResults.length} тестов = ${stats.averagePercentage.toFixed(2)}%`);
+            console.log(`[ANALYTICS] Тема ${topicId}: средний процент из ${topicResults.length} тестов = ${stats.averagePercentage.toFixed(2)}% (сумма: ${sumPercentage.toFixed(2)}, правильных ${stats.totalCorrect} из ${stats.totalQuestions})`);
+          } else {
+            // Если есть тесты, но нет результатов в массиве, используем общую статистику
+            if (stats.totalQuestions > 0) {
+              stats.averagePercentage = (stats.totalCorrect / stats.totalQuestions) * 100;
+              console.log(`[ANALYTICS] Тема ${topicId}: процент из общей статистики = ${stats.averagePercentage.toFixed(2)}% (правильных ${stats.totalCorrect} из ${stats.totalQuestions})`);
+            } else {
+              stats.averagePercentage = 0;
+              console.log(`[ANALYTICS] Тема ${topicId}: нет данных о вопросах, прогресс = 0%`);
+            }
           }
-        } else {
-          // Если нет данных, устанавливаем 0
+        } 
+        // Приоритет 2: Если нет тестов, но есть данные о вопросах, используем их
+        else if (stats.totalQuestions > 0) {
+          stats.averagePercentage = (stats.totalCorrect / stats.totalQuestions) * 100;
+          console.log(`[ANALYTICS] Тема ${topicId} (fallback): правильных ${stats.totalCorrect} из ${stats.totalQuestions} = ${stats.averagePercentage.toFixed(2)}%`);
+        } 
+        // Приоритет 3: Если есть только ошибки, но нет тестов, прогресс = 0
+        else if (stats.errorCount > 0) {
+          stats.averagePercentage = 0;
+          console.log(`[ANALYTICS] Тема ${topicId}: только ошибки (${stats.errorCount}), нет тестов, прогресс = 0%`);
+        } 
+        // Приоритет 4: Если нет данных вообще
+        else {
           stats.averagePercentage = 0;
           console.log(`[ANALYTICS] Тема ${topicId}: нет данных, прогресс = 0%`);
         }
         
         // Ограничиваем процент от 0 до 100
         stats.averagePercentage = Math.max(0, Math.min(100, stats.averagePercentage));
-      });
-      
-      // Обрабатываем ошибки
-      if (userErrors && userErrors.length > 0) {
-        const errorCountsByTopic = new Map();
-        userErrors.forEach(error => {
-          const topicId = String(error.topic_id);
-          errorCountsByTopic.set(topicId, (errorCountsByTopic.get(topicId) || 0) + (error.error_count || 1));
-        });
-        
-        // Добавляем количество ошибок к статистике тем
-        errorCountsByTopic.forEach((count, topicId) => {
-          if (!topicStats.has(topicId)) {
-            topicStats.set(topicId, {
-              topicId: topicId,
-              totalTests: 0,
-              totalQuestions: 0,
-              totalCorrect: 0,
-              averagePercentage: 0,
-              errorCount: 0
-            });
-          }
-          topicStats.get(topicId).errorCount = count;
-        });
-      }
-      
-      // Пересчитываем процент для всех тем после добавления ошибок
-      // (на случай, если тема была добавлена только через ошибки)
-      topicStats.forEach((stats, topicId) => {
-        if (stats.totalQuestions > 0) {
-          // Вычисляем процент как отношение правильных ответов к общему количеству вопросов
-          stats.averagePercentage = (stats.totalCorrect / stats.totalQuestions) * 100;
-          console.log(`[ANALYTICS] Тема ${topicId} (после обработки ошибок): правильных ${stats.totalCorrect} из ${stats.totalQuestions} = ${stats.averagePercentage.toFixed(2)}%`);
-        } else if (stats.totalTests > 0 && testResults) {
-          // Если нет вопросов, но есть тесты, используем средний процент из результатов
-          const topicResults = testResults.filter(r => String(r.topic_id) === topicId);
-          if (topicResults.length > 0) {
-            const sumPercentage = topicResults.reduce((sum, r) => sum + (r.percentage || 0), 0);
-            stats.averagePercentage = sumPercentage / topicResults.length;
-            console.log(`[ANALYTICS] Тема ${topicId} (после обработки ошибок): средний процент из ${topicResults.length} тестов = ${stats.averagePercentage.toFixed(2)}%`);
-          }
-        } else if (stats.errorCount > 0 && stats.totalQuestions === 0 && stats.totalTests === 0) {
-          // Если есть только ошибки, но нет тестов, процент = 0
-          stats.averagePercentage = 0;
-          console.log(`[ANALYTICS] Тема ${topicId}: только ошибки (${stats.errorCount}), нет тестов, прогресс = 0%`);
-        }
-        
-        // Ограничиваем процент от 0 до 100
-        stats.averagePercentage = Math.max(0, Math.min(100, stats.averagePercentage));
+        console.log(`[ANALYTICS] Тема ${topicId}: ФИНАЛЬНЫЙ процент = ${stats.averagePercentage.toFixed(2)}%`);
       });
       
       // Преобразуем Map в массив и добавляем информацию о теме
       const analyticsArray = Array.from(topicStats.values()).map(stats => {
-        const topic = topics.find(t => String(t.id) === stats.topicId);
+        // Нормализуем ID при поиске темы для правильного сравнения
+        const topic = topics.find(t => {
+          const normalizedTopicId = normalizeTopicId(t.id);
+          return normalizedTopicId === stats.topicId;
+        });
+        
+        console.log(`[ANALYTICS] Поиск темы для stats.topicId=${stats.topicId}:`, {
+          found: !!topic,
+          topicName: topic ? topic.name : 'не найдена',
+          topicId: topic ? topic.id : null,
+          normalizedTopicId: topic ? normalizeTopicId(topic.id) : null,
+          allTopics: topics.map(t => ({ id: t.id, normalizedId: normalizeTopicId(t.id), name: t.name }))
+        });
+        
         return {
           ...stats,
           topicName: topic ? topic.name : `Тема ${stats.topicId}`,
@@ -1084,12 +1353,12 @@ function App() {
         const topicsWithCounts = data.map((quiz, index) => {
           // Нормализуем ID темы для сравнения
           const normalizedQuizId = String(quiz.id).trim();
-          return {
-            id: quiz.id, // UUID, но в коде может использоваться как строка
-            name: quiz.title || quiz.name || 'Без названия',
+            return {
+              id: quiz.id, // UUID, но в коде может использоваться как строка
+              name: quiz.title || quiz.name || 'Без названия',
             questionCount: questionCounts.get(normalizedQuizId) || 0,
             order: index + 1 // Используем порядок из массива
-          };
+            };
         });
 
         setTopics(topicsWithCounts);
@@ -1867,10 +2136,6 @@ function App() {
       
       if (trialCreated) {
         console.log('✅ Пробная подписка успешно создана');
-        // Перезагружаем подписку, чтобы обновить состояние
-        setTimeout(() => {
-          loadMySubscription();
-        }, 500);
       } else {
         console.log('ℹ️ Пробная подписка уже была создана ранее или не удалось создать');
       }
@@ -2163,6 +2428,67 @@ function App() {
         // Теперь показываем интерфейс - вопросы уже загружены
         setLoading(false);
         
+        // Загружаем результаты тестов из localStorage и БД
+        const loadAllResults = async () => {
+          try {
+            // Сначала загружаем из localStorage (быстро)
+            const localResults = loadResultsFromLocalStorage();
+            if (Object.keys(localResults).length > 0) {
+              setResults(localResults);
+              console.log('[RESULTS] Результаты загружены из localStorage при инициализации');
+            }
+            
+            // Затем загружаем из БД (может быть медленнее, но более актуально)
+            const dbResults = await loadResultsFromDatabase();
+            if (Object.keys(dbResults).length > 0) {
+              // Объединяем результаты: БД имеет приоритет, но сохраняем уникальные из localStorage
+              const mergedResults = { ...localResults };
+              Object.keys(dbResults).forEach(topicId => {
+                // Объединяем результаты по теме, убирая дубликаты по ID
+                const localTopicResults = localResults[topicId] || [];
+                const dbTopicResults = dbResults[topicId] || [];
+                const resultIds = new Set();
+                const uniqueResults = [];
+                
+                // Сначала добавляем результаты из БД (более актуальные)
+                dbTopicResults.forEach(result => {
+                  if (!resultIds.has(result.id)) {
+                    resultIds.add(result.id);
+                    uniqueResults.push(result);
+                  }
+                });
+                
+                // Затем добавляем уникальные результаты из localStorage
+                localTopicResults.forEach(result => {
+                  if (!resultIds.has(result.id)) {
+                    resultIds.add(result.id);
+                    uniqueResults.push(result);
+                  }
+                });
+                
+                // Сортируем по дате (новые первые) и ограничиваем до 5
+                uniqueResults.sort((a, b) => {
+                  const dateA = new Date(a.dateTime || 0);
+                  const dateB = new Date(b.dateTime || 0);
+                  return dateB - dateA;
+                });
+                
+                mergedResults[topicId] = uniqueResults.slice(0, 5);
+              });
+              
+              setResults(mergedResults);
+              // Сохраняем объединенные результаты обратно в localStorage
+              saveResultsToLocalStorage(mergedResults);
+              console.log('[RESULTS] Результаты загружены из БД и объединены с localStorage');
+            }
+          } catch (error) {
+            console.error('[RESULTS] Ошибка загрузки результатов:', error);
+          }
+        };
+        
+        // Загружаем результаты в фоне
+        loadAllResults();
+        
         // Загружаем остальные данные в фоне для обновления
         Promise.all([
           loadTopicsFromSupabase(),
@@ -2300,22 +2626,30 @@ function App() {
           // Проверка подписок и создание пробной подписки - делаем полностью асинхронно, не блокируя инициализацию
           const telegramIdAsNumber = Math.floor(Number(userId));
           if (telegramIdAsNumber && Number.isFinite(telegramIdAsNumber) && telegramIdAsNumber > 0) {
-            // Вызываем createTrialSubscription, которая сама проверит наличие подписок
-            // и создаст пробную только для новых пользователей
-            console.log('Проверка необходимости создания пробной подписки для нового пользователя:', telegramIdAsNumber);
-            createTrialSubscription(userId).then(trialCreated => {
-              if (trialCreated) {
-                console.log('✅ Пробная подписка создана при инициализации');
-                // Перезагружаем подписку, чтобы обновить состояние
-                setTimeout(() => {
-                  loadMySubscription();
-                }, 500);
-              } else {
-                console.log('ℹ️ Пробная подписка не создана (уже существует или пользователь не новый)');
-              }
-            }).catch(err => {
-              console.error('Ошибка создания пробной подписки при инициализации:', err);
-            });
+            // Выполняем проверку подписок в фоне, не блокируя инициализацию
+            supabase
+              .from('subscriptions')
+              .select('id')
+              .eq('telegram_id', telegramIdAsNumber)
+              .limit(1)
+              .then(({ data: existingSubscriptions, error: subCheckError }) => {
+                // Если ошибка не "не найдено", значит что-то пошло не так
+                if (subCheckError && subCheckError.code !== 'PGRST116') {
+                  console.error('Ошибка проверки подписок при инициализации:', subCheckError);
+                } else if (!existingSubscriptions || existingSubscriptions.length === 0) {
+                  // У пользователя нет подписок - это новый пользователь
+                  console.log('Новый пользователь обнаружен при инициализации, создаем пробную подписку на 3 дня');
+                  // Создаем пробную подписку асинхронно, не блокируя инициализацию
+                  createTrialSubscription(userId).then(trialCreated => {
+                    if (trialCreated) {
+                      console.log('Пробная подписка создана при инициализации');
+                    }
+                  }).catch(err => 
+                    console.error('Ошибка создания пробной подписки при инициализации:', err)
+                  );
+                }
+              })
+              .catch(err => console.error('Ошибка проверки подписок:', err));
           }
         }
 
@@ -2382,6 +2716,14 @@ function App() {
     }
   }, [userId]); // Убрали subscriptionLoaded и isLoadingSubscription из зависимостей, чтобы избежать циклов
 
+  // Автоматическое сохранение результатов в localStorage при изменении
+  useEffect(() => {
+    // Сохраняем результаты только если они не пустые и userId установлен
+    if (userId && results && Object.keys(results).length > 0) {
+      saveResultsToLocalStorage(results);
+    }
+  }, [results, userId]); // Сохраняем при каждом изменении results
+  
   // Автоматическая загрузка статистики при открытии экрана analytics
   // ВАЖНО: Загружаем данные заново каждый раз при открытии экрана для актуальности
   useEffect(() => {
@@ -2431,40 +2773,21 @@ function App() {
         return false;
       }
 
-      // Проверяем, есть ли у пользователя активные подписки (не истекшие)
-      const now = new Date().toISOString();
-      const { data: activeSubscriptions, error: checkError } = await supabase
-        .from('subscriptions')
-        .select('id, end_date')
-        .eq('telegram_id', telegramIdAsNumber)
-        .gt('end_date', now) // Только активные (не истекшие) подписки
-        .limit(1);
-
-      if (checkError && checkError.code !== 'PGRST116') {
-        console.error('Ошибка проверки активных подписок:', checkError);
-        return false;
-      }
-
-      // Если у пользователя уже есть активная подписка, не создаем пробную
-      if (activeSubscriptions && activeSubscriptions.length > 0) {
-        console.log('У пользователя уже есть активная подписка, пробная подписка не создается');
-        return false;
-      }
-      
-      // Также проверяем, была ли уже создана пробная подписка ранее (даже если истекла)
-      // Это нужно, чтобы не создавать пробную подписку повторно
-      const { data: anySubscriptions, error: anyCheckError } = await supabase
+      // Проверяем, есть ли у пользователя какие-либо подписки (включая истекшие)
+      const { data: existingSubscriptions, error: checkError } = await supabase
         .from('subscriptions')
         .select('id')
         .eq('telegram_id', telegramIdAsNumber)
         .limit(1);
 
-      if (anyCheckError && anyCheckError.code !== 'PGRST116') {
-        console.error('Ошибка проверки всех подписок:', anyCheckError);
-        // Продолжаем создание, если ошибка не критична
-      } else if (anySubscriptions && anySubscriptions.length > 0) {
-        // У пользователя уже была подписка (даже истекшая) - не создаем пробную повторно
-        console.log('У пользователя уже была подписка ранее, пробная подписка не создается повторно');
+      if (checkError && checkError.code !== 'PGRST116') {
+        console.error('Ошибка проверки существующих подписок:', checkError);
+        return false;
+      }
+
+      // Если у пользователя уже были подписки, не создаем пробную
+      if (existingSubscriptions && existingSubscriptions.length > 0) {
+        console.log('У пользователя уже были подписки, пробная подписка не создается');
         return false;
       }
 
@@ -2489,7 +2812,7 @@ function App() {
         return false;
       }
 
-      console.log('✅ Пробная подписка успешно создана:', data);
+      console.log('Пробная подписка успешно создана:', data);
       
       // Устанавливаем лимит ИИ = 3 для пользователя с пробной подпиской
       const { error: updateLimitError } = await supabase
@@ -2507,17 +2830,11 @@ function App() {
       } else {
         console.log('✅ Лимит ИИ установлен на 3 для пользователя с пробной подпиской');
         // Обновляем состояние пользователя
-        setUserProfile(prev => ({
-          ...prev,
+        setUserProfile({
           ai_queries_count: 0,
           ai_limit_total: 3
-        }));
+        });
       }
-      
-      // Перезагружаем подписку, чтобы обновить состояние в приложении
-      setTimeout(() => {
-        loadMySubscription();
-      }, 300);
       
       return true;
     } catch (err) {
@@ -3968,10 +4285,6 @@ function App() {
       testQuestionsLength: testQuestions.length
     });
     
-    // Пересчитываем правильные ответы на основе сохраненных вопросов
-    let correctCount = 0;
-    let answeredCount = 0;
-    
     // Функция нормализации ID для сравнения
     const normalizeId = (id) => {
       if (id === null || id === undefined) return null;
@@ -3980,6 +4293,41 @@ function App() {
       return String(id);
     };
     
+    // Обновляем userAnswers с правильным isCorrect перед сохранением
+    const updatedUserAnswers = currentUserAnswers.map((userAnswer, index) => {
+      const question = questions[index];
+      
+      // Проверяем, что вопрос существует и имеет ответы
+      if (!question || !question.answers || !Array.isArray(question.answers) || question.answers.length === 0) {
+        return userAnswer; // Возвращаем как есть, если вопрос некорректен
+      }
+      
+      if (userAnswer && userAnswer.selectedAnswerId !== undefined && userAnswer.selectedAnswerId !== null) {
+        // Находим выбранный ответ в вопросе
+        const userSelectedId = userAnswer.selectedAnswerId;
+        const selectedAnswer = question.answers.find(a => {
+          if (!a || a.id === undefined || a.id === null) return false;
+          const answerId = a.id;
+          const normalizedUser = normalizeId(userSelectedId);
+          const normalizedAnswer = normalizeId(answerId);
+          return normalizedUser !== null && normalizedAnswer !== null && normalizedUser === normalizedAnswer;
+        });
+        
+        // Устанавливаем isCorrect в объект userAnswer
+        const isCorrect = selectedAnswer && selectedAnswer.correct === true;
+        return {
+          ...userAnswer,
+          isCorrect: isCorrect
+        };
+      }
+      
+      return userAnswer;
+    });
+    
+    // Пересчитываем правильные ответы на основе обновленных userAnswers
+    let correctCount = 0;
+    let answeredCount = 0;
+    
     questions.forEach((question, index) => {
       // Проверяем, что вопрос существует и имеет ответы
       if (!question || !question.answers || !Array.isArray(question.answers) || question.answers.length === 0) {
@@ -3987,45 +4335,22 @@ function App() {
         return;
       }
       
-      const userAnswer = currentUserAnswers[index];
+      const userAnswer = updatedUserAnswers[index];
       
       if (userAnswer && userAnswer.selectedAnswerId !== undefined && userAnswer.selectedAnswerId !== null) {
         answeredCount++;
         
-        // Находим выбранный ответ в вопросе
-        const userSelectedId = userAnswer.selectedAnswerId;
-        const selectedAnswer = question.answers.find(a => {
-          if (!a || a.id === undefined || a.id === null) return false;
-          const answerId = a.id;
-          // Нормализуем и сравниваем
-          const normalizedUser = normalizeId(userSelectedId);
-          const normalizedAnswer = normalizeId(answerId);
-          return normalizedUser !== null && normalizedAnswer !== null && normalizedUser === normalizedAnswer;
-        });
+        // Проверяем правильность (используем уже установленное isCorrect)
+        if (userAnswer.isCorrect === true) {
+          correctCount++;
+        }
         
         // Отладочная информация
         console.log(`Question ${index + 1} check:`, {
           questionId: question.id,
-          userSelectedId: userSelectedId,
-          userSelectedIdType: typeof userSelectedId,
-          questionAnswers: question.answers.map(a => ({ 
-            id: a.id, 
-            idType: typeof a.id, 
-            text: a.text.substring(0, 20),
-            correct: a.correct 
-          })),
-          selectedAnswer: selectedAnswer ? {
-            id: selectedAnswer.id,
-            text: selectedAnswer.text.substring(0, 20),
-            correct: selectedAnswer.correct
-          } : null,
-          isCorrect: selectedAnswer && selectedAnswer.correct === true
+          userSelectedId: userAnswer.selectedAnswerId,
+          isCorrect: userAnswer.isCorrect
         });
-        
-        // Проверяем правильность
-        if (selectedAnswer && selectedAnswer.correct === true) {
-          correctCount++;
-        }
       } else {
         console.log(`Question ${index + 1}: No answer`, {
           questionId: question.id,
@@ -4076,9 +4401,9 @@ function App() {
       };
     });
     
-    // Глубокое копирование ответов пользователя (используем currentUserAnswers вместо userAnswers)
-    const userAnswersCopy = Array.isArray(currentUserAnswers) 
-      ? currentUserAnswers.map(a => a ? { ...a } : null)
+    // Глубокое копирование ответов пользователя (используем updatedUserAnswers с установленным isCorrect)
+    const userAnswersCopy = Array.isArray(updatedUserAnswers) 
+      ? updatedUserAnswers.map(a => a ? { ...a } : null)
       : [];
     
     // Проверяем, что testStartTime не null перед вычислением времени
@@ -4126,10 +4451,14 @@ function App() {
       const examResults = results['exam'] || [];
       const updatedExamResults = [newResult, ...examResults].slice(0, 5);
       
-      setResults({ 
+      const updatedResults = { 
         ...results, 
         'exam': updatedExamResults
-      });
+      };
+      
+      setResults(updatedResults);
+      // Сохраняем в localStorage
+      saveResultsToLocalStorage(updatedResults);
       
       // Сбрасываем все состояния экзамена
       setTestStartTime(null);
@@ -4152,12 +4481,16 @@ function App() {
       }
       
       const topicResults = results[selectedTopic.id] || [];
-      const updatedResults = [newResult, ...topicResults].slice(0, 5);
+      const updatedTopicResults = [newResult, ...topicResults].slice(0, 5);
       
-      setResults({ 
+      const updatedResults = { 
         ...results, 
-        [selectedTopic.id]: updatedResults
-      });
+        [selectedTopic.id]: updatedTopicResults
+      };
+      
+      setResults(updatedResults);
+      // Сохраняем в localStorage
+      saveResultsToLocalStorage(updatedResults);
       
       setTestStartTime(null);
       setElapsedTime(0);
