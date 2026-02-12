@@ -1,6 +1,17 @@
 import { createClient } from '@supabase/supabase-js'
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://psjtbcotmnfvgulziara.supabase.co'
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBzanRiY290bW5mdmd1bHppYXJhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA4ODYzMzcsImV4cCI6MjA4NjQ2MjMzN30.AXmMzg9GasqUzIUBXdSPPvsZlsMIuMSRXvGTcqQNXKQ'
+// Получаем переменные окружения для Supabase (обязательные)
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
 
+// Проверяем, что переменные окружения установлены
+if (!supabaseUrl) {
+  throw new Error('VITE_SUPABASE_URL не установлен. Пожалуйста, создайте файл .env и добавьте VITE_SUPABASE_URL')
+}
+
+if (!supabaseAnonKey) {
+  throw new Error('VITE_SUPABASE_ANON_KEY не установлен. Пожалуйста, создайте файл .env и добавьте VITE_SUPABASE_ANON_KEY')
+}
+
+// Создаем клиент Supabase только с переменными окружения (без fallback значений)
 export const supabase = createClient(supabaseUrl, supabaseAnonKey)
