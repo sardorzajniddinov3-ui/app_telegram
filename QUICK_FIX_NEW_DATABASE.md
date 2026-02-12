@@ -1,14 +1,14 @@
 # ⚡ Быстрое исправление: Новая база данных не работает
 
 ## Проблема
-После обновления на новый проект Supabase (`memoqljluizvccomaind`) база данных не работает.
+После обновления на новый проект Supabase (`psjtbcotmnfvgulziara`) база данных не работает.
 
 ## ✅ Решение (5 минут)
 
 ### Шаг 1: Откройте Supabase Dashboard
 1. Перейдите на https://supabase.com/dashboard
 2. Войдите в свой аккаунт
-3. Выберите проект **memoqljluizvccomaind**
+3. Выберите проект **psjtbcotmnfvgulziara**
 
 ### Шаг 2: Выполните SQL скрипт
 1. В левом меню найдите **SQL Editor**
@@ -56,7 +56,7 @@
 1. Проверьте, что проект активен в Supabase Dashboard
 2. Проверьте, что URL в `src/supabase.js` правильный:
    ```javascript
-   'https://memoqljluizvccomaind.supabase.co'
+   'https://psjtbcotmnfvgulziara.supabase.co'
    ```
 3. Проверьте, что ANON_KEY правильный в `src/supabase.js`
 

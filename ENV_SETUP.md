@@ -1,32 +1,40 @@
 # 📝 Настройка переменных окружения
 
-## Создание .env файлов
+## ⚠️ ВАЖНО: Supabase Configuration
 
-### Для папки `src/`:
+**Для проекта необходимо настроить переменные окружения Supabase!**
 
-Создайте файл `src/.env`:
-
-```env
-# Backend API URL
-# Для локальной разработки:
-VITE_API_URL=http://localhost:3000
-
-# Для продакшена (замените на ваш URL):
-# VITE_API_URL=https://your-backend.railway.app
-```
-
-### Для папки `web/`:
-
-Создайте файл `web/.env`:
+### Создайте файл `.env` в корне проекта `telegram-mini-app`:
 
 ```env
-# Backend API URL
-# Для локальной разработки:
-VITE_API_URL=http://localhost:3000
+# Supabase Configuration
+# Получите эти значения из Supabase Dashboard: Settings → API
 
-# Для продакшена (замените на ваш URL):
-# VITE_API_URL=https://your-backend.railway.app
+# URL вашего Supabase проекта
+VITE_SUPABASE_URL=https://psjtbcotmnfvgulziara.supabase.co
+
+# Anon/Public ключ из Supabase Dashboard
+# Settings → API → Project API keys → anon/public
+# ⚠️ ВАЖНО: Ключ должен быть от проекта psjtbcotmnfvgulziara!
+# Если в JWT токене указан другой ref (например, memoqljluizvccomaind) - это НЕПРАВИЛЬНЫЙ ключ!
+VITE_SUPABASE_ANON_KEY=ваш_anon_key_от_проекта_psjtbcotmnfvgulziara
+
+# Backend API URL (опционально)
+VITE_BACKEND_URL=http://localhost:3000
 ```
+
+### Инструкция по получению значений:
+
+1. Откройте [Supabase Dashboard](https://supabase.com/dashboard)
+2. Выберите проект **psjtbcotmnfvgulziara**
+3. Перейдите: **Settings** → **API**
+4. Скопируйте:
+   - **Project URL** → `VITE_SUPABASE_URL`
+   - **anon/public key** → `VITE_SUPABASE_ANON_KEY`
+5. Создайте файл `.env` в корне проекта `telegram-mini-app`
+6. Вставьте скопированные значения
+
+**Важно:** Не коммитьте файл `.env` в git! Добавьте его в `.gitignore`.
 
 ## Примеры для разных платформ
 

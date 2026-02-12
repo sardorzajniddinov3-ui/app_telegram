@@ -20,7 +20,7 @@
 
 ### Шаг 2: Создание всех необходимых таблиц
 
-Откройте **Supabase Dashboard** → ваш проект `memoqljluizvccomaind` → **SQL Editor** и выполните следующий SQL:
+Откройте **Supabase Dashboard** → ваш проект `psjtbcotmnfvgulziara` → **SQL Editor** и выполните следующий SQL:
 
 ```sql
 -- ========== ТАБЛИЦА PROFILES (Профили пользователей) ==========
@@ -332,7 +332,7 @@ ORDER BY table_name;
 
 ### Проблема: "Failed to fetch" или "Network error"
 **Решение:** 
-1. Проверьте, что URL в `src/supabase.js` правильный: `https://memoqljluizvccomaind.supabase.co`
+1. Проверьте, что URL в `.env` файле правильный: `VITE_SUPABASE_URL=https://psjtbcotmnfvgulziara.supabase.co`
 2. Проверьте, что ANON_KEY правильный
 3. Проверьте, что в Supabase Dashboard проект активен
 

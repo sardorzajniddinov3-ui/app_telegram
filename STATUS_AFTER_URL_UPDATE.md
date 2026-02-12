@@ -11,7 +11,7 @@
    - ✅ `profiles` - проверено (URL не найдены, что нормально)
 
 2. **Все ссылки теперь указывают на новый проект:**
-   - Новый URL: `https://memoqljluizvccomaind.supabase.co`
+   - Новый URL: `https://psjtbcotmnfvgulziara.supabase.co`
    - Старый URL больше не используется
 
 ## ⚠️ Критическая проблема: EXCEEDING USAGE LIMITS
@@ -22,7 +22,7 @@
 
 1. **Откройте Supabase Dashboard**
    - https://supabase.com/dashboard
-   - Проект: `memoqljluizvccomaind`
+   - Проект: `psjtbcotmnfvgulziara`
 
 2. **Перейдите в Settings → Billing**
 

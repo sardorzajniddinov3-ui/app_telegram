@@ -10,7 +10,7 @@
 
 1. **Откройте Supabase Dashboard**
    - https://supabase.com/dashboard
-   - Выберите проект `memoqljluizvccomaind`
+   - Выберите проект `psjtbcotmnfvgulziara`
 
 2. **Проверьте статус проекта**
    - Перейдите в **Settings** → **Billing**
@@ -30,12 +30,12 @@
 ## 🔄 Обновление URL в базе данных
 
 В таблице `questions` есть старые URL, которые указывают на старый проект:
-- Старый: `https://rjfchznkmulatifulele.supabase.co`
-- Новый: `https://memoqljluizvccomaind.supabase.co`
+- Старый: `https://rjfchznkmulatifulele.supabase.co` или `https://memoqljluizvccomaind.supabase.co`
+- Новый: `https://psjtbcotmnfvgulziara.supabase.co`
 
 ### Шаг 1: Выполните SQL скрипт
 
-1. Откройте **Supabase Dashboard** → проект `memoqljluizvccomaind`
+1. Откройте **Supabase Dashboard** → проект `psjtbcotmnfvgulziara`
 2. Перейдите в **SQL Editor**
 3. Откройте файл `UPDATE_URLS_TO_NEW_PROJECT.sql`
 4. Скопируйте весь код
