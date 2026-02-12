@@ -131,15 +131,15 @@ function App() {
               } else {
                 // Для остальных результатов сохраняем только метаданные
                 return {
-                  id: result.id,
-                  correct: result.correct,
-                  total: result.total,
-                  answered: result.answered,
-                  percentage: result.percentage,
-                  time: result.time,
-                  timeFormatted: result.timeFormatted,
-                  timeSpent: result.timeSpent,
-                  dateTime: result.dateTime
+              id: result.id,
+              correct: result.correct,
+              total: result.total,
+              answered: result.answered,
+              percentage: result.percentage,
+              time: result.time,
+              timeFormatted: result.timeFormatted,
+              timeSpent: result.timeSpent,
+              dateTime: result.dateTime
                 };
               }
             });
@@ -1503,10 +1503,10 @@ function App() {
             setTopics(cachedTopics);
             return;
           }
-        } catch (e) {
+          } catch (e) {
           console.warn('[CACHE] Не удалось загрузить темы из кэша:', e);
-        }
-        setTopics(defaultTopics);
+          }
+          setTopics(defaultTopics);
         return;
       }
 
@@ -1563,10 +1563,10 @@ function App() {
           setTopics(cachedTopics);
           return;
         }
-      } catch (e) {
+        } catch (e) {
         console.warn('[CACHE] Не удалось загрузить темы из кэша:', e);
-      }
-      setTopics(defaultTopics);
+        }
+        setTopics(defaultTopics);
     }
   };
 
@@ -1578,20 +1578,20 @@ function App() {
         try {
           const cachedQuestions = await loadQuestions();
           if (cachedQuestions && cachedQuestions.length > 0) {
-            setSavedQuestions(cachedQuestions);
-            console.log('✅ Используем кэшированные вопросы для мгновенной загрузки:', cachedQuestions.length, 'вопросов');
-            // Обновляем в фоне (не блокируем интерфейс) - через 10 секунд после загрузки страницы
+                  setSavedQuestions(cachedQuestions);
+                  console.log('✅ Используем кэшированные вопросы для мгновенной загрузки:', cachedQuestions.length, 'вопросов');
+                  // Обновляем в фоне (не блокируем интерфейс) - через 10 секунд после загрузки страницы
             // Только если есть сеть
             if (navigator.onLine) {
-              setTimeout(() => {
-                loadQuestionsFromSupabase(false).catch(() => {});
-              }, 10000);
-            } else {
+                  setTimeout(() => {
+                    loadQuestionsFromSupabase(false).catch(() => {});
+                  }, 10000);
+                } else {
               console.log('[CACHE] Оффлайн режим, используем только кэш');
             }
             return;
-          }
-        } catch (e) {
+                }
+              } catch (e) {
           console.warn('[CACHE] Ошибка загрузки вопросов из кэша, загружаем из БД:', e);
         }
       }
@@ -1603,7 +1603,7 @@ function App() {
         if (cachedQuestions && cachedQuestions.length > 0) {
           setSavedQuestions(cachedQuestions);
           return;
-        }
+                }
         setSavedQuestions([]);
         return;
       }
@@ -1819,15 +1819,15 @@ function App() {
           // Сохраняем в IndexedDB для следующего раза
           try {
             await saveQuestions(questionsToSave);
-          } catch (e) {
+              } catch (e) {
             console.warn('[CACHE] Не удалось сохранить вопросы в кэш:', e);
-          }
+            }
           
           return;
         }
 
         // Fallback на кэш
-        try {
+              try {
           const cachedQuestions = await loadQuestions();
           if (cachedQuestions && cachedQuestions.length > 0) {
             setSavedQuestions(cachedQuestions);
@@ -1835,7 +1835,7 @@ function App() {
           }
         } catch (e) {
           console.warn('[CACHE] Не удалось загрузить вопросы из кэша:', e);
-        }
+            }
         setSavedQuestions([]);
         return;
       }
@@ -1971,7 +1971,7 @@ function App() {
         // Сохраняем в IndexedDB для следующего раза
         try {
           await saveQuestions(questionsToSave);
-        } catch (e) {
+            } catch (e) {
           console.warn('[CACHE] Не удалось сохранить вопросы в кэш:', e);
         }
       } else {
@@ -2528,12 +2528,12 @@ function App() {
         try {
           const cachedQuestions = await loadQuestions();
           if (cachedQuestions && cachedQuestions.length > 0) {
-            // Устанавливаем вопросы СРАЗУ, до показа интерфейса
-            setSavedQuestions(cachedQuestions);
-            questionsLoadedFromCache = true;
-            console.log('✅ Вопросы загружены из кэша при инициализации:', cachedQuestions.length, 'вопросов');
-          }
-        } catch (e) {
+                  // Устанавливаем вопросы СРАЗУ, до показа интерфейса
+                  setSavedQuestions(cachedQuestions);
+                  questionsLoadedFromCache = true;
+                  console.log('✅ Вопросы загружены из кэша при инициализации:', cachedQuestions.length, 'вопросов');
+                }
+              } catch (e) {
           console.warn('[CACHE] Ошибка загрузки вопросов из кэша при инициализации:', e);
         }
 
@@ -2568,46 +2568,46 @@ function App() {
             
             // ВСЕГДА объединяем результаты, даже если один из источников пустой
             // Начинаем с результатов из localStorage
-            const mergedResults = { ...localResults };
+              const mergedResults = { ...localResults };
             
             // Добавляем все результаты из БД
-            Object.keys(dbResults).forEach(topicId => {
-              const localTopicResults = localResults[topicId] || [];
-              const dbTopicResults = dbResults[topicId] || [];
-              const resultIds = new Set();
-              const uniqueResults = [];
-              
+              Object.keys(dbResults).forEach(topicId => {
+                const localTopicResults = localResults[topicId] || [];
+                const dbTopicResults = dbResults[topicId] || [];
+                const resultIds = new Set();
+                const uniqueResults = [];
+                
               // Сначала добавляем результаты из БД (более актуальные и приоритетные)
-              dbTopicResults.forEach(result => {
+                dbTopicResults.forEach(result => {
                 if (result && result.id) {
                   if (!resultIds.has(result.id)) {
                     resultIds.add(result.id);
                     uniqueResults.push(result);
                   }
-                }
-              });
-              
+                  }
+                });
+                
               // Затем добавляем уникальные результаты из localStorage (которые могут отсутствовать в БД)
-              localTopicResults.forEach(result => {
+                localTopicResults.forEach(result => {
                 if (result && result.id) {
                   if (!resultIds.has(result.id)) {
                     resultIds.add(result.id);
                     uniqueResults.push(result);
                   }
-                }
-              });
-              
-              // Сортируем по дате (новые первые) и ограничиваем до 5
-              uniqueResults.sort((a, b) => {
+                  }
+                });
+                
+                // Сортируем по дате (новые первые) и ограничиваем до 5
+                uniqueResults.sort((a, b) => {
                 const dateA = a.dateTime ? new Date(a.dateTime).getTime() : 0;
                 const dateB = b.dateTime ? new Date(b.dateTime).getTime() : 0;
                 return dateB - dateA; // Новые первые
+                });
+                
+              // Сохраняем все результаты (до 5 на тему)
+                mergedResults[topicId] = uniqueResults.slice(0, 5);
               });
               
-              // Сохраняем все результаты (до 5 на тему)
-              mergedResults[topicId] = uniqueResults.slice(0, 5);
-            });
-            
             // Также добавляем темы из localStorage, которых нет в БД
             Object.keys(localResults).forEach(topicId => {
               if (!mergedResults[topicId] || mergedResults[topicId].length === 0) {
@@ -2626,10 +2626,10 @@ function App() {
             });
             
             // ВСЕГДА обновляем результаты, даже если они не изменились
-            setResults(mergedResults);
+              setResults(mergedResults);
             
             // Сохраняем объединенные результаты обратно в localStorage для следующего раза
-            saveResultsToLocalStorage(mergedResults);
+              saveResultsToLocalStorage(mergedResults);
             
             const totalTopics = Object.keys(mergedResults).length;
             const totalResults = Object.values(mergedResults).reduce((sum, arr) => sum + (arr?.length || 0), 0);
@@ -2794,9 +2794,9 @@ function App() {
           if (isNewProfile) {
             // Новый профиль: устанавливаем дефолтные значения
             upsertData = { 
-              ...baseUpsert, 
-              phone: null,
-              ai_limit_total: 3, // Лимит ИИ для новых пользователей с пробной подпиской
+            ...baseUpsert, 
+            phone: null,
+            ai_limit_total: 3, // Лимит ИИ для новых пользователей с пробной подпиской
               ai_queries_count: 0 // Сбрасываем счетчик только для новых пользователей
             };
           } else {
@@ -2816,11 +2816,11 @@ function App() {
           if (upsertError && /column .*phone/i.test(upsertError.message || '')) {
             // Повторная попытка без phone
             if (isNewProfile) {
-              upsertData = { 
-                ...baseUpsert,
-                ai_limit_total: 3, // Лимит ИИ для новых пользователей
-                ai_queries_count: 0
-              };
+            upsertData = { 
+              ...baseUpsert,
+              ai_limit_total: 3, // Лимит ИИ для новых пользователей
+              ai_queries_count: 0
+            };
             } else {
               upsertData = { 
                 ...baseUpsert
@@ -2842,29 +2842,29 @@ function App() {
           // Это гарантирует, что мы используем правильные значения, даже если профиль существовал
           try {
             const { data: newProfileData, error: profileLoadError } = await supabase
-              .from('profiles')
-              .select('ai_queries_count, ai_limit_total')
-              .eq('id', Number(userId))
+            .from('profiles')
+            .select('ai_queries_count, ai_limit_total')
+            .eq('id', Number(userId))
               .maybeSingle();
             
-            if (!profileLoadError && newProfileData) {
+              if (!profileLoadError && newProfileData) {
               // ВАЖНО: Используем ?? вместо ||, чтобы не заменять 0 на 0
               const aiQueriesCount = Number(newProfileData.ai_queries_count) ?? 0;
               const aiLimitTotal = Number(newProfileData.ai_limit_total) ?? 0;
-              console.log('[AI_LIMITS] Загружено из profiles после создания/обновления профиля:', { 
-                ai_queries_count: aiQueriesCount, 
+                console.log('[AI_LIMITS] Загружено из profiles после создания/обновления профиля:', { 
+                  ai_queries_count: aiQueriesCount, 
                 ai_limit_total: aiLimitTotal,
                 isNewProfile
-              });
-              setUserProfile({
-                ai_queries_count: aiQueriesCount,
-                ai_limit_total: aiLimitTotal
-              });
+                });
+                setUserProfile({
+                  ai_queries_count: aiQueriesCount,
+                  ai_limit_total: aiLimitTotal
+                });
               // Помечаем лимиты как загруженные
               setAILimitsLoaded(true);
             } else if (profileLoadError) {
               console.error('[AI_LIMITS] Ошибка загрузки лимитов после создания профиля:', profileLoadError);
-            }
+              }
           } catch (err) {
             console.error('[AI_LIMITS] Исключение при загрузке лимитов после создания профиля:', err);
           }
@@ -9532,13 +9532,13 @@ function App() {
                         showMarker = true;
                       } else {
                         // Обычный правильный ответ (зеленый)
-                        answerClass += ' review-answer-correct';
-                        if (isSelected) {
-                          markerText = 'Ваш ответ (правильно)';
-                        } else {
-                          markerText = 'Правильный ответ';
-                        }
-                        showMarker = true;
+                      answerClass += ' review-answer-correct';
+                      if (isSelected) {
+                        markerText = 'Ваш ответ (правильно)';
+                      } else {
+                        markerText = 'Правильный ответ';
+                      }
+                      showMarker = true;
                       }
                     } else if (isSelected) {
                       answerClass += ' review-answer-incorrect';
