@@ -4,7 +4,7 @@
 
 1. Перейдите на https://supabase.com/dashboard
 2. Войдите в свой аккаунт
-3. Выберите проект **rjfchznkmulatifulele**
+3. Выберите проект **psjtbcotmnfvgulziara**
 
 ## Шаг 2: Создайте Edge Function
 
@@ -33,7 +33,7 @@
 
 Функция будет доступна по адресу:
 ```
-https://rjfchznkmulatifulele.supabase.co/functions/v1/explain-answer
+https://psjtbcotmnfvgulziara.supabase.co/functions/v1/explain-answer
 ```
 
 Теперь кнопка "🤖 Почему это неправильно?" в приложении будет работать!

@@ -78,7 +78,7 @@ supabase login
 
 ```powershell
 cd apptg111/apptg/telegram-mini-app
-supabase link --project-ref rjfchznkmulatifulele
+supabase link --project-ref psjtbcotmnfvgulziara
 ```
 
 ### Деплой функции:

@@ -4,6 +4,14 @@ import './App.css'
 import { initTelegramWebAppSafe, getTelegramColorScheme } from './telegram'
 import { supabase } from './supabase'
 import StatisticsScreen from './StatisticsScreen'
+import { 
+  saveTopics, 
+  loadTopics, 
+  saveQuestions, 
+  loadQuestions, 
+  clearQuestionsCache,
+  isCacheAvailable 
+} from './cacheService'
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'https://apptelegram-production-4131.up.railway.app';
 
@@ -1305,9 +1313,45 @@ function App() {
 
   // ========== ФУНКЦИИ ДЛЯ РАБОТЫ С SUPABASE (ТЕМЫ И ВОПРОСЫ) ==========
   
-  // Загрузка квизов (тем) из Supabase
-  const loadTopicsFromSupabase = async () => {
+  // Загрузка квизов (тем) из Supabase с использованием IndexedDB кэша
+  const loadTopicsFromSupabase = async (useCache = true) => {
     try {
+      // Сначала загружаем из кэша для мгновенного отображения
+      if (useCache) {
+        try {
+          const cachedTopics = await loadTopics();
+          if (cachedTopics && cachedTopics.length > 0) {
+            setTopics(cachedTopics);
+            console.log('✅ Используем кэшированные темы для мгновенной загрузки:', cachedTopics.length, 'тем');
+            // Обновляем в фоне (не блокируем интерфейс) - через 2 секунды после загрузки страницы
+            // Только если есть сеть
+            if (navigator.onLine) {
+              setTimeout(() => {
+                loadTopicsFromSupabase(false).catch(() => {});
+              }, 2000);
+            } else {
+              console.log('[CACHE] Оффлайн режим, используем только кэш');
+            }
+            return;
+          }
+        } catch (e) {
+          console.warn('[CACHE] Ошибка загрузки тем из кэша, загружаем из БД:', e);
+        }
+      }
+
+      // Проверяем доступность сети перед запросом к Supabase
+      if (!navigator.onLine) {
+        console.log('[CACHE] Оффлайн режим, используем только кэш');
+        const cachedTopics = await loadTopics();
+        if (cachedTopics && cachedTopics.length > 0) {
+          setTopics(cachedTopics);
+          return;
+        }
+        setTopics(defaultTopics);
+        return;
+      }
+
+      // Загружаем из Supabase
       const { data, error } = await supabase
         .from('quizzes')
         .select('*')
@@ -1316,17 +1360,17 @@ function App() {
 
       if (error) {
         console.error('Ошибка загрузки квизов из Supabase:', error);
-        // Fallback на localStorage или дефолтные темы
-        const saved = localStorage.getItem('dev_topics');
-        if (saved) {
-          try {
-            setTopics(JSON.parse(saved));
-          } catch (e) {
-            setTopics(defaultTopics);
+        // Fallback на кэш или дефолтные темы
+        try {
+          const cachedTopics = await loadTopics();
+          if (cachedTopics && cachedTopics.length > 0) {
+            setTopics(cachedTopics);
+            return;
           }
-        } else {
-          setTopics(defaultTopics);
+        } catch (e) {
+          console.warn('[CACHE] Не удалось загрузить темы из кэша:', e);
         }
+        setTopics(defaultTopics);
         return;
       }
 
@@ -1363,90 +1407,69 @@ function App() {
 
         setTopics(topicsWithCounts);
         console.log(`✅ Загружено тем из Supabase: ${topicsWithCounts.length} (без лимитов)`);
+        
+        // Сохраняем в IndexedDB для следующего раза
+        try {
+          await saveTopics(topicsWithCounts);
+        } catch (e) {
+          console.warn('[CACHE] Не удалось сохранить темы в кэш:', e);
+        }
       } else {
         // Если нет квизов в Supabase, используем дефолтные
         setTopics(defaultTopics);
       }
     } catch (err) {
       console.error('Ошибка загрузки квизов:', err);
-      // Fallback на localStorage или дефолтные темы
-      const saved = localStorage.getItem('dev_topics');
-      if (saved) {
-        try {
-          setTopics(JSON.parse(saved));
-        } catch (e) {
-          setTopics(defaultTopics);
+      // Fallback на кэш или дефолтные темы
+      try {
+        const cachedTopics = await loadTopics();
+        if (cachedTopics && cachedTopics.length > 0) {
+          setTopics(cachedTopics);
+          return;
         }
-      } else {
-        setTopics(defaultTopics);
+      } catch (e) {
+        console.warn('[CACHE] Не удалось загрузить темы из кэша:', e);
       }
+      setTopics(defaultTopics);
     }
   };
 
-  // Загрузка вопросов из Supabase с опциями (оптимизированная версия)
+  // Загрузка вопросов из Supabase с опциями (оптимизированная версия с IndexedDB)
   const loadQuestionsFromSupabase = async (useCache = true) => {
     try {
       // Сначала загружаем из кэша для мгновенного отображения
       if (useCache) {
         try {
-          const cached = localStorage.getItem('dev_questions_cache');
-          const cacheTime = localStorage.getItem('dev_questions_cache_time');
-          if (cached && cacheTime) {
-            const cacheAge = Date.now() - parseInt(cacheTime, 10);
-            // Используем кэш, если он не старше 7 дней (для мгновенной загрузки)
-            if (cacheAge < 7 * 24 * 60 * 60 * 1000) {
-              try {
-                const cachedQuestions = JSON.parse(cached);
-                
-                // Проверяем валидность кэша - проверяем несколько вопросов на наличие answer_* полей
-                let validQuestionsCount = 0;
-                const sampleSize = Math.min(10, cachedQuestions.length);
-                
-                for (let i = 0; i < sampleSize; i++) {
-                  const q = cachedQuestions[i];
-                  if (q && (q.answer_a || q.answer_b || q.answer_c || q.answer_d)) {
-                    validQuestionsCount++;
-                  }
-                }
-                
-                // Если хотя бы 80% вопросов имеют опции, считаем кэш валидным
-                const isValidCache = validQuestionsCount >= sampleSize * 0.8;
-                
-                if (isValidCache && cachedQuestions.length > 0) {
-                  setSavedQuestions(cachedQuestions);
-                  console.log('✅ Используем кэшированные вопросы для мгновенной загрузки:', cachedQuestions.length, 'вопросов');
-                  // Обновляем в фоне (не блокируем интерфейс) - через 10 секунд после загрузки страницы
-                  setTimeout(() => {
-                    loadQuestionsFromSupabase(false).catch(() => {});
-                  }, 10000);
-                  return;
-                } else {
-                  console.warn(`⚠️ Кэш невалиден (только ${validQuestionsCount}/${sampleSize} вопросов имеют опции), загружаем из БД`);
-                  // Очищаем невалидный кэш
-                  try {
-                    localStorage.removeItem('dev_questions_cache');
-                    localStorage.removeItem('dev_questions_cache_time');
-                  } catch (e) {
-                    console.error('Ошибка очистки кэша:', e);
-                  }
-                  // Продолжаем загрузку из БД
-                }
-              } catch (e) {
-                console.error('Ошибка парсинга кэша:', e);
-                // Очищаем поврежденный кэш
-                try {
-                  localStorage.removeItem('dev_questions_cache');
-                  localStorage.removeItem('dev_questions_cache_time');
-                } catch (e2) {
-                  console.error('Ошибка очистки кэша:', e2);
-                }
-                // Продолжаем загрузку из БД
-              }
+          const cachedQuestions = await loadQuestions();
+          if (cachedQuestions && cachedQuestions.length > 0) {
+            setSavedQuestions(cachedQuestions);
+            console.log('✅ Используем кэшированные вопросы для мгновенной загрузки:', cachedQuestions.length, 'вопросов');
+            // Обновляем в фоне (не блокируем интерфейс) - через 10 секунд после загрузки страницы
+            // Только если есть сеть
+            if (navigator.onLine) {
+              setTimeout(() => {
+                loadQuestionsFromSupabase(false).catch(() => {});
+              }, 10000);
+            } else {
+              console.log('[CACHE] Оффлайн режим, используем только кэш');
             }
+            return;
           }
         } catch (e) {
-          // Игнорируем ошибки кэша
+          console.warn('[CACHE] Ошибка загрузки вопросов из кэша, загружаем из БД:', e);
         }
+      }
+
+      // Проверяем доступность сети перед запросом к Supabase
+      if (!navigator.onLine) {
+        console.log('[CACHE] Оффлайн режим, используем только кэш');
+        const cachedQuestions = await loadQuestions();
+        if (cachedQuestions && cachedQuestions.length > 0) {
+          setSavedQuestions(cachedQuestions);
+          return;
+        }
+        setSavedQuestions([]);
+        return;
       }
 
       // Загружаем вопросы с опциями через вложенный select
@@ -1472,9 +1495,17 @@ function App() {
 
         if (questionsErrorAlt) {
           console.error('❌ Альтернативный запрос тоже не удался:', questionsErrorAlt);
-        // Fallback на localStorage
-        const saved = JSON.parse(localStorage.getItem('dev_questions') || '[]');
-        setSavedQuestions(saved);
+        // Fallback на кэш
+        try {
+          const cachedQuestions = await loadQuestions();
+          if (cachedQuestions && cachedQuestions.length > 0) {
+            setSavedQuestions(cachedQuestions);
+            return;
+          }
+        } catch (e) {
+            console.warn('[CACHE] Не удалось загрузить вопросы из кэша:', e);
+          }
+        setSavedQuestions([]);
         return;
       }
 
@@ -1649,47 +1680,27 @@ function App() {
           setSavedQuestions(questionsToSave);
           console.log(`✅ Загружено вопросов из Supabase (альтернативный запрос): ${questionsToSave.length} из ${formattedQuestions.length} (без лимитов)`);
           
-          // Проверяем размер данных перед сохранением (localStorage имеет лимит ~5-10MB)
+          // Сохраняем в IndexedDB для следующего раза
           try {
-            const cacheData = JSON.stringify(questionsToSave);
-            const cacheSize = new Blob([cacheData]).size;
-            const maxCacheSize = 4 * 1024 * 1024; // 4MB лимит для безопасности
-            
-            if (cacheSize > maxCacheSize) {
-              console.warn(`[CACHE] Размер кэша слишком большой (${(cacheSize / 1024 / 1024).toFixed(2)}MB), пропускаем сохранение`);
-              // Очищаем старый кэш, если он есть
-              try {
-                localStorage.removeItem('dev_questions_cache');
-                localStorage.removeItem('dev_questions_cache_time');
-              } catch (e) {
-                // Игнорируем ошибки очистки
-              }
-            } else {
-              localStorage.setItem('dev_questions_cache', cacheData);
-              localStorage.setItem('dev_questions_cache_time', String(Date.now()));
-              console.log(`[CACHE] Сохранено ${questionsToSave.length} вопросов в кэш (${(cacheSize / 1024).toFixed(2)}KB)`);
-            }
+            await saveQuestions(questionsToSave);
           } catch (e) {
-            if (e.name === 'QuotaExceededError') {
-              console.warn('[CACHE] Превышен лимит localStorage, очищаем старый кэш и пропускаем сохранение');
-              // Очищаем старый кэш
-              try {
-                localStorage.removeItem('dev_questions_cache');
-                localStorage.removeItem('dev_questions_cache_time');
-              } catch (e2) {
-                // Игнорируем ошибки очистки
-              }
-            } else {
-              console.error('[CACHE] Ошибка сохранения в кэш:', e);
-            }
+            console.warn('[CACHE] Не удалось сохранить вопросы в кэш:', e);
           }
           
           return;
         }
 
-        // Fallback на localStorage
-        const saved = JSON.parse(localStorage.getItem('dev_questions') || '[]');
-        setSavedQuestions(saved);
+        // Fallback на кэш
+        try {
+          const cachedQuestions = await loadQuestions();
+          if (cachedQuestions && cachedQuestions.length > 0) {
+            setSavedQuestions(cachedQuestions);
+            return;
+          }
+        } catch (e) {
+          console.warn('[CACHE] Не удалось загрузить вопросы из кэша:', e);
+        }
+        setSavedQuestions([]);
         return;
       }
 
@@ -1821,40 +1832,11 @@ function App() {
         setSavedQuestions(questionsToSave);
         console.log(`✅ Загружено вопросов из Supabase: ${questionsToSave.length} из ${formattedQuestions.length} (без лимитов)`);
         
-        // Кэшируем для быстрой загрузки в следующий раз
-        // Проверяем размер данных перед сохранением (localStorage имеет лимит ~5-10MB)
+        // Сохраняем в IndexedDB для следующего раза
         try {
-          const cacheData = JSON.stringify(questionsToSave);
-          const cacheSize = new Blob([cacheData]).size;
-          const maxCacheSize = 4 * 1024 * 1024; // 4MB лимит для безопасности
-          
-          if (cacheSize > maxCacheSize) {
-            console.warn(`[CACHE] Размер кэша слишком большой (${(cacheSize / 1024 / 1024).toFixed(2)}MB), пропускаем сохранение`);
-            // Очищаем старый кэш, если он есть
-            try {
-              localStorage.removeItem('dev_questions_cache');
-              localStorage.removeItem('dev_questions_cache_time');
-            } catch (e) {
-              // Игнорируем ошибки очистки
-            }
-      } else {
-            localStorage.setItem('dev_questions_cache', cacheData);
-            localStorage.setItem('dev_questions_cache_time', String(Date.now()));
-            console.log(`[CACHE] Сохранено ${questionsToSave.length} вопросов в кэш (${(cacheSize / 1024).toFixed(2)}KB)`);
-          }
+          await saveQuestions(questionsToSave);
         } catch (e) {
-          if (e.name === 'QuotaExceededError') {
-            console.warn('[CACHE] Превышен лимит localStorage, очищаем старый кэш и пропускаем сохранение');
-            // Очищаем старый кэш
-            try {
-              localStorage.removeItem('dev_questions_cache');
-              localStorage.removeItem('dev_questions_cache_time');
-            } catch (e2) {
-              // Игнорируем ошибки очистки
-            }
-          } else {
-            console.error('[CACHE] Ошибка сохранения в кэш:', e);
-          }
+          console.warn('[CACHE] Не удалось сохранить вопросы в кэш:', e);
         }
       } else {
         // Если база возвращает 0 вопросов, не делаем повторный запрос
@@ -1863,9 +1845,17 @@ function App() {
       }
     } catch (err) {
       console.error('Ошибка загрузки вопросов:', err);
-      // Fallback на localStorage
-      const saved = JSON.parse(localStorage.getItem('dev_questions') || '[]');
-      setSavedQuestions(saved);
+      // Fallback на кэш
+      try {
+        const cachedQuestions = await loadQuestions();
+        if (cachedQuestions && cachedQuestions.length > 0) {
+          setSavedQuestions(cachedQuestions);
+          return;
+        }
+      } catch (e) {
+        console.warn('[CACHE] Не удалось загрузить вопросы из кэша:', e);
+      }
+      setSavedQuestions([]);
     }
   };
 
@@ -2136,6 +2126,7 @@ function App() {
       
       if (trialCreated) {
         console.log('✅ Пробная подписка успешно создана');
+        // Статус подписки уже обновлен внутри createTrialSubscription через loadMySubscription
       } else {
         console.log('ℹ️ Пробная подписка уже была создана ранее или не удалось создать');
       }
@@ -2376,41 +2367,15 @@ function App() {
         // СНАЧАЛА загружаем вопросы из кэша СИНХРОННО, чтобы они были готовы сразу
         let questionsLoadedFromCache = false;
         try {
-          const cached = localStorage.getItem('dev_questions_cache');
-          const cacheTime = localStorage.getItem('dev_questions_cache_time');
-          if (cached && cacheTime) {
-            const cacheAge = Date.now() - parseInt(cacheTime, 10);
-            // Используем кэш, если он не старше 7 дней
-            if (cacheAge < 7 * 24 * 60 * 60 * 1000) {
-              try {
-                const cachedQuestions = JSON.parse(cached);
-                
-                // Проверяем валидность кэша
-                let validQuestionsCount = 0;
-                const sampleSize = Math.min(10, cachedQuestions.length);
-                
-                for (let i = 0; i < sampleSize; i++) {
-                  const q = cachedQuestions[i];
-                  if (q && (q.answer_a || q.answer_b || q.answer_c || q.answer_d)) {
-                    validQuestionsCount++;
-                  }
-                }
-                
-                const isValidCache = validQuestionsCount >= sampleSize * 0.8;
-                
-                if (isValidCache && cachedQuestions.length > 0) {
-                  // Устанавливаем вопросы СРАЗУ, до показа интерфейса
-                  setSavedQuestions(cachedQuestions);
-                  questionsLoadedFromCache = true;
-                  console.log('✅ Вопросы загружены из кэша при инициализации:', cachedQuestions.length, 'вопросов');
-                }
-              } catch (e) {
-                console.error('Ошибка парсинга кэша при инициализации:', e);
-              }
-            }
+          const cachedQuestions = await loadQuestions();
+          if (cachedQuestions && cachedQuestions.length > 0) {
+            // Устанавливаем вопросы СРАЗУ, до показа интерфейса
+            setSavedQuestions(cachedQuestions);
+            questionsLoadedFromCache = true;
+            console.log('✅ Вопросы загружены из кэша при инициализации:', cachedQuestions.length, 'вопросов');
           }
         } catch (e) {
-          // Игнорируем ошибки кэша
+          console.warn('[CACHE] Ошибка загрузки вопросов из кэша при инициализации:', e);
         }
 
         // Если вопросы не загружены из кэша, загружаем их из БД ДО показа интерфейса
@@ -2643,6 +2608,7 @@ function App() {
                   createTrialSubscription(userId).then(trialCreated => {
                     if (trialCreated) {
                       console.log('Пробная подписка создана при инициализации');
+                      // Статус подписки уже обновлен внутри createTrialSubscription через loadMySubscription
                     }
                   }).catch(err => 
                     console.error('Ошибка создания пробной подписки при инициализации:', err)
@@ -2834,6 +2800,15 @@ function App() {
           ai_queries_count: 0,
           ai_limit_total: 3
         });
+      }
+      
+      // Обновляем статус подписки сразу после создания
+      try {
+        await loadMySubscription();
+        console.log('✅ Статус подписки обновлен после создания пробной подписки');
+      } catch (err) {
+        console.warn('Не удалось обновить статус подписки после создания:', err);
+        // Не возвращаем false, так как подписка уже создана
       }
       
       return true;
@@ -3803,8 +3778,12 @@ function App() {
       // Обновляем состояние
       setTopics(updatedTopics);
       
-      // Также сохраняем в localStorage как fallback
-      localStorage.setItem('dev_topics', JSON.stringify(updatedTopics));
+      // Сохраняем в IndexedDB
+      try {
+        await saveTopics(updatedTopics);
+      } catch (e) {
+        console.warn('[CACHE] Не удалось сохранить темы в кэш:', e);
+      }
       
       // Очищаем форму
       setNewTopicName('');
@@ -3856,8 +3835,12 @@ function App() {
       );
       
       setTopics(updatedTopics);
-      // Также сохраняем в localStorage как fallback
-      localStorage.setItem('dev_topics', JSON.stringify(updatedTopics));
+      // Сохраняем в IndexedDB
+      try {
+        await saveTopics(updatedTopics);
+      } catch (e) {
+        console.warn('[CACHE] Не удалось сохранить темы в кэш:', e);
+      }
       
       setEditingTopicId(null);
       setEditingTopicName('');
@@ -3895,8 +3878,12 @@ function App() {
       const currentTopics = Array.isArray(topics) && topics.length > 0 ? topics : [];
       const updatedTopics = currentTopics.filter(t => t.id !== topic.id);
       setTopics(updatedTopics);
-      // Также обновляем localStorage как fallback
-      localStorage.setItem('dev_topics', JSON.stringify(updatedTopics));
+      // Сохраняем в IndexedDB
+      try {
+        await saveTopics(updatedTopics);
+      } catch (e) {
+        console.warn('[CACHE] Не удалось сохранить темы в кэш:', e);
+      }
       
       // Перезагружаем вопросы, так как некоторые могли быть удалены
       await loadQuestionsFromSupabase();
@@ -3976,8 +3963,12 @@ function App() {
       }));
       
       setTopics(updatedTopics);
-      // Также сохраняем в localStorage как fallback
-      localStorage.setItem('dev_topics', JSON.stringify(updatedTopics));
+      // Сохраняем в IndexedDB
+      try {
+        await saveTopics(updatedTopics);
+      } catch (e) {
+        console.warn('[CACHE] Не удалось сохранить темы в кэш:', e);
+      }
       
       setDraggedTopicIndex(null);
       setDragOverIndex(null);
@@ -4158,62 +4149,63 @@ function App() {
     };
   }, [screen, testStartTime, isExamMode, examTimeLimit, examTimeRemaining]);
 
-  // Автоматически запрашиваем объяснения для неправильных ответов в режиме полного обзора
-  useEffect(() => {
-    // Выполняем только если мы на экране fullReview
-    if (screen !== 'fullReview') return;
-    
-    // Получаем результат: сначала из selectedResult, затем из results по selectedTopic, затем из всех results
-    let reviewResult = selectedResult;
-    
-    if (!reviewResult && selectedTopic && selectedTopic.id) {
-      reviewResult = (results[selectedTopic.id] || [])[0];
-    }
-    
-    // Если все еще нет результата, ищем в всех results
-    if (!reviewResult) {
-      for (const topicId in results) {
-        if (results[topicId] && results[topicId].length > 0) {
-          reviewResult = results[topicId][0];
-          break;
-        }
-      }
-    }
-    
-    // Проверяем, что есть данные для обработки
-    if (!reviewResult || !reviewResult.questions || !reviewResult.userAnswers) {
-      return;
-    }
-    
-    const questions = reviewResult.questions;
-    const userAnswers = reviewResult.userAnswers;
-    
-    // Автоматически запрашиваем объяснения для неправильных ответов
-    // Система fallback в Edge Function автоматически переключается между моделями
-    questions.forEach((question, index) => {
-      const userAnswer = userAnswers[index];
-      if (!userAnswer) return;
-      
-      const userSelectedId = userAnswer?.selectedAnswerId;
-      const correctAnswer = question.answers.find(a => a.correct === true);
-      const userSelectedAnswer = question.answers.find(a => {
-        const normalizeId = (id) => {
-          if (id === null || id === undefined) return null;
-          const num = Number(id);
-          if (!isNaN(num)) return num;
-          return String(id);
-        };
-        return normalizeId(a.id) === normalizeId(userSelectedId);
-      });
-      
-      const isIncorrect = userSelectedAnswer && !userSelectedAnswer.correct;
-      const questionId = question.id || `q-${index}`;
-      
-      if (isIncorrect && correctAnswer && userSelectedAnswer && !explanations[questionId]?.explanation && !explanations[questionId]?.loading) {
-        getExplanation(questionId, question.text, userSelectedAnswer.text, correctAnswer.text);
-      }
-    });
-  }, [screen, selectedResult, selectedTopic, results, explanations, getExplanation]);
+  // ОТКЛЮЧЕНО: Автоматический запрос объяснений для неправильных ответов
+  // Теперь объяснения запрашиваются только по нажатию кнопки
+  // useEffect(() => {
+  //   // Выполняем только если мы на экране fullReview
+  //   if (screen !== 'fullReview') return;
+  //   
+  //   // Получаем результат: сначала из selectedResult, затем из results по selectedTopic, затем из всех results
+  //   let reviewResult = selectedResult;
+  //   
+  //   if (!reviewResult && selectedTopic && selectedTopic.id) {
+  //     reviewResult = (results[selectedTopic.id] || [])[0];
+  //   }
+  //   
+  //   // Если все еще нет результата, ищем в всех results
+  //   if (!reviewResult) {
+  //     for (const topicId in results) {
+  //       if (results[topicId] && results[topicId].length > 0) {
+  //         reviewResult = results[topicId][0];
+  //         break;
+  //       }
+  //     }
+  //   }
+  //   
+  //   // Проверяем, что есть данные для обработки
+  //   if (!reviewResult || !reviewResult.questions || !reviewResult.userAnswers) {
+  //     return;
+  //   }
+  //   
+  //   const questions = reviewResult.questions;
+  //   const userAnswers = reviewResult.userAnswers;
+  //   
+  //   // Автоматически запрашиваем объяснения для неправильных ответов
+  //   // Система fallback в Edge Function автоматически переключается между моделями
+  //   questions.forEach((question, index) => {
+  //     const userAnswer = userAnswers[index];
+  //     if (!userAnswer) return;
+  //     
+  //     const userSelectedId = userAnswer?.selectedAnswerId;
+  //     const correctAnswer = question.answers.find(a => a.correct === true);
+  //     const userSelectedAnswer = question.answers.find(a => {
+  //       const normalizeId = (id) => {
+  //         if (id === null || id === undefined) return null;
+  //         const num = Number(id);
+  //         if (!isNaN(num)) return num;
+  //         return String(id);
+  //       };
+  //       return normalizeId(a.id) === normalizeId(userSelectedId);
+  //     });
+  //     
+  //     const isIncorrect = userSelectedAnswer && !userSelectedAnswer.correct;
+  //     const questionId = question.id || `q-${index}`;
+  //     
+  //     if (isIncorrect && correctAnswer && userSelectedAnswer && !explanations[questionId]?.explanation && !explanations[questionId]?.loading) {
+  //       getExplanation(questionId, question.text, userSelectedAnswer.text, correctAnswer.text);
+  //     }
+  //   });
+  // }, [screen, selectedResult, selectedTopic, results, explanations, getExplanation]);
 
   // Форматирование времени для обычного теста (HH:MM:SS)
   const formatTime = (seconds) => {
@@ -8906,19 +8898,34 @@ function App() {
                     // Проверяем, правильный ли это ответ
                     const isCorrect = answer.correct === true;
                     
+                    // Проверяем, был ли вопрос отвечен
+                    // Вопрос считается неотвеченным, если userAnswer отсутствует или selectedAnswerId равен null/undefined
+                    const isQuestionAnswered = userAnswer && 
+                                             userAnswer.selectedAnswerId !== null && 
+                                             userAnswer.selectedAnswerId !== undefined &&
+                                             normalizedUser !== null;
+                    
                     let answerClass = 'review-answer';
                     let showMarker = false;
                     let markerText = '';
                     
                     // Определяем стиль и маркер
                     if (isCorrect) {
-                      answerClass += ' review-answer-correct';
-                      if (isSelected) {
-                        markerText = 'Ваш ответ (правильно)';
+                      if (!isQuestionAnswered) {
+                        // Если вопрос не был отвечен, используем специальный класс для желтого стиля
+                        answerClass += ' review-answer-unanswered';
+                        markerText = 'Правильный ответ (не отвечен)';
+                        showMarker = true;
                       } else {
-                        markerText = 'Правильный ответ';
+                        // Обычный правильный ответ (зеленый)
+                        answerClass += ' review-answer-correct';
+                        if (isSelected) {
+                          markerText = 'Ваш ответ (правильно)';
+                        } else {
+                          markerText = 'Правильный ответ';
+                        }
+                        showMarker = true;
                       }
-                      showMarker = true;
                     } else if (isSelected) {
                       answerClass += ' review-answer-incorrect';
                       markerText = 'Ваш ответ (неправильно)';
@@ -8927,7 +8934,11 @@ function App() {
                     
                     return (
                       <div key={answer.id || answerIndex} className={answerClass}>
-                        {showMarker && <span className={`answer-marker ${isCorrect ? 'correct' : ''}`}>{markerText}: </span>}
+                        {showMarker && (
+                          <span className={`answer-marker ${isCorrect ? 'correct' : ''}`}>
+                            {markerText}: 
+                          </span>
+                        )}
                         {answerIndex + 1}. {answer.text}
                         {isCorrect && <span className="correct-icon"> ✓</span>}
                         {isSelected && !isCorrect && <span className="incorrect-icon"> ✗</span>}
@@ -8944,7 +8955,30 @@ function App() {
                       <span className="ai-explanation-title">Объяснение ИИ:</span>
                     </div>
                     <div className="ai-explanation-content">
-                      {explanations[questionId]?.loading ? (
+                      {!explanations[questionId]?.explanation && !explanations[questionId]?.loading && !explanations[questionId]?.error ? (
+                        // Показываем кнопку, если объяснение еще не загружено
+                        <button
+                          className="explanation-button"
+                          onClick={() => {
+                            const wrongAnswerText = userSelectedAnswer?.text || userSelectedAnswer?.option_text || 'Выбранный ответ';
+                            const correctAnswerText = correctAnswer?.text || correctAnswer?.option_text || 'Правильный ответ';
+                            getExplanation(questionId, question.text || question.question_text, wrongAnswerText, correctAnswerText);
+                          }}
+                          style={{
+                            padding: '10px 20px',
+                            backgroundColor: '#4CAF50',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '5px',
+                            cursor: 'pointer',
+                            fontSize: '14px',
+                            fontWeight: 'bold',
+                            marginTop: '10px'
+                          }}
+                        >
+                          🤖 Получить объяснение
+                        </button>
+                      ) : explanations[questionId]?.loading ? (
                         <div className="ai-explanation-loading">
                           <span>ИИ анализирует ваш ответ...</span>
                         </div>

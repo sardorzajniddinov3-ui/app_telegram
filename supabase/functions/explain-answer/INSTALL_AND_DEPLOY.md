@@ -27,7 +27,7 @@ supabase login
 
 ```powershell
 cd apptg111/apptg/telegram-mini-app
-supabase link --project-ref rjfchznkmulatifulele
+supabase link --project-ref psjtbcotmnfvgulziara
 ```
 
 ### Шаг 4: Деплой функции
@@ -44,7 +44,7 @@ supabase functions deploy explain-answer
 
 1. Перейдите на https://supabase.com/dashboard
 2. Войдите в свой аккаунт
-3. Выберите проект `rjfchznkmulatifulele`
+3. Выберите проект `psjtbcotmnfvgulziara`
 
 ### Шаг 2: Создайте Edge Function
 
@@ -72,13 +72,13 @@ supabase functions deploy explain-answer
 
 После деплоя функция будет доступна по адресу:
 ```
-https://rjfchznkmulatifulele.supabase.co/functions/v1/explain-answer
+https://psjtbcotmnfvgulziara.supabase.co/functions/v1/explain-answer
 ```
 
 ### Тестирование через curl:
 
 ```powershell
-curl -X POST https://rjfchznkmulatifulele.supabase.co/functions/v1/explain-answer `
+curl -X POST https://psjtbcotmnfvgulziara.supabase.co/functions/v1/explain-answer `
   -H "Content-Type: application/json" `
   -H "Authorization: Bearer YOUR_ANON_KEY" `
   -d '{\"question\": \"Что означает красный сигнал светофора?\", \"wrongAnswer\": \"Можно ехать\", \"correctAnswer\": \"Остановиться\"}'

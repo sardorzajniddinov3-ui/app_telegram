@@ -22,7 +22,7 @@ supabase functions deploy explain-answer
 
 После деплоя функция будет доступна по адресу:
 ```
-https://rjfchznkmulatifulele.supabase.co/functions/v1/explain-answer
+https://psjtbcotmnfvgulziara.supabase.co/functions/v1/explain-answer
 ```
 
 ## Тестирование:
@@ -30,7 +30,7 @@ https://rjfchznkmulatifulele.supabase.co/functions/v1/explain-answer
 Вы можете протестировать функцию через curl:
 
 ```bash
-curl -X POST https://rjfchznkmulatifulele.supabase.co/functions/v1/explain-answer \
+curl -X POST https://psjtbcotmnfvgulziara.supabase.co/functions/v1/explain-answer \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer YOUR_ANON_KEY" \
   -d '{
