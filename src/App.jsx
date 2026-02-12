@@ -399,6 +399,9 @@ function App() {
   })
   const [usersList, setUsersList] = useState([]) // Список всех пользователей для админ-панели
   const [usersLoading, setUsersLoading] = useState(false) // Загрузка пользователей из Supabase
+  const [usersCursor, setUsersCursor] = useState(null) // Курсор для пагинации пользователей
+  const [hasMoreUsers, setHasMoreUsers] = useState(true) // Есть ли еще пользователи для загрузки
+  const USERS_PAGE_SIZE = 50 // Размер страницы для загрузки пользователей
   const [usersError, setUsersError] = useState(null) // Ошибка загрузки пользователей
   const [dbActiveSubs, setDbActiveSubs] = useState([]) // Активные подписки из БД (backend)
   const [dbSubsLoading, setDbSubsLoading] = useState(false)
@@ -2329,16 +2332,32 @@ function App() {
     }
   };
 
-  // Функция для загрузки пользователей из Supabase (для админки)
-  const loadUsersFromSupabase = async () => {
+  // Функция для загрузки пользователей из Supabase с курсорной пагинацией (для админки)
+  const loadUsersFromSupabase = async (reset = false) => {
     setUsersLoading(true);
     setUsersError(null);
+    
+    // Если reset = true, сбрасываем курсор и список
+    if (reset) {
+      setUsersCursor(null);
+      setUsersList([]);
+      setHasMoreUsers(true);
+    }
+    
     try {
-      // Загружаем пользователей из profiles
-      const { data: profilesData, error: profilesError } = await supabase
+      // Загружаем пользователей из profiles с курсорной пагинацией
+      let query = supabase
         .from('profiles')
         .select('*')
-        .order('created_at', { ascending: false });
+        .order('id', { ascending: true })
+        .limit(USERS_PAGE_SIZE);
+      
+      // Если есть курсор, загружаем записи с id больше курсора
+      if (usersCursor && !reset) {
+        query = query.gt('id', usersCursor);
+      }
+      
+      const { data: profilesData, error: profilesError } = await query;
 
       if (profilesError) {
         console.error('Ошибка загрузки пользователей из Supabase:', profilesError);
@@ -2426,14 +2445,43 @@ function App() {
       console.log('Загружено пользователей:', formattedUsers.length);
       console.log('Активных подписок:', formattedUsers.filter(u => u.subscription.active).length);
 
-      setUsersList(formattedUsers);
+      // Обновляем список пользователей (добавляем к существующим или заменяем при reset)
+      if (reset || usersList.length === 0) {
+        setUsersList(formattedUsers);
+      } else {
+        setUsersList(prev => [...prev, ...formattedUsers]);
+      }
+      
+      // Обновляем курсор для следующей загрузки
+      const nextCursor = profilesData && profilesData.length > 0 
+        ? profilesData[profilesData.length - 1].id 
+        : null;
+      setUsersCursor(nextCursor);
+      
+      // Проверяем, есть ли еще данные для загрузки
+      setHasMoreUsers(profilesData && profilesData.length === USERS_PAGE_SIZE);
+      
+      console.log('[CURSOR] Загружено пользователей:', formattedUsers.length, 
+        '| Всего:', (reset || usersList.length === 0) ? formattedUsers.length : usersList.length + formattedUsers.length,
+        '| Следующий курсор:', nextCursor,
+        '| Есть еще:', profilesData && profilesData.length === USERS_PAGE_SIZE);
     } catch (err) {
-      console.error('Ошибка загрузки пользователей:', err);
+      console.error('[CURSOR] Ошибка загрузки пользователей:', err);
       setUsersError('Ошибка загрузки пользователей');
-      setUsersList([]);
+      if (reset) {
+        setUsersList([]);
+      }
     } finally {
       setUsersLoading(false);
     }
+  };
+  
+  // Функция для загрузки следующей страницы пользователей
+  const loadMoreUsers = async () => {
+    if (!hasMoreUsers || usersLoading) {
+      return;
+    }
+    await loadUsersFromSupabase(false);
   };
 
   // Применяем сохраненную тему сразу при первой загрузке
@@ -2964,7 +3012,7 @@ function App() {
   // Автозагрузка пользователей при открытии экрана админки "Пользователи"
   useEffect(() => {
     if (userRole === 'admin' && adminScreen === 'users' && usersList.length === 0 && !usersLoading) {
-      loadUsersFromSupabase();
+      loadUsersFromSupabase(true); // reset = true для первой загрузки
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [adminScreen, userRole]);
@@ -3667,8 +3715,8 @@ function App() {
       const endDateFormatted = new Date(result.end_date).toLocaleString('ru-RU');
       setGrantMessage(`Подписка "${selectedTariff.name}" выдана: до ${endDateFormatted}`);
       
-      // Обновляем список пользователей
-      await loadUsersFromSupabase();
+      // Обновляем список пользователей (сбрасываем для актуальных данных)
+      await loadUsersFromSupabase(true);
       
       // Удаляем запись из payment_requests после успешной выдачи подписки
       try {
@@ -3804,7 +3852,7 @@ function App() {
           await loadSubscriptions();
           // Обновляем список пользователей, если мы на экране пользователей
           if (adminScreen === 'users') {
-            await loadUsersFromSupabase();
+            await loadUsersFromSupabase(true);
           }
           return;
         }
@@ -7984,7 +8032,7 @@ function App() {
               <button
                 type="button"
                 className="admin-users-button"
-                onClick={loadUsersFromSupabase}
+                onClick={() => loadUsersFromSupabase(true)}
                 disabled={usersLoading}
                 style={{ maxWidth: '200px' }}
               >
@@ -8098,6 +8146,34 @@ function App() {
                 })
               )}
             </div>
+            
+            {/* Кнопка "Загрузить еще" для курсорной пагинации */}
+            {!usersLoading && hasMoreUsers && filteredUsers.length > 0 && (
+              <div style={{ padding: '20px', textAlign: 'center' }}>
+                <button
+                  type="button"
+                  className="admin-users-button"
+                  onClick={loadMoreUsers}
+                  disabled={usersLoading}
+                  style={{
+                    padding: '12px 24px',
+                    fontSize: '14px',
+                    fontWeight: '600',
+                    backgroundColor: 'var(--primary-color, #667eea)',
+                    color: '#ffffff',
+                    border: 'none',
+                    borderRadius: '8px',
+                    cursor: usersLoading ? 'not-allowed' : 'pointer',
+                    opacity: usersLoading ? 0.6 : 1
+                  }}
+                >
+                  {usersLoading ? 'Загрузка...' : '📥 Загрузить еще'}
+                </button>
+                <p style={{ marginTop: '8px', fontSize: '12px', color: 'var(--text-secondary)', opacity: 0.7 }}>
+                  Загружено: {usersList.length} пользователей
+                </p>
+              </div>
+            )}
 
             {/* Модальное окно пользователя */}
             {showUserModal && selectedUser && (
@@ -8577,7 +8653,7 @@ function App() {
               <button
                 className="admin-users-button"
                 onClick={async () => {
-                  await loadUsersFromSupabase();
+                  await loadUsersFromSupabase(true);
                   setAdminScreen('users');
                   // сразу подгружаем активные подписки из БД
                   loadSubscriptions();
