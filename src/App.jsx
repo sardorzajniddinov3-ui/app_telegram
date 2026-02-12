@@ -108,31 +108,83 @@ function App() {
       const currentUserId = tgUser?.id ? String(tgUser.id) : userId;
       if (currentUserId) {
         const storageKey = `test_results_${currentUserId}`;
-        // Сохраняем только необходимые данные (без больших объектов questions и userAnswers)
         const resultsToStore = {};
         Object.keys(resultsToSave).forEach(topicId => {
           if (Array.isArray(resultsToSave[topicId])) {
-            resultsToStore[topicId] = resultsToSave[topicId].map(result => ({
-              id: result.id,
-              correct: result.correct,
-              total: result.total,
-              answered: result.answered,
-              percentage: result.percentage,
-              time: result.time,
-              timeFormatted: result.timeFormatted,
-              timeSpent: result.timeSpent,
-              dateTime: result.dateTime
-              // Не сохраняем userAnswers и questions в localStorage для экономии места
-            }));
+            resultsToStore[topicId] = resultsToSave[topicId].map((result, index) => {
+              // Для первого (последнего) результата каждой темы сохраняем полные данные
+              // для возможности открытия "Полного обзора" после обновления страницы
+              if (index === 0 && result.questions && result.userAnswers) {
+                return {
+                  id: result.id,
+                  correct: result.correct,
+                  total: result.total,
+                  answered: result.answered,
+                  percentage: result.percentage,
+                  time: result.time,
+                  timeFormatted: result.timeFormatted,
+                  timeSpent: result.timeSpent,
+                  dateTime: result.dateTime,
+                  questions: result.questions, // Сохраняем для последнего результата
+                  userAnswers: result.userAnswers // Сохраняем для последнего результата
+                };
+              } else {
+                // Для остальных результатов сохраняем только метаданные
+                return {
+                  id: result.id,
+                  correct: result.correct,
+                  total: result.total,
+                  answered: result.answered,
+                  percentage: result.percentage,
+                  time: result.time,
+                  timeFormatted: result.timeFormatted,
+                  timeSpent: result.timeSpent,
+                  dateTime: result.dateTime
+                };
+              }
+            });
           } else {
             resultsToStore[topicId] = resultsToSave[topicId];
           }
         });
         localStorage.setItem(storageKey, JSON.stringify(resultsToStore));
-        console.log('[RESULTS] Результаты сохранены в localStorage');
+        console.log('[RESULTS] Результаты сохранены в localStorage (с полными данными для последних результатов)');
       }
     } catch (error) {
       console.error('[RESULTS] Ошибка сохранения результатов в localStorage:', error);
+      // Если ошибка из-за превышения лимита localStorage, пробуем сохранить без полных данных
+      if (error.name === 'QuotaExceededError' || error.message?.includes('quota')) {
+        console.warn('[RESULTS] Превышен лимит localStorage, сохраняем только метаданные');
+        try {
+          const tgUser = initTelegramWebAppSafe();
+          const currentUserId = tgUser?.id ? String(tgUser.id) : userId;
+          if (currentUserId) {
+            const storageKey = `test_results_${currentUserId}`;
+            const resultsToStore = {};
+            Object.keys(resultsToSave).forEach(topicId => {
+              if (Array.isArray(resultsToSave[topicId])) {
+                resultsToStore[topicId] = resultsToSave[topicId].map(result => ({
+                  id: result.id,
+                  correct: result.correct,
+                  total: result.total,
+                  answered: result.answered,
+                  percentage: result.percentage,
+                  time: result.time,
+                  timeFormatted: result.timeFormatted,
+                  timeSpent: result.timeSpent,
+                  dateTime: result.dateTime
+                }));
+              } else {
+                resultsToStore[topicId] = resultsToSave[topicId];
+              }
+            });
+            localStorage.setItem(storageKey, JSON.stringify(resultsToStore));
+            console.log('[RESULTS] Результаты сохранены в localStorage (только метаданные)');
+          }
+        } catch (retryError) {
+          console.error('[RESULTS] Ошибка повторного сохранения:', retryError);
+        }
+      }
     }
   };
   
@@ -190,15 +242,41 @@ function App() {
       const resultsByTopic = {};
       
       testResults.forEach(result => {
-        const topicId = String(result.topic_id || '').trim();
-        if (!topicId) return;
+        // Пропускаем невалидные результаты
+        if (!result || (result.topic_id === null && result.topic_id !== undefined && result.topic_id !== 0)) {
+          console.warn('[RESULTS] Пропущен невалидный результат:', result);
+          return;
+        }
         
+        // ВАЖНО: Нормализуем topic_id - он может быть UUID, числом или строкой
+        let topicId = null;
+        if (result.topic_id !== null && result.topic_id !== undefined) {
+          topicId = String(result.topic_id).trim();
+        }
+        
+        if (!topicId || topicId === 'null' || topicId === 'undefined') {
+          console.warn('[RESULTS] Пропущен результат без валидного topic_id:', {
+            topic_id: result.topic_id,
+            result_id: result.id,
+            type: typeof result.topic_id
+          });
+          return;
+        }
+        
+        // ВАЖНО: Используем нормализованный topicId как ключ
         if (!resultsByTopic[topicId]) {
           resultsByTopic[topicId] = [];
         }
         
+        console.log('[RESULTS] Добавляем результат в тему:', {
+          topicId: topicId,
+          resultId: result.id,
+          correct: result.correct_answers,
+          total: result.total_questions
+        });
+        
         const formatTimeSpent = (seconds) => {
-          if (!seconds) return '0 секунд';
+          if (!seconds && seconds !== 0) return '0 секунд';
           const mins = Math.floor(seconds / 60);
           const secs = seconds % 60;
           if (mins > 0 && secs > 0) {
@@ -211,22 +289,27 @@ function App() {
         };
         
         const formatTime = (seconds) => {
-          if (!seconds) return '00:00';
+          if (!seconds && seconds !== 0) return '00:00';
           const mins = Math.floor(seconds / 60);
           const secs = seconds % 60;
           return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
         };
         
-        const date = new Date(result.created_at);
+        // Используем created_at или completed_at для даты
+        const dateValue = result.created_at || result.completed_at || new Date().toISOString();
+        const date = new Date(dateValue);
         const dateTime = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}:${String(date.getSeconds()).padStart(2, '0')}`;
         
+        // ВАЖНО: Используем ID из БД, если он есть, иначе генерируем уникальный
+        const resultId = result.id || `DB_${topicId}_${Date.parse(dateValue)}`;
+        
         resultsByTopic[topicId].push({
-          id: result.id || `ID${topicId}${String(Date.parse(result.created_at)).slice(-6)}`,
-          correct: result.correct_answers || 0,
-          total: result.total_questions || 0,
-          answered: result.total_questions || 0,
-          percentage: result.percentage || 0,
-          time: result.time_spent || 0,
+          id: resultId,
+          correct: Number(result.correct_answers) || 0,
+          total: Number(result.total_questions) || 0,
+          answered: Number(result.total_questions) || 0, // answered обычно равно total
+          percentage: Number(result.percentage) || 0,
+          time: Number(result.time_spent) || 0,
           timeFormatted: formatTime(result.time_spent || 0),
           timeSpent: formatTimeSpent(result.time_spent || 0),
           dateTime: dateTime
@@ -238,7 +321,29 @@ function App() {
         resultsByTopic[topicId] = resultsByTopic[topicId].slice(0, 5);
       });
       
-      console.log('[RESULTS] Загружено результатов из БД:', Object.keys(resultsByTopic).length, 'тем');
+      console.log('[RESULTS] ✅ Загружено результатов из БД:', {
+        totalTopics: Object.keys(resultsByTopic).length,
+        topicIds: Object.keys(resultsByTopic),
+        topicIdsDetails: Object.keys(resultsByTopic).map(id => ({
+          topicId: id,
+          topicIdType: typeof id,
+          topicIdLength: id.length,
+          topicIdFirstChars: id.substring(0, 30),
+          count: resultsByTopic[id].length,
+          firstResult: resultsByTopic[id][0] ? {
+            id: resultsByTopic[id][0].id,
+            correct: resultsByTopic[id][0].correct,
+            total: resultsByTopic[id][0].total,
+            dateTime: resultsByTopic[id][0].dateTime
+          } : null
+        })),
+        rawTestResultsSample: testResults?.slice(0, 3).map(r => ({
+          id: r.id,
+          topic_id: r.topic_id,
+          topic_idType: typeof r.topic_id,
+          topic_idNormalized: r.topic_id ? String(r.topic_id).trim() : null
+        }))
+      });
       return resultsByTopic;
       
     } catch (error) {
@@ -524,6 +629,15 @@ function App() {
   // ========== ПОДПИСКА ==========
   const [isLoadingSubscription, setIsLoadingSubscription] = useState(false) // Флаг для предотвращения множественных одновременных вызовов loadMySubscription
   const [subscriptionLoaded, setSubscriptionLoaded] = useState(false) // Флаг, что подписка уже загружена
+  
+  // ========== ФЛАГИ ЗАГРУЗКИ ДЛЯ ПРЕДОТВРАЩЕНИЯ БЕСКОНЕЧНЫХ ЦИКЛОВ ==========
+  const [questionsLoading, setQuestionsLoading] = useState(false) // Флаг загрузки вопросов в админке
+  const [questionsLoaded, setQuestionsLoaded] = useState(false) // Флаг, что вопросы уже загружены
+  const [aiLimitsLoading, setAILimitsLoading] = useState(false) // Флаг загрузки лимитов AI
+  const [aiLimitsLoaded, setAILimitsLoaded] = useState(false) // Флаг, что лимиты AI уже загружены
+  const [profilesLoading, setProfilesLoading] = useState(false) // Флаг загрузки профиля
+  const [profilesLoaded, setProfilesLoaded] = useState(false) // Флаг, что профиль уже загружен
+  const [initialized, setInitialized] = useState(false) // Флаг завершения инициализации
 
   // ========== ФУНКЦИИ ПЕРСОНАЛЬНОГО ИИ-ТРЕНЕРА ==========
   
@@ -804,20 +918,42 @@ function App() {
     const tgUser = initTelegramWebAppSafe();
     const currentUserId = tgUser?.id ? String(tgUser.id) : userId;
     
+    console.log('[RESULTS] Сохранение результатов в БД:', {
+      userId: currentUserId,
+      selectedTopicId: selectedTopic?.id,
+      normalizedTopicId: selectedTopic?.id ? String(selectedTopic.id).trim() : null,
+      testResult: {
+        correct: testResult.correct,
+        total: testResult.total,
+        percentage: testResult.percentage
+      }
+    });
+    
     if (!currentUserId || !selectedTopic) {
       console.log('[AI TRAINER] Пропуск сохранения в БД - нет userId или selectedTopic');
       return null;
     }
     
     try {
-      console.log('[AI TRAINER] Сохранение результатов теста в БД');
+      // ВАЖНО: Нормализуем topic_id для сохранения
+      const normalizedTopicId = String(selectedTopic.id || '').trim();
+      console.log('[RESULTS] Сохранение результатов в БД:', {
+        userId: currentUserId,
+        selectedTopicId: selectedTopic.id,
+        normalizedTopicId: normalizedTopicId,
+        testResult: {
+          correct: testResult.correct,
+          total: testResult.total,
+          percentage: testResult.percentage
+        }
+      });
       
       // Сохраняем результаты теста
       const { data: resultData, error: resultError } = await supabase
         .from('test_results')
         .insert([{
           user_id: Number(currentUserId), // Преобразуем в число для БД
-          topic_id: String(selectedTopic.id), // Преобразуем в строку для совместимости
+          topic_id: normalizedTopicId, // Используем нормализованный ID
           is_exam: isExamMode || false,
           total_questions: testResult.total,
           correct_answers: testResult.correct,
@@ -848,7 +984,7 @@ function App() {
               const correctAnswer = question.answers.find(a => a.correct === true);
               errors.push({
                 user_id: Number(currentUserId), // Преобразуем в число для БД
-                topic_id: String(selectedTopic.id), // Преобразуем в строку
+                topic_id: normalizedTopicId, // Используем нормализованный ID
                 question_id: String(question.id), // Преобразуем в строку
                 selected_option_id: String(userAnswer.selectedAnswerId), // Преобразуем в строку
                 correct_option_id: correctAnswer ? String(correctAnswer.id) : null // Преобразуем в строку
@@ -1862,7 +1998,22 @@ function App() {
   // Загрузка вопросов только при открытии админки (не при каждом изменении экрана)
   useEffect(() => {
     if (userRole === 'admin' && (adminScreen === 'list' || adminScreen === 'topicQuestions' || adminScreen === 'add' || adminScreen === 'edit')) {
-    loadQuestionsFromSupabase();
+      // Проверяем, не загружаются ли уже вопросы и не загружены ли они уже
+      if (!questionsLoading && !questionsLoaded) {
+        setQuestionsLoading(true);
+        loadQuestionsFromSupabase()
+          .then(() => {
+            setQuestionsLoaded(true);
+            setQuestionsLoading(false);
+          })
+          .catch(err => {
+            console.error('Ошибка загрузки вопросов в админке:', err);
+            setQuestionsLoading(false);
+          });
+      }
+    } else {
+      // Сбрасываем флаг загрузки при выходе из админки
+      setQuestionsLoaded(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [adminScreen, userRole]);
@@ -2353,9 +2504,17 @@ function App() {
   }, []);
 
   useEffect(() => {
+    // Предотвращаем повторную инициализацию
+    if (initialized) {
+      return;
+    }
+    
     let timeoutId = null;
     const init = async () => {
       try {
+        // Помечаем, что инициализация началась
+        setInitialized(true);
+        
         const tgUser = initTelegramWebAppSafe();
 
         // Получаем ID пользователя из Telegram (или фоллбек)
@@ -2396,63 +2555,132 @@ function App() {
         // Загружаем результаты тестов из localStorage и БД
         const loadAllResults = async () => {
           try {
-            // Сначала загружаем из localStorage (быстро)
+            // Сначала загружаем из localStorage (быстро) для мгновенного отображения
             const localResults = loadResultsFromLocalStorage();
             if (Object.keys(localResults).length > 0) {
               setResults(localResults);
-              console.log('[RESULTS] Результаты загружены из localStorage при инициализации');
+              console.log('[RESULTS] Результаты загружены из localStorage при инициализации:', Object.keys(localResults).length, 'тем');
             }
             
             // Затем загружаем из БД (может быть медленнее, но более актуально)
             const dbResults = await loadResultsFromDatabase();
-            if (Object.keys(dbResults).length > 0) {
-              // Объединяем результаты: БД имеет приоритет, но сохраняем уникальные из localStorage
-              const mergedResults = { ...localResults };
-              Object.keys(dbResults).forEach(topicId => {
-                // Объединяем результаты по теме, убирая дубликаты по ID
-                const localTopicResults = localResults[topicId] || [];
-                const dbTopicResults = dbResults[topicId] || [];
-                const resultIds = new Set();
-                const uniqueResults = [];
-                
-                // Сначала добавляем результаты из БД (более актуальные)
-                dbTopicResults.forEach(result => {
+            console.log('[RESULTS] Загружено результатов из БД:', Object.keys(dbResults).length, 'тем');
+            
+            // ВСЕГДА объединяем результаты, даже если один из источников пустой
+            // Начинаем с результатов из localStorage
+            const mergedResults = { ...localResults };
+            
+            // Добавляем все результаты из БД
+            Object.keys(dbResults).forEach(topicId => {
+              const localTopicResults = localResults[topicId] || [];
+              const dbTopicResults = dbResults[topicId] || [];
+              const resultIds = new Set();
+              const uniqueResults = [];
+              
+              // Сначала добавляем результаты из БД (более актуальные и приоритетные)
+              dbTopicResults.forEach(result => {
+                if (result && result.id) {
                   if (!resultIds.has(result.id)) {
                     resultIds.add(result.id);
                     uniqueResults.push(result);
                   }
-                });
-                
-                // Затем добавляем уникальные результаты из localStorage
-                localTopicResults.forEach(result => {
-                  if (!resultIds.has(result.id)) {
-                    resultIds.add(result.id);
-                    uniqueResults.push(result);
-                  }
-                });
-                
-                // Сортируем по дате (новые первые) и ограничиваем до 5
-                uniqueResults.sort((a, b) => {
-                  const dateA = new Date(a.dateTime || 0);
-                  const dateB = new Date(b.dateTime || 0);
-                  return dateB - dateA;
-                });
-                
-                mergedResults[topicId] = uniqueResults.slice(0, 5);
+                }
               });
               
-              setResults(mergedResults);
-              // Сохраняем объединенные результаты обратно в localStorage
-              saveResultsToLocalStorage(mergedResults);
-              console.log('[RESULTS] Результаты загружены из БД и объединены с localStorage');
-            }
+              // Затем добавляем уникальные результаты из localStorage (которые могут отсутствовать в БД)
+              localTopicResults.forEach(result => {
+                if (result && result.id) {
+                  if (!resultIds.has(result.id)) {
+                    resultIds.add(result.id);
+                    uniqueResults.push(result);
+                  }
+                }
+              });
+              
+              // Сортируем по дате (новые первые) и ограничиваем до 5
+              uniqueResults.sort((a, b) => {
+                const dateA = a.dateTime ? new Date(a.dateTime).getTime() : 0;
+                const dateB = b.dateTime ? new Date(b.dateTime).getTime() : 0;
+                return dateB - dateA; // Новые первые
+              });
+              
+              // Сохраняем все результаты (до 5 на тему)
+              mergedResults[topicId] = uniqueResults.slice(0, 5);
+            });
+            
+            // Также добавляем темы из localStorage, которых нет в БД
+            Object.keys(localResults).forEach(topicId => {
+              if (!mergedResults[topicId] || mergedResults[topicId].length === 0) {
+                // Если темы нет в объединенных результатах, добавляем из localStorage
+                const localTopicResults = localResults[topicId] || [];
+                if (localTopicResults.length > 0) {
+                  // Сортируем и ограничиваем
+                  const sorted = [...localTopicResults].sort((a, b) => {
+                    const dateA = a.dateTime ? new Date(a.dateTime).getTime() : 0;
+                    const dateB = b.dateTime ? new Date(b.dateTime).getTime() : 0;
+                    return dateB - dateA;
+                  });
+                  mergedResults[topicId] = sorted.slice(0, 5);
+                }
+              }
+            });
+            
+            // ВСЕГДА обновляем результаты, даже если они не изменились
+            setResults(mergedResults);
+            
+            // Сохраняем объединенные результаты обратно в localStorage для следующего раза
+            saveResultsToLocalStorage(mergedResults);
+            
+            const totalTopics = Object.keys(mergedResults).length;
+            const totalResults = Object.values(mergedResults).reduce((sum, arr) => sum + (arr?.length || 0), 0);
+            console.log('[RESULTS] ✅ Все результаты загружены и объединены:', totalTopics, 'тем,', totalResults, 'результатов');
           } catch (error) {
             console.error('[RESULTS] Ошибка загрузки результатов:', error);
+            // При ошибке хотя бы показываем результаты из localStorage
+            try {
+              const localResults = loadResultsFromLocalStorage();
+              if (Object.keys(localResults).length > 0) {
+                setResults(localResults);
+                console.log('[RESULTS] Показываем результаты из localStorage из-за ошибки загрузки из БД');
+              }
+            } catch (e) {
+              console.error('[RESULTS] Ошибка загрузки из localStorage:', e);
+            }
           }
         };
         
         // Загружаем результаты в фоне
         loadAllResults();
+        
+        // ВАЖНО: Принудительно загружаем лимиты ИИ из БД при инициализации
+        // Это гарантирует, что лимиты всегда актуальны при обновлении страницы
+        if (userId) {
+          setTimeout(() => {
+            console.log('[AI_LIMITS] Принудительная загрузка лимитов при инициализации');
+            loadAILimitsFromProfile()
+              .then((result) => {
+                if (result) {
+                  console.log('[AI_LIMITS] Лимиты загружены при инициализации:', result);
+                  setAILimitsLoaded(true);
+                } else {
+                  console.warn('[AI_LIMITS] Лимиты не загружены при инициализации, повторная попытка...');
+                  // Повторная попытка
+                  setTimeout(() => {
+                    loadAILimitsFromProfile()
+                      .then((retryResult) => {
+                        if (retryResult) {
+                          setAILimitsLoaded(true);
+                        }
+                      })
+                      .catch(err => console.error('[AI_LIMITS] Ошибка повторной загрузки при инициализации:', err));
+                  }, 1000);
+                }
+              })
+              .catch(err => {
+                console.error('[AI_LIMITS] Ошибка загрузки лимитов при инициализации:', err);
+              });
+          }, 500); // Небольшая задержка для гарантии, что userId установлен
+        }
         
         // Загружаем остальные данные в фоне для обновления
         Promise.all([
@@ -2475,26 +2703,35 @@ function App() {
         // Админ-статус проверяется асинхронно выше, продолжаем инициализацию
         // Проверяем, зарегистрирован ли пользователь в Supabase
         // Оптимизируем запрос - выбираем только нужные поля для быстрой загрузки
-        if (userId) {
+        if (userId && !profilesLoading && !profilesLoaded) {
+          setProfilesLoading(true);
           const { data, error } = await supabase
             .from('profiles')
             .select('id, first_name, phone, username, created_at, is_premium, premium_until, ai_queries_count, ai_limit_total')
             .eq('id', Number(userId))
             .single();
+          
+          setProfilesLoaded(true);
+          setProfilesLoading(false);
 
           if (!error && data) {
             // СРАЗУ загружаем актуальные значения ai_queries_count и ai_limit_total из profiles
             // и устанавливаем их в глобальное состояние
-            const aiQueriesCount = Number(data.ai_queries_count) || 0;
-            const aiLimitTotal = Number(data.ai_limit_total) || 0;
-            console.log('[AI_LIMITS] Загружено из profiles при инициализации:', { 
+            // ВАЖНО: Используем значения из БД, не сбрасываем их
+            const aiQueriesCount = Number(data.ai_queries_count) ?? 0;
+            const aiLimitTotal = Number(data.ai_limit_total) ?? 0;
+            console.log('[AI_LIMITS] Загружено из profiles при инициализации (существующий пользователь):', { 
               ai_queries_count: aiQueriesCount, 
-              ai_limit_total: aiLimitTotal 
+              ai_limit_total: aiLimitTotal,
+              userId: Number(userId)
             });
+            // Устанавливаем значения из БД, гарантируя, что они не сбросятся
             setUserProfile({
               ai_queries_count: aiQueriesCount,
               ai_limit_total: aiLimitTotal
             });
+            // Помечаем, что лимиты загружены, чтобы не загружать повторно
+            setAILimitsLoaded(true);
             
             // Проверяем, заполнена ли форма регистрации (есть ли имя и телефон)
             // Если пользователь зарегистрирован, но не заполнил форму, показываем экран регистрации
@@ -2530,7 +2767,15 @@ function App() {
         }
 
         // Новый пользователь: создаем через upsert (без телефона) и просим регистрацию один раз
-        if (userId) {
+        // Создаем профиль только если он еще не был загружен (т.е. пользователь новый)
+        if (userId && !profilesLoaded) {
+          // СНАЧАЛА проверяем, существует ли профиль, чтобы не перезаписать ai_queries_count
+          const { data: existingProfile, error: checkError } = await supabase
+            .from('profiles')
+            .select('id, ai_queries_count, ai_limit_total')
+            .eq('id', Number(userId))
+            .maybeSingle();
+          
           const now = new Date().toISOString();
           const baseUpsert = {
             id: Number(userId),
@@ -2541,52 +2786,88 @@ function App() {
             created_at: now
           };
 
-          // Пытаемся сохранить с phone (если колонка есть)
-          // Для новых пользователей устанавливаем ai_limit_total = 3 (для пробной подписки)
-          let upsertData = { 
-            ...baseUpsert, 
-            phone: null,
-            ai_limit_total: 3, // Лимит ИИ для новых пользователей с пробной подпиской
-            ai_queries_count: 0 // Сбрасываем счетчик
-          };
+          // Если профиль уже существует, сохраняем текущие значения ai_queries_count и ai_limit_total
+          // Если профиль новый, устанавливаем дефолтные значения
+          const isNewProfile = !existingProfile || checkError;
+          let upsertData;
+          
+          if (isNewProfile) {
+            // Новый профиль: устанавливаем дефолтные значения
+            upsertData = { 
+              ...baseUpsert, 
+              phone: null,
+              ai_limit_total: 3, // Лимит ИИ для новых пользователей с пробной подпиской
+              ai_queries_count: 0 // Сбрасываем счетчик только для новых пользователей
+            };
+          } else {
+            // Существующий профиль: сохраняем текущие значения ai_queries_count и ai_limit_total
+            upsertData = { 
+              ...baseUpsert, 
+              phone: null,
+              // НЕ перезаписываем ai_queries_count и ai_limit_total для существующих пользователей
+              // Они останутся такими же, как были
+            };
+          }
+          
           let { error: upsertError } = await supabase
             .from('profiles')
             .upsert(upsertData, { onConflict: 'id' });
 
           if (upsertError && /column .*phone/i.test(upsertError.message || '')) {
             // Повторная попытка без phone
-            upsertData = { 
-              ...baseUpsert,
-              ai_limit_total: 3, // Лимит ИИ для новых пользователей
-              ai_queries_count: 0
-            };
-            await supabase
+            if (isNewProfile) {
+              upsertData = { 
+                ...baseUpsert,
+                ai_limit_total: 3, // Лимит ИИ для новых пользователей
+                ai_queries_count: 0
+              };
+            } else {
+              upsertData = { 
+                ...baseUpsert
+                // НЕ перезаписываем ai_queries_count и ai_limit_total
+              };
+            }
+            const { error: retryError } = await supabase
               .from('profiles')
               .upsert(upsertData, { onConflict: 'id' });
+            if (retryError) {
+              console.error('Ошибка создания профиля:', retryError);
+            }
           }
           
-          // После создания/обновления профиля загружаем актуальные значения ai_queries_count и ai_limit_total
-          // Делаем это асинхронно, не блокируя инициализацию
-          supabase
-            .from('profiles')
-            .select('ai_queries_count, ai_limit_total')
-            .eq('id', Number(userId))
-            .maybeSingle()
-            .then(({ data: newProfileData, error: profileLoadError }) => {
-              if (!profileLoadError && newProfileData) {
-                const aiQueriesCount = Number(newProfileData.ai_queries_count) || 0;
-                const aiLimitTotal = Number(newProfileData.ai_limit_total) || 0;
-                console.log('[AI_LIMITS] Загружено из profiles после создания/обновления профиля:', { 
-                  ai_queries_count: aiQueriesCount, 
-                  ai_limit_total: aiLimitTotal 
-                });
-                setUserProfile({
-                  ai_queries_count: aiQueriesCount,
-                  ai_limit_total: aiLimitTotal
-                });
-              }
-            })
-            .catch(err => console.error('Ошибка загрузки лимитов после создания профиля:', err));
+          // Помечаем профиль как загруженный после создания
+          setProfilesLoaded(true);
+          
+          // ВСЕГДА загружаем актуальные значения ai_queries_count и ai_limit_total из БД
+          // Это гарантирует, что мы используем правильные значения, даже если профиль существовал
+          try {
+            const { data: newProfileData, error: profileLoadError } = await supabase
+              .from('profiles')
+              .select('ai_queries_count, ai_limit_total')
+              .eq('id', Number(userId))
+              .maybeSingle();
+            
+            if (!profileLoadError && newProfileData) {
+              // ВАЖНО: Используем ?? вместо ||, чтобы не заменять 0 на 0
+              const aiQueriesCount = Number(newProfileData.ai_queries_count) ?? 0;
+              const aiLimitTotal = Number(newProfileData.ai_limit_total) ?? 0;
+              console.log('[AI_LIMITS] Загружено из profiles после создания/обновления профиля:', { 
+                ai_queries_count: aiQueriesCount, 
+                ai_limit_total: aiLimitTotal,
+                isNewProfile
+              });
+              setUserProfile({
+                ai_queries_count: aiQueriesCount,
+                ai_limit_total: aiLimitTotal
+              });
+              // Помечаем лимиты как загруженные
+              setAILimitsLoaded(true);
+            } else if (profileLoadError) {
+              console.error('[AI_LIMITS] Ошибка загрузки лимитов после создания профиля:', profileLoadError);
+            }
+          } catch (err) {
+            console.error('[AI_LIMITS] Исключение при загрузке лимитов после создания профиля:', err);
+          }
 
           // Проверка подписок и создание пробной подписки - делаем полностью асинхронно, не блокируя инициализацию
           const telegramIdAsNumber = Math.floor(Number(userId));
@@ -2860,6 +3141,11 @@ function App() {
         if (error.code === 'PGRST116') {
           console.log('Активная подписка не найдена для пользователя:', currentUserId);
           setSubscriptionInfo({ active: false, subscriptionExpiresAt: null });
+        } else if (error.status === 406 || error.code === 'PGRST301') {
+          // Ошибка 406 (Not Acceptable) или 301 - проблема с заголовками или RLS
+          console.warn('[SUBSCRIPTION] Ошибка 406/301 при загрузке подписки (возможно, проблема с RLS или заголовками):', error.message);
+          // Устанавливаем отсутствие подписки, но не показываем ошибку пользователю
+          setSubscriptionInfo({ active: false, subscriptionExpiresAt: null });
           
           // Проверяем наличие pending платежей
           if (currentUserId) {
@@ -2898,8 +3184,14 @@ function App() {
             }
           }
           return;
+        } else if (error.status === 406 || error.code === 'PGRST301') {
+          // Ошибка 406 (Not Acceptable) или 301 - проблема с заголовками или RLS
+          console.warn('[SUBSCRIPTION] Ошибка 406/301 при загрузке подписки (возможно, проблема с RLS или заголовками):', error.message);
+          // Устанавливаем отсутствие подписки, но не показываем ошибку пользователю
+          setSubscriptionInfo({ active: false, subscriptionExpiresAt: null });
+          return;
         }
-        console.error('Ошибка загрузки подписки из Supabase:', error);
+        console.error('[SUBSCRIPTION] Ошибка загрузки подписки из Supabase:', error);
         setSubscriptionInfo({ active: false, subscriptionExpiresAt: null });
         return;
       }
@@ -4492,6 +4784,54 @@ function App() {
       // Сохраняем результаты в БД (асинхронно, не блокируем UI)
       saveTestResultsToDatabase(newResult).then(() => {
         console.log('[AI TRAINER] Результаты сохранены в БД');
+        // После сохранения перезагружаем результаты из БД, чтобы они точно отобразились
+        setTimeout(() => {
+          loadResultsFromDatabase().then(dbResults => {
+            if (Object.keys(dbResults).length > 0) {
+              // Объединяем с текущими результатами
+              const currentResults = results;
+              const mergedResults = { ...currentResults };
+              
+              Object.keys(dbResults).forEach(topicId => {
+                const currentTopicResults = currentResults[topicId] || [];
+                const dbTopicResults = dbResults[topicId] || [];
+                const resultIds = new Set();
+                const uniqueResults = [];
+                
+                // Добавляем результаты из БД
+                dbTopicResults.forEach(result => {
+                  if (result && result.id && !resultIds.has(result.id)) {
+                    resultIds.add(result.id);
+                    uniqueResults.push(result);
+                  }
+                });
+                
+                // Добавляем уникальные из текущих
+                currentTopicResults.forEach(result => {
+                  if (result && result.id && !resultIds.has(result.id)) {
+                    resultIds.add(result.id);
+                    uniqueResults.push(result);
+                  }
+                });
+                
+                // Сортируем по дате
+                uniqueResults.sort((a, b) => {
+                  const dateA = a.dateTime ? new Date(a.dateTime).getTime() : 0;
+                  const dateB = b.dateTime ? new Date(b.dateTime).getTime() : 0;
+                  return dateB - dateA;
+                });
+                
+                mergedResults[topicId] = uniqueResults.slice(0, 5);
+              });
+              
+              setResults(mergedResults);
+              saveResultsToLocalStorage(mergedResults);
+              console.log('[RESULTS] Результаты перезагружены из БД после сохранения');
+            }
+          }).catch(err => {
+            console.error('[RESULTS] Ошибка перезагрузки результатов:', err);
+          });
+        }, 500); // Небольшая задержка для гарантии сохранения в БД
       }).catch(err => {
         console.error('[AI TRAINER] Ошибка сохранения в БД:', err);
       });
@@ -5920,6 +6260,7 @@ function App() {
   });
   
   // Загрузка лимитов ИИ из таблицы profiles
+  // ВАЖНО: Эта функция ВСЕГДА загружает актуальные данные из БД, не используя кэш
   const loadAILimitsFromProfile = async () => {
     try {
       if (!userId) {
@@ -5940,7 +6281,13 @@ function App() {
       
       const userIdNumber = Number(userId);
       
-      // Используем telegram_id, так как в таблице profiles id - это UUID, а мы работаем с telegram_id (число)
+      if (!Number.isFinite(userIdNumber) || userIdNumber <= 0) {
+        console.error('[AI_LIMITS] Невалидный userId:', userId);
+        return { used: 0, total: 0 };
+      }
+      
+      // ВАЖНО: Всегда загружаем актуальные данные из БД, не используя кэш
+      // Используем id, который является числом (telegram_id)
       const { data: profile, error } = await supabase
         .from('profiles')
         .select('ai_queries_count, ai_limit_total')
@@ -5949,13 +6296,20 @@ function App() {
       
       if (error) {
         console.error('[AI_LIMITS] Ошибка загрузки лимитов из profiles:', error);
-        return { used: 0, total: 0 };
+        // Не сбрасываем значения при ошибке, оставляем текущие
+        return { used: userProfile.ai_queries_count || 0, total: userProfile.ai_limit_total || 0 };
       }
       
       if (profile) {
-        const used = Number(profile.ai_queries_count) || 0;
-        const total = Number(profile.ai_limit_total) || 0;
-        console.log('[AI_LIMITS] Загружено из profiles:', { used, total });
+        // ВАЖНО: Используем ?? вместо ||, чтобы не заменять 0 на 0
+        const used = Number(profile.ai_queries_count) ?? 0;
+        const total = Number(profile.ai_limit_total) ?? 0;
+        console.log('[AI_LIMITS] ✅ Загружено из profiles (актуальные данные из БД):', { 
+          used, 
+          total,
+          userId: userIdNumber
+        });
+        // ВСЕГДА обновляем состояние из БД, даже если значения не изменились
         setUserProfile({
           ai_queries_count: used,
           ai_limit_total: total
@@ -5963,10 +6317,12 @@ function App() {
         return { used, total };
       }
       
+      console.warn('[AI_LIMITS] Профиль не найден для userId:', userIdNumber);
       return { used: 0, total: 0 };
     } catch (e) {
-      console.error('[AI_LIMITS] Ошибка загрузки лимитов:', e);
-      return { used: 0, total: 0 };
+      console.error('[AI_LIMITS] Исключение при загрузке лимитов:', e);
+      // Не сбрасываем значения при ошибке, оставляем текущие
+      return { used: userProfile.ai_queries_count || 0, total: userProfile.ai_limit_total || 0 };
     }
   };
   
@@ -5977,11 +6333,162 @@ function App() {
   };
   
   // Загружаем лимиты из profiles при изменении userId (один раз)
+  // ВАЖНО: Эта функция всегда загружает актуальные данные из БД, не используя кэш
   useEffect(() => {
-    if (userId) {
-      loadAILimitsFromProfile().catch(err => console.error('Ошибка загрузки лимитов:', err));
+    if (userId && !aiLimitsLoading) {
+      // ВАЖНО: Всегда загружаем лимиты при изменении userId, даже если они уже загружены
+      // Это гарантирует актуальные данные при обновлении страницы
+      // Проверяем только флаг загрузки, НЕ значение ai_queries_count (0 - это валидное значение!)
+      if (!aiLimitsLoaded) {
+        setAILimitsLoading(true);
+        loadAILimitsFromProfile()
+          .then((result) => {
+            if (result && (result.used !== undefined || result.total !== undefined)) {
+              console.log('[AI_LIMITS] Лимиты успешно загружены из БД:', result);
+              setAILimitsLoaded(true);
+            } else {
+              console.warn('[AI_LIMITS] Лимиты не загружены, повторная попытка...');
+              // Повторная попытка через небольшую задержку
+              setTimeout(() => {
+                loadAILimitsFromProfile()
+                  .then((retryResult) => {
+                    if (retryResult) {
+                      setAILimitsLoaded(true);
+                    }
+                  })
+                  .catch(err => console.error('[AI_LIMITS] Ошибка повторной загрузки:', err));
+              }, 1000);
+            }
+            setAILimitsLoading(false);
+          })
+          .catch(err => {
+            console.error('[AI_LIMITS] Ошибка загрузки лимитов:', err);
+            setAILimitsLoading(false);
+            // Не устанавливаем aiLimitsLoaded в true при ошибке, чтобы повторить попытку
+          });
+      }
+    }
+    // Сбрасываем флаг при изменении userId, чтобы загрузить лимиты для нового пользователя
+    if (!userId) {
+      setAILimitsLoaded(false);
+      setUserProfile({ ai_queries_count: 0, ai_limit_total: 0 });
     }
   }, [userId]); // Убрали subscriptionInfo?.subscriptionExpiresAt из зависимостей, чтобы избежать повторных вызовов
+  
+  // Принудительная синхронизация лимитов при открытии экрана topics (при входе пользователя)
+  // ВАЖНО: Это гарантирует, что лимиты всегда актуальны при обновлении страницы
+  useEffect(() => {
+    if (screen === 'topics' && userId && !loading && !aiLimitsLoading) {
+      // Принудительно загружаем актуальные лимиты из БД при открытии экрана topics
+      // Это особенно важно при обновлении страницы
+      console.log('[AI_LIMITS] Принудительная синхронизация лимитов при открытии экрана topics');
+      loadAILimitsFromProfile()
+        .then((result) => {
+          if (result) {
+            console.log('[AI_LIMITS] Лимиты синхронизированы:', result);
+            // Помечаем как загруженные после успешной синхронизации
+            setAILimitsLoaded(true);
+          } else {
+            console.warn('[AI_LIMITS] Лимиты не загружены при синхронизации, повторная попытка...');
+            // Повторная попытка
+            setTimeout(() => {
+              loadAILimitsFromProfile()
+                .then((retryResult) => {
+                  if (retryResult) {
+                    setAILimitsLoaded(true);
+                  }
+                })
+                .catch(err => console.error('[AI_LIMITS] Ошибка повторной синхронизации:', err));
+            }, 500);
+          }
+        })
+        .catch(err => {
+          console.error('[AI_LIMITS] Ошибка синхронизации лимитов:', err);
+          // При ошибке не сбрасываем флаг, чтобы не потерять текущие значения
+        });
+    }
+  }, [screen, userId, loading]); // Загружаем при открытии экрана topics
+  
+  // Принудительная загрузка результатов при открытии экранов с результатами
+  useEffect(() => {
+    if ((screen === 'topicDetail' || screen === 'fullReview') && userId && !loading && selectedTopic?.id) {
+      // Принудительно загружаем результаты из БД при открытии экранов с результатами
+      console.log('[RESULTS] 🔄 Принудительная загрузка результатов при открытии экрана:', screen, {
+        selectedTopicId: selectedTopic?.id,
+        selectedTopicIdType: typeof selectedTopic?.id,
+        normalizedSelectedTopicId: selectedTopic?.id ? String(selectedTopic.id).trim() : null,
+        currentResultsKeys: Object.keys(results),
+        currentResultsCount: Object.values(results).reduce((sum, arr) => sum + (arr?.length || 0), 0)
+      });
+      
+      loadResultsFromDatabase()
+        .then(dbResults => {
+          console.log('[RESULTS] Загружено из БД при открытии экрана:', {
+            dbResultsKeys: Object.keys(dbResults),
+            dbResultsCount: Object.values(dbResults).reduce((sum, arr) => sum + (arr?.length || 0), 0),
+            selectedTopicId: selectedTopic?.id
+          });
+          
+          // ВСЕГДА обновляем результаты, даже если БД пустая
+          const currentResults = results;
+          const localResults = loadResultsFromLocalStorage();
+          const mergedResults = { ...localResults, ...currentResults };
+          
+          // Добавляем все результаты из БД
+          Object.keys(dbResults).forEach(topicId => {
+            const currentTopicResults = mergedResults[topicId] || [];
+            const dbTopicResults = dbResults[topicId] || [];
+            const resultIds = new Set();
+            const uniqueResults = [];
+            
+            // Добавляем результаты из БД (приоритет)
+            dbTopicResults.forEach(result => {
+              if (result && result.id && !resultIds.has(result.id)) {
+                resultIds.add(result.id);
+                uniqueResults.push(result);
+              }
+            });
+            
+            // Добавляем уникальные из текущих/localStorage
+            currentTopicResults.forEach(result => {
+              if (result && result.id && !resultIds.has(result.id)) {
+                resultIds.add(result.id);
+                uniqueResults.push(result);
+              }
+            });
+            
+            // Сортируем по дате (новые первые)
+            uniqueResults.sort((a, b) => {
+              const dateA = a.dateTime ? new Date(a.dateTime).getTime() : 0;
+              const dateB = b.dateTime ? new Date(b.dateTime).getTime() : 0;
+              return dateB - dateA;
+            });
+            
+            mergedResults[topicId] = uniqueResults.slice(0, 5);
+          });
+          
+          // ВСЕГДА обновляем состояние, даже если результаты не изменились
+          setResults(mergedResults);
+          saveResultsToLocalStorage(mergedResults);
+          
+          console.log('[RESULTS] ✅ Результаты обновлены при открытии экрана:', {
+            screen,
+            totalTopics: Object.keys(mergedResults).length,
+            totalResults: Object.values(mergedResults).reduce((sum, arr) => sum + (arr?.length || 0), 0),
+            selectedTopicResults: selectedTopic?.id ? mergedResults[String(selectedTopic.id)]?.length || 0 : 0
+          });
+        })
+        .catch(err => {
+          console.error('[RESULTS] Ошибка загрузки результатов:', err);
+          // При ошибке загружаем из localStorage
+          const localResults = loadResultsFromLocalStorage();
+          if (Object.keys(localResults).length > 0) {
+            setResults(localResults);
+            console.log('[RESULTS] Загружены результаты из localStorage из-за ошибки БД');
+          }
+        });
+    }
+  }, [screen, userId, loading, selectedTopic?.id]); // Добавили selectedTopic?.id для перезагрузки при смене темы
 
   // Функция для сохранения запроса на оплату в Supabase
   const handlePaymentRequest = async (tariff, senderInfo) => {
@@ -8408,7 +8915,60 @@ function App() {
       return null;
     }
     
-    const topicResults = results[selectedTopic.id] || [];
+    // ВАЖНО: Нормализуем ID темы для поиска результатов
+    // topic_id в БД может быть строкой, а selectedTopic.id - UUID или числом
+    const normalizedTopicId = String(selectedTopic.id || '').trim();
+    
+    // Детальное логирование для отладки
+    console.log('[RESULTS] 🔍 Поиск результатов для темы:', {
+      selectedTopicId: selectedTopic.id,
+      selectedTopicIdType: typeof selectedTopic.id,
+      normalizedTopicId: normalizedTopicId,
+      allResultKeys: Object.keys(results),
+      allResultKeysNormalized: Object.keys(results).map(k => String(k).trim()),
+      resultsStructure: Object.keys(results).map(key => ({
+        key: key,
+        normalizedKey: String(key).trim(),
+        matches: String(key).trim() === normalizedTopicId,
+        count: results[key]?.length || 0
+      }))
+    });
+    
+    // Ищем результаты по нормализованному ID
+    // Проверяем все возможные варианты ключей в results
+    let topicResults = results[normalizedTopicId] || [];
+    
+    // Если результатов нет, пробуем найти по другим вариантам ключа
+    if (topicResults.length === 0) {
+      // Пробуем найти по исходному ID (без нормализации)
+      topicResults = results[selectedTopic.id] || [];
+      
+      // Если все еще нет, ищем по всем ключам, сравнивая нормализованные значения
+      if (topicResults.length === 0) {
+        Object.keys(results).forEach(key => {
+          const normalizedKey = String(key || '').trim();
+          if (normalizedKey === normalizedTopicId) {
+            topicResults = results[key] || [];
+            console.log('[RESULTS] ✅ Найдено результатов по нормализованному ключу:', key, topicResults.length);
+          }
+        });
+      } else {
+        console.log('[RESULTS] ✅ Найдено результатов по исходному ID:', selectedTopic.id, topicResults.length);
+      }
+    } else {
+      console.log('[RESULTS] ✅ Найдено результатов по нормализованному ID:', normalizedTopicId, topicResults.length);
+    }
+    
+    // Если результатов все еще нет, выводим предупреждение
+    if (topicResults.length === 0) {
+      console.warn('[RESULTS] ⚠️ Результаты не найдены для темы:', {
+        selectedTopicId: selectedTopic.id,
+        normalizedTopicId: normalizedTopicId,
+        availableKeys: Object.keys(results),
+        suggestion: 'Проверьте, что topic_id в БД совпадает с selectedTopic.id'
+      });
+    }
+    
     const latestResult = topicResults[0];
     const questions = getMergedQuestions(selectedTopic.id);
     const totalQuestions = questions.length;
@@ -8614,13 +9174,40 @@ function App() {
                           } : null
                         });
                         
-                        if (!result || !result.questions || !result.userAnswers) {
-                          console.error('Cannot open full review: missing data in result');
-                          alert('Ошибка: данные результатов неполные. Попробуйте пройти тест снова.');
+                        // Проверяем наличие полных данных в result
+                        if (!result) {
+                          console.error('Cannot open full review: result is null');
+                          alert('Ошибка: результаты теста не найдены. Попробуйте пройти тест снова.');
                           return;
                         }
                         
-                        setSelectedResult(result);
+                        // Если в result нет questions и userAnswers (загружено из БД),
+                        // пытаемся найти полные данные в localStorage
+                        let fullResult = result;
+                        if (!result.questions || !result.userAnswers) {
+                          console.log('[RESULTS] result не содержит полных данных, ищем в localStorage...');
+                          
+                          // Загружаем результаты из localStorage
+                          const localResults = loadResultsFromLocalStorage();
+                          const normalizedTopicId = String(selectedTopic.id || '').trim();
+                          
+                          // Ищем результаты для этой темы в localStorage
+                          const localTopicResults = localResults[normalizedTopicId] || localResults[selectedTopic.id] || [];
+                          
+                          // Ищем результат с тем же ID или самым свежим
+                          const matchingResult = localTopicResults.find(r => r.id === result.id) || localTopicResults[0];
+                          
+                          if (matchingResult && matchingResult.questions && matchingResult.userAnswers) {
+                            console.log('[RESULTS] ✅ Найдены полные данные в localStorage');
+                            fullResult = matchingResult;
+                          } else {
+                            console.warn('[RESULTS] ⚠️ Полные данные не найдены в localStorage');
+                            alert('Полные данные результатов недоступны. Для просмотра детального обзора пройдите тест снова.');
+                            return;
+                          }
+                        }
+                        
+                        setSelectedResult(fullResult);
                         setScreen('fullReview');
                       }}
                     >
@@ -8650,13 +9237,40 @@ function App() {
                   } : null
                 });
                 
-                if (!latestResult || !latestResult.questions || !latestResult.userAnswers) {
-                  console.error('Cannot open full review: missing data in latestResult');
-                  alert('Ошибка: данные результатов неполные. Попробуйте пройти тест снова.');
+                // Проверяем наличие полных данных в latestResult
+                if (!latestResult) {
+                  console.error('Cannot open full review: latestResult is null');
+                  alert('Ошибка: результаты теста не найдены. Попробуйте пройти тест снова.');
                   return;
                 }
                 
-                setSelectedResult(latestResult);
+                // Если в latestResult нет questions и userAnswers (загружено из БД),
+                // пытаемся найти полные данные в localStorage
+                let fullResult = latestResult;
+                if (!latestResult.questions || !latestResult.userAnswers) {
+                  console.log('[RESULTS] latestResult не содержит полных данных, ищем в localStorage...');
+                  
+                  // Загружаем результаты из localStorage
+                  const localResults = loadResultsFromLocalStorage();
+                  const normalizedTopicId = String(selectedTopic.id || '').trim();
+                  
+                  // Ищем результаты для этой темы в localStorage
+                  const localTopicResults = localResults[normalizedTopicId] || localResults[selectedTopic.id] || [];
+                  
+                  // Ищем результат с тем же ID или самым свежим
+                  const matchingResult = localTopicResults.find(r => r.id === latestResult.id) || localTopicResults[0];
+                  
+                  if (matchingResult && matchingResult.questions && matchingResult.userAnswers) {
+                    console.log('[RESULTS] ✅ Найдены полные данные в localStorage');
+                    fullResult = matchingResult;
+                  } else {
+                    console.warn('[RESULTS] ⚠️ Полные данные не найдены в localStorage');
+                    alert('Полные данные результатов недоступны. Для просмотра детального обзора пройдите тест снова.');
+                    return;
+                  }
+                }
+                
+                setSelectedResult(fullResult);
                 setScreen('fullReview');
               }}
             >
