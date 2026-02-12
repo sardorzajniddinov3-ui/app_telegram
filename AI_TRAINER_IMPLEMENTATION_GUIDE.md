@@ -120,7 +120,7 @@ if (userId) {
           <div style={{
             background: '#18ec23',
             height: '100%',
-            width: '{{ userPerformance }}%',
+            width: `${userPerformance}%`,
             borderRadius: '12px',
             transition: 'width 0.5s ease'
           }} />

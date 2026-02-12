@@ -2181,20 +2181,40 @@ function App() {
     }
     
     const tgUser = initTelegramWebAppSafe();
-    const userId = tgUser?.id ? tgUser.id : Date.now();
+    
+    // КРИТИЧНО: Проверяем, что telegram_id получен от Telegram
+    if (!tgUser?.id) {
+      console.error('[REGISTRATION] Ошибка: telegram_id не получен от Telegram');
+      alert('Ошибка: не удалось получить ID пользователя от Telegram. Пожалуйста, откройте приложение через Telegram.');
+      return;
+    }
+    
+    const userId = Number(tgUser.id);
     const telegramUsername = tgUser?.username || null;
+    
+    // Валидация userId
+    if (!Number.isFinite(userId) || userId <= 0) {
+      console.error('[REGISTRATION] Невалидный userId:', userId);
+      alert('Ошибка: невалидный ID пользователя. Пожалуйста, перезагрузите приложение.');
+      return;
+    }
     
     try {
       // Сохраняем в Supabase
-      const { data: existingData } = await supabase
+      const { data: existingData, error: checkError } = await supabase
         .from('profiles')
         .select('created_at')
-        .eq('id', Number(userId))
-        .single();
+        .eq('id', userId)
+        .maybeSingle();
+
+      if (checkError && checkError.code !== 'PGRST116') {
+        console.error('[REGISTRATION] Ошибка проверки существующего профиля:', checkError);
+        // Продолжаем, даже если есть ошибка проверки
+      }
 
       const now = new Date().toISOString();
       const baseUpsertData = {
-        id: Number(userId),
+        id: userId,
         first_name: registrationForm.name.trim(),
         username: telegramUsername || null,
         is_premium: false,
@@ -2229,8 +2249,28 @@ function App() {
       }
 
       if (error) {
-        console.error('Ошибка сохранения в Supabase:', error);
-        alert('Ошибка сохранения данных. Проверьте таблицу profiles в Supabase.');
+        console.error('[REGISTRATION] Ошибка сохранения в Supabase:', {
+          error,
+          message: error.message,
+          code: error.code,
+          details: error.details,
+          hint: error.hint,
+          userId
+        });
+        
+        // Более детальное сообщение об ошибке
+        let errorMessage = 'Ошибка сохранения данных.';
+        if (error.message) {
+          errorMessage += `\n\nДетали: ${error.message}`;
+        }
+        if (error.code) {
+          errorMessage += `\nКод ошибки: ${error.code}`;
+        }
+        if (error.hint) {
+          errorMessage += `\nПодсказка: ${error.hint}`;
+        }
+        
+        alert(errorMessage);
         return;
       }
 
