@@ -2473,6 +2473,11 @@ body[data-theme="dark"] .topic-action-button:hover {
   width: 100%;
 }
 
+/* Контейнер редактирования изображения */
+.image-edit-container {
+  margin-top: 10px;
+}
+
 /* Предпросмотр изображения */
 .image-preview-container {
   display: flex;
@@ -2487,6 +2492,39 @@ body[data-theme="dark"] .topic-action-button:hover {
   border-radius: 12px;
   object-fit: contain;
   border: 2px solid #e0e0e0;
+  background: #f5f5f5;
+}
+
+/* Контейнер для действий с изображением */
+.image-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* Кнопка замены изображения */
+.replace-image-button {
+  padding: 10px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  background-color: #2196F3;
+  color: #ffffff;
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex: 1;
+  min-width: 150px;
+  text-align: center;
+  display: inline-block;
+}
+
+.replace-image-button:hover {
+  background-color: #1976D2;
+}
+
+.replace-image-button:active {
+  background-color: #1565C0;
 }
 
 .remove-image-button {
@@ -2499,7 +2537,8 @@ body[data-theme="dark"] .topic-action-button:hover {
   border-radius: 10px;
   cursor: pointer;
   transition: all 0.2s ease;
-  align-self: flex-start;
+  flex: 1;
+  min-width: 120px;
 }
 
 .remove-image-button:hover {
@@ -2554,6 +2593,77 @@ body[data-theme="dark"] .answer-input:focus {
 
 body[data-theme="dark"] .image-preview {
   border-color: var(--border-color, #424242);
+  background: #2a2a2a;
+}
+
+body[data-theme="dark"] .image-actions {
+  gap: 10px;
+}
+
+body[data-theme="dark"] .replace-image-button {
+  background-color: #1976D2;
+}
+
+body[data-theme="dark"] .replace-image-button:hover {
+  background-color: #1565C0;
+}
+
+/* Переключатель режимов ввода изображения */
+.image-mode-switcher {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 15px;
+  border-radius: 10px;
+  background: #f5f5f5;
+  padding: 4px;
+}
+
+.mode-switch-button {
+  flex: 1;
+  padding: 10px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  background-color: transparent;
+  color: #666;
+}
+
+.mode-switch-button:hover {
+  background-color: rgba(33, 150, 243, 0.1);
+  color: #2196F3;
+}
+
+.mode-switch-button.active {
+  background-color: #2196F3;
+  color: #ffffff;
+  box-shadow: 0 2px 4px rgba(33, 150, 243, 0.3);
+}
+
+/* Контейнер для ввода URL */
+.image-url-container {
+  width: 100%;
+}
+
+/* Темная тема для переключателя режимов */
+body[data-theme="dark"] .image-mode-switcher {
+  background: #2a2a2a;
+}
+
+body[data-theme="dark"] .mode-switch-button {
+  color: #999;
+}
+
+body[data-theme="dark"] .mode-switch-button:hover {
+  background-color: rgba(33, 150, 243, 0.2);
+  color: #2196F3;
+}
+
+body[data-theme="dark"] .mode-switch-button.active {
+  background-color: #1976D2;
+  color: #ffffff;
 }
 
 /* ========== СТИЛИ ДЛЯ ЭКРАНА ЭКЗАМЕНА ========== */

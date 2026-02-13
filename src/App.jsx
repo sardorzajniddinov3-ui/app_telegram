@@ -12,6 +12,7 @@ import {
   clearQuestionsCache,
   isCacheAvailable 
 } from './cacheService'
+import { resolveImage } from './utils/imageUtils'
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'https://apptelegram-production-4131.up.railway.app';
 
@@ -381,6 +382,8 @@ function App() {
     correct: 'a',
     imageUrl: '',
     imageFile: null, // Файл изображения
+    imageUrlInput: '', // Введенный URL изображения
+    imageInputMode: 'file', // 'file' или 'url'
     topicId: 1
   })
   
@@ -5195,10 +5198,30 @@ function App() {
     }
     
     // Обрабатываем изображение
-    let imageUrl = questionForm.imageUrl || null;
+    let imageUrl = null;
     
+    // Если выбран режим ввода URL и URL введен
+    if (questionForm.imageInputMode === 'url' && questionForm.imageUrlInput && questionForm.imageUrlInput.trim()) {
+      const inputUrl = questionForm.imageUrlInput.trim();
+      // Проверяем, что это валидный URL
+      try {
+        new URL(inputUrl);
+        imageUrl = inputUrl;
+        
+        // Если обновляем вопрос и было старое изображение (из Storage), удаляем его
+        if (editingQuestion && editingQuestion.image_url && 
+            !editingQuestion.image_url.startsWith('http://') && 
+            !editingQuestion.image_url.startsWith('https://') &&
+            !editingQuestion.image_url.startsWith('data:image/')) {
+          await deleteImageFromStorage(editingQuestion.image_url);
+        }
+      } catch (e) {
+        alert('Некорректный URL изображения. Пожалуйста, введите правильную ссылку.');
+        return;
+      }
+    }
     // Если загружен новый файл, загружаем его в Supabase Storage
-    if (questionForm.imageFile) {
+    else if (questionForm.imageFile) {
       try {
         // Загружаем изображение в Storage
         const uploadedUrl = await uploadImageToStorage(questionForm.imageFile, editingQuestion?.id);
@@ -5206,15 +5229,28 @@ function App() {
         
         // Если обновляем вопрос и было старое изображение, удаляем его
         if (editingQuestion && editingQuestion.image_url && editingQuestion.image_url !== imageUrl) {
-          await deleteImageFromStorage(editingQuestion.image_url);
+          // Удаляем только если старое изображение было из Storage (не URL и не base64)
+          if (!editingQuestion.image_url.startsWith('http://') && 
+              !editingQuestion.image_url.startsWith('https://') &&
+              !editingQuestion.image_url.startsWith('data:image/')) {
+            await deleteImageFromStorage(editingQuestion.image_url);
+          }
         }
       } catch (error) {
         console.error('Ошибка загрузки изображения:', error);
         alert('Ошибка при загрузке изображения. Вопрос будет сохранен без изображения.');
         imageUrl = null;
       }
-    } else if (editingQuestion && !imageUrl && editingQuestion.image_url) {
-      // Если удалили изображение при редактировании, удаляем из Storage
+    }
+    // Если есть сохраненное изображение (при редактировании) и оно не было изменено
+    else if (questionForm.imageUrl && !questionForm.imageUrl.startsWith('blob:')) {
+      imageUrl = questionForm.imageUrl;
+    }
+    // Если удалили изображение при редактировании, удаляем из Storage
+    else if (editingQuestion && editingQuestion.image_url && 
+             !editingQuestion.image_url.startsWith('http://') && 
+             !editingQuestion.image_url.startsWith('https://') &&
+             !editingQuestion.image_url.startsWith('data:image/')) {
       await deleteImageFromStorage(editingQuestion.image_url);
       imageUrl = null;
     }
@@ -5669,13 +5705,12 @@ function App() {
         throw error;
       }
 
-      // Получаем публичный URL изображения
-      const { data: urlData } = supabase.storage
-        .from('question-images')
-        .getPublicUrl(fileName);
-
-      console.log('✅ Изображение загружено в Storage:', urlData.publicUrl);
-      return urlData.publicUrl;
+      // ВАЖНО: Сохраняем только путь к файлу, а не полный URL
+      // Это предотвращает обрезание URL в базе данных
+      // Полный URL будет формироваться функцией resolveImage при чтении
+      console.log('✅ Изображение загружено в Storage:', fileName);
+      console.log('✅ Сохраняем путь к файлу (не полный URL):', fileName);
+      return fileName;
     } catch (err) {
       console.error('Ошибка при загрузке изображения:', err);
       throw err;
@@ -5690,17 +5725,27 @@ function App() {
         return;
       }
 
-      // Проверяем, что это URL из нашего Storage
-      if (!imageUrl.includes('/storage/v1/object/public/question-images/')) {
-        return;
+      let filePath = null;
+
+      // Если это полный URL, извлекаем путь к файлу
+      if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) {
+        // URL формат: https://xxx.supabase.co/storage/v1/object/public/question-images/questions/xxx.webp
+        if (!imageUrl.includes('/storage/v1/object/public/question-images/')) {
+          return;
+        }
+        const urlParts = imageUrl.split('/question-images/');
+        if (urlParts.length < 2) return;
+        filePath = urlParts[1].split('?')[0]; // Убираем query параметры
+      } else {
+        // Если это путь к файлу (новый формат)
+        // Убираем bucket name, если есть
+        if (imageUrl.startsWith('question-images/')) {
+          filePath = imageUrl.replace(/^question-images\//, '');
+        } else {
+          filePath = imageUrl;
+        }
       }
 
-      // Извлекаем путь к файлу из URL
-      // URL формат: https://xxx.supabase.co/storage/v1/object/public/question-images/questions/xxx.webp
-      const urlParts = imageUrl.split('/question-images/');
-      if (urlParts.length < 2) return;
-
-      const filePath = urlParts[1].split('?')[0]; // Убираем query параметры
       if (!filePath) return;
 
       const { error } = await supabase.storage
@@ -5733,15 +5778,37 @@ function App() {
         return;
       }
       
-      // Создаем URL для предпросмотра
+      // Освобождаем предыдущий blob URL, если он был
+      if (questionForm.imageUrl && questionForm.imageUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(questionForm.imageUrl);
+      }
+      
+      // Создаем URL для предпросмотра нового файла
       const imageUrl = URL.createObjectURL(file);
       
       setQuestionForm(prev => ({
         ...prev,
         imageFile: file,
-        imageUrl: imageUrl
+        imageUrl: imageUrl,
+        imageUrlInput: '', // Очищаем введенный URL при загрузке файла
+        imageInputMode: 'file' // Переключаем на режим файла
       }));
+      
+      // Сбрасываем значение input, чтобы можно было выбрать тот же файл снова
+      e.target.value = '';
     }
+  };
+
+  // Функция для обработки ввода URL изображения
+  const handleImageUrlInput = (e) => {
+    const url = e.target.value;
+    setQuestionForm(prev => ({
+      ...prev,
+      imageUrlInput: url,
+      imageFile: null, // Очищаем файл при вводе URL
+      imageInputMode: 'url', // Переключаем на режим URL
+      imageUrl: url || '' // Используем URL для предпросмотра
+    }));
   };
 
   // Функция для удаления изображения
@@ -5752,7 +5819,8 @@ function App() {
     setQuestionForm(prev => ({
       ...prev,
       imageFile: null,
-      imageUrl: ''
+      imageUrl: '',
+      imageUrlInput: ''
     }));
   };
 
@@ -5793,6 +5861,8 @@ function App() {
       correct: 'a',
       imageUrl: '',
       imageFile: null,
+      imageUrlInput: '',
+      imageInputMode: 'file',
       topicId: defaultTopicId
     });
   };
@@ -5833,6 +5903,8 @@ function App() {
           correct: 'a',
           imageUrl: '',
           imageFile: null,
+          imageUrlInput: '',
+          imageInputMode: 'file',
           topicId: defaultTopicId
         });
       } else {
@@ -7599,12 +7671,22 @@ function App() {
                                   );
                                 }
                                 
+                                const existingImageUrl = savedQ.image_url || '';
+                                // Определяем режим ввода: если это URL (http/https) или base64, используем режим URL
+                                const isUrlMode = existingImageUrl && (
+                                  existingImageUrl.startsWith('http://') || 
+                                  existingImageUrl.startsWith('https://') ||
+                                  existingImageUrl.startsWith('data:image/')
+                                );
+                                
                                 setQuestionForm({
                                   text: savedQ.question || '',
                                   answers: answers,
                                   correct: savedQ.correct || answers[0]?.id || 'a',
-                                  imageUrl: savedQ.image_url || '',
+                                  imageUrl: existingImageUrl,
                                   imageFile: null,
+                                  imageUrlInput: isUrlMode ? existingImageUrl : '',
+                                  imageInputMode: isUrlMode ? 'url' : 'file',
                                   topicId: savedQ.topic_id || adminSelectedTopic.id
                                 });
                                 setAdminScreen('edit');
@@ -7698,6 +7780,8 @@ function App() {
         text: questionForm.text || '',
         imageUrl: questionForm.imageUrl || '',
         imageFile: questionForm.imageFile || null,
+        imageUrlInput: questionForm.imageUrlInput || '',
+        imageInputMode: questionForm.imageInputMode || 'file',
         topicId: questionForm.topicId || (topics && topics.length > 0 ? topics[0].id : 1)
       };
 
@@ -7791,35 +7875,147 @@ function App() {
 
               <div className="form-group">
                 <label>Изображение (необязательно)</label>
-                {safeQuestionForm.imageUrl ? (
-                  <div className="image-preview-container">
-                    <img 
-                      src={safeQuestionForm.imageUrl} 
-                      alt="Предпросмотр" 
-                      className="image-preview"
-                    />
+                <div className="image-edit-container">
+                  {/* Переключатель режимов */}
+                  <div className="image-mode-switcher">
                     <button
                       type="button"
-                      onClick={handleRemoveImage}
-                      className="remove-image-button"
+                      className={`mode-switch-button ${safeQuestionForm.imageInputMode === 'file' ? 'active' : ''}`}
+                      onClick={() => {
+                        // Очищаем blob URL при переключении на режим файла
+                        if (questionForm.imageUrl && questionForm.imageUrl.startsWith('blob:')) {
+                          URL.revokeObjectURL(questionForm.imageUrl);
+                        }
+                        setQuestionForm(prev => ({ 
+                          ...prev, 
+                          imageInputMode: 'file', 
+                          imageUrlInput: '',
+                          // Сохраняем существующее изображение, если оно не blob
+                          imageUrl: prev.imageUrl && !prev.imageUrl.startsWith('blob:') ? prev.imageUrl : ''
+                        }));
+                      }}
                     >
-                      ✕ Удалить изображение
+                      📁 Загрузить файл
+                    </button>
+                    <button
+                      type="button"
+                      className={`mode-switch-button ${safeQuestionForm.imageInputMode === 'url' ? 'active' : ''}`}
+                      onClick={() => {
+                        // Очищаем blob URL и файл при переключении на режим URL
+                        if (questionForm.imageUrl && questionForm.imageUrl.startsWith('blob:')) {
+                          URL.revokeObjectURL(questionForm.imageUrl);
+                        }
+                        setQuestionForm(prev => {
+                          // Если есть сохраненное изображение и это URL/base64, используем его
+                          const existingUrl = prev.imageUrl && !prev.imageUrl.startsWith('blob:') 
+                            ? (prev.imageUrl.startsWith('http://') || prev.imageUrl.startsWith('https://') || prev.imageUrl.startsWith('data:image/') 
+                                ? prev.imageUrl 
+                                : '')
+                            : '';
+                          return {
+                            ...prev,
+                            imageInputMode: 'url',
+                            imageFile: null,
+                            imageUrlInput: prev.imageUrlInput || existingUrl,
+                            imageUrl: prev.imageUrlInput || existingUrl || ''
+                          };
+                        });
+                      }}
+                    >
+                      🔗 Ввести ссылку
                     </button>
                   </div>
-                ) : (
-                  <div className="image-upload-container">
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={handleImageUpload}
-                      className="image-file-input"
-                      id="image-upload"
-                    />
-                    <label htmlFor="image-upload" className="image-upload-button">
-                      📷 Выбрать изображение из галереи
-                    </label>
-                  </div>
-                )}
+
+                  {/* Предпросмотр изображения, если оно есть */}
+                  {safeQuestionForm.imageUrl && !safeQuestionForm.imageUrl.startsWith('blob:') && (
+                    <div className="image-preview-container">
+                      <img 
+                        src={resolveImage(safeQuestionForm.imageUrl)} 
+                        alt="Текущее изображение" 
+                        className="image-preview"
+                        onError={(e) => {
+                          console.warn('⚠️ [IMAGE] Ошибка загрузки изображения для предпросмотра:', safeQuestionForm.imageUrl);
+                          e.target.style.display = 'none';
+                        }}
+                      />
+                    </div>
+                  )}
+
+                  {/* Режим загрузки файла */}
+                  {safeQuestionForm.imageInputMode === 'file' && (
+                    <div className="image-upload-container">
+                      {safeQuestionForm.imageUrl && safeQuestionForm.imageUrl.startsWith('blob:') && (
+                        <div className="image-preview-container">
+                          <img 
+                            src={safeQuestionForm.imageUrl} 
+                            alt="Предпросмотр" 
+                            className="image-preview"
+                            onError={(e) => {
+                              e.target.style.display = 'none';
+                            }}
+                          />
+                        </div>
+                      )}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={handleImageUpload}
+                        className="image-file-input"
+                        id="image-upload"
+                      />
+                      <label htmlFor="image-upload" className="image-upload-button">
+                        📷 {safeQuestionForm.imageUrl ? 'Заменить изображение' : 'Выбрать изображение из галереи'}
+                      </label>
+                      {safeQuestionForm.imageUrl && (
+                        <button
+                          type="button"
+                          onClick={handleRemoveImage}
+                          className="remove-image-button"
+                          style={{ marginTop: '10px' }}
+                        >
+                          ✕ Удалить
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Режим ввода URL */}
+                  {safeQuestionForm.imageInputMode === 'url' && (
+                    <div className="image-url-container">
+                      <input
+                        type="url"
+                        value={safeQuestionForm.imageUrlInput}
+                        onChange={handleImageUrlInput}
+                        className="form-input"
+                        placeholder="https://example.com/image.jpg"
+                        style={{ marginTop: '10px' }}
+                      />
+                      {safeQuestionForm.imageUrlInput && (
+                        <div className="image-preview-container" style={{ marginTop: '10px' }}>
+                          <img 
+                            src={resolveImage(safeQuestionForm.imageUrlInput)} 
+                            alt="Предпросмотр" 
+                            className="image-preview"
+                            onError={(e) => {
+                              console.warn('⚠️ [IMAGE] Ошибка загрузки изображения по URL:', safeQuestionForm.imageUrlInput);
+                              e.target.style.display = 'none';
+                            }}
+                          />
+                        </div>
+                      )}
+                      {safeQuestionForm.imageUrl && (
+                        <button
+                          type="button"
+                          onClick={handleRemoveImage}
+                          className="remove-image-button"
+                          style={{ marginTop: '10px' }}
+                        >
+                          ✕ Удалить
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
 
               <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
@@ -9569,17 +9765,23 @@ function App() {
               });
             }
             
+            const resolvedImage = question.image ? resolveImage(question.image) : null;
+            
             return (
               <div key={question.id || index} className="review-question-block">
                 <div className="review-question-number">
                   Вопрос {index + 1} из {questions.length}
                 </div>
             {/* TODO: Ensure this image is compressed (WebP or compressed PNG under 50kb) */}
-                {question.image && (
+                {resolvedImage && (
                   <img
-                    src={question.image}
+                    src={resolvedImage}
                     alt="question"
                     className="review-question-image"
+                    onError={(e) => {
+                      console.warn('⚠️ [IMAGE] Ошибка загрузки изображения (404 или другая):', resolvedImage);
+                      e.target.style.display = 'none';
+                    }}
                   />
                 )}
                 <h3 className="review-question-text">{question.text}</h3>
@@ -9998,6 +10200,7 @@ function App() {
         <div className="full-review-content">
           {questions.map((question, index) => {
             const userAnswer = userAnswers[index];
+            const resolvedImage = question.image ? resolveImage(question.image) : null;
             
             return (
               <div key={question.id || index} className="review-question-block">
@@ -10005,11 +10208,15 @@ function App() {
                   Вопрос {index + 1} из {questions.length}
                 </div>
             {/* TODO: Ensure this image is compressed (WebP or compressed PNG under 50kb) */}
-                {question.image && (
+                {resolvedImage && (
                   <img
-                    src={question.image}
+                    src={resolvedImage}
                     alt="question"
                     className="review-question-image"
+                    onError={(e) => {
+                      console.warn('⚠️ [IMAGE] Ошибка загрузки изображения (404 или другая):', resolvedImage);
+                      e.target.style.display = 'none';
+                    }}
                   />
                 )}
                 <h3 className="review-question-text">{question.text}</h3>
@@ -10396,6 +10603,7 @@ function App() {
     });
     
     const question = questions[currentQuestionIndex]
+    const resolvedImage = question?.image ? resolveImage(question.image) : null;
 
     if (!question) {
       return (
@@ -10457,11 +10665,15 @@ function App() {
           
           <div className="question-box">
             {/* TODO: Ensure this image is compressed (WebP or compressed PNG under 50kb) */}
-            {question.image && (
+            {resolvedImage && (
               <img
-                src={question.image}
+                src={resolvedImage}
                 alt="question"
                 className="question-image-new"
+                onError={(e) => {
+                  console.warn('⚠️ [IMAGE] Ошибка загрузки изображения (404 или другая):', resolvedImage);
+                  e.target.style.display = 'none';
+                }}
               />
             )}
             <p className="question-text-new">{question.text}</p>
