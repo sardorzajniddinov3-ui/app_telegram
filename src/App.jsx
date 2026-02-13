@@ -408,6 +408,7 @@ function App() {
   const [hasMoreUsers, setHasMoreUsers] = useState(true) // Есть ли еще пользователи для загрузки
   const USERS_PAGE_SIZE = 50 // Размер страницы для загрузки пользователей
   const [usersError, setUsersError] = useState(null) // Ошибка загрузки пользователей
+  const [userSortOrder, setUserSortOrder] = useState('desc') // Сортировка по дате регистрации: 'asc' (старые сначала) или 'desc' (новые сначала)
   const [dbActiveSubs, setDbActiveSubs] = useState([]) // Активные подписки из БД (backend)
   const [dbSubsLoading, setDbSubsLoading] = useState(false)
   const [dbSubsError, setDbSubsError] = useState(null)
@@ -2351,10 +2352,11 @@ function App() {
     
     try {
       // Загружаем пользователей из profiles с курсорной пагинацией
+      // Сортируем по дате регистрации (created_at)
       let query = supabase
         .from('profiles')
         .select('*')
-        .order('id', { ascending: true })
+        .order('created_at', { ascending: userSortOrder === 'asc' })
         .limit(USERS_PAGE_SIZE);
       
       // Если есть курсор, загружаем записи с id больше курсора
@@ -8114,7 +8116,7 @@ function App() {
       };
 
       // Фильтрация пользователей по поисковому запросу
-      const filteredUsers = usersList.filter(user => {
+      let filteredUsers = usersList.filter(user => {
         if (!userSearchQuery.trim()) return true;
         const query = userSearchQuery.toLowerCase();
         return (
@@ -8123,6 +8125,13 @@ function App() {
           user.phone?.includes(query) ||
           user.telegramUsername?.toLowerCase().includes(query)
         );
+      });
+
+      // Сортировка по дате регистрации (на случай, если данные уже загружены)
+      filteredUsers = [...filteredUsers].sort((a, b) => {
+        const dateA = new Date(a.registrationDate || 0);
+        const dateB = new Date(b.registrationDate || 0);
+        return userSortOrder === 'asc' ? dateA - dateB : dateB - dateA;
       });
 
       // Функция для открытия модального окна пользователя
@@ -8247,8 +8256,8 @@ function App() {
               </form>
             </div>
 
-            {/* Поиск */}
-            <div style={{ marginBottom: '16px' }}>
+            {/* Поиск и сортировка */}
+            <div style={{ marginBottom: '16px', display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
               <input
                 type="text"
                 placeholder="🔍 Поиск по имени, ID, телефону..."
@@ -8256,7 +8265,8 @@ function App() {
                 onChange={(e) => setUserSearchQuery(e.target.value)}
                 className="user-search-input"
                 style={{
-                  width: '100%',
+                  flex: 1,
+                  minWidth: '200px',
                   padding: '12px 16px',
                   fontSize: '16px',
                   border: 'none',
@@ -8267,6 +8277,28 @@ function App() {
                   outline: 'none'
                 }}
               />
+              <select
+                value={userSortOrder}
+                onChange={(e) => {
+                  setUserSortOrder(e.target.value);
+                  // Перезагружаем пользователей с новой сортировкой
+                  loadUsersFromSupabase(true);
+                }}
+                style={{
+                  padding: '12px 16px',
+                  fontSize: '16px',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: '12px',
+                  backgroundColor: 'var(--input-bg)',
+                  color: 'var(--text-color)',
+                  outline: 'none',
+                  cursor: 'pointer',
+                  minWidth: '200px'
+                }}
+              >
+                <option value="desc">📅 Новые сначала</option>
+                <option value="asc">📅 Старые сначала</option>
+              </select>
             </div>
 
             <div style={{ marginBottom: '16px', display: 'flex', gap: '10px', alignItems: 'center' }}>
