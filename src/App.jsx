@@ -371,6 +371,8 @@ function App() {
   const [adminSelectedTopic, setAdminSelectedTopic] = useState(null) // Выбранная тема в админ-панели
   const [editingQuestion, setEditingQuestion] = useState(null)
   const [savedQuestions, setSavedQuestions] = useState([])
+  const [savedScrollPosition, setSavedScrollPosition] = useState(0) // Сохраненная позиция прокрутки
+  const [editingQuestionId, setEditingQuestionId] = useState(null) // ID редактируемого вопроса для прокрутки
   const [questionForm, setQuestionForm] = useState({
     text: '',
     answers: [
@@ -5476,13 +5478,16 @@ function App() {
       
       // Если редактировали вопрос, возвращаемся к списку
       if (editingQuestion) {
-      resetQuestionForm();
-      setEditingQuestion(null);
+        const questionIdToScroll = editingQuestionId; // Сохраняем ID для прокрутки
+        resetQuestionForm();
+        setEditingQuestion(null);
         if (adminSelectedTopic) {
-        setAdminScreen('topicQuestions');
-      } else {
-        setAdminScreen('list');
+          setAdminScreen('topicQuestions');
+        } else {
+          setAdminScreen('list');
         }
+        
+        // Позиция прокрутки будет восстановлена через useEffect после загрузки вопросов
       } else {
         // Если добавляли новый вопрос, очищаем форму, но оставляем её открытой
         // Сохраняем текущую тему перед сбросом
@@ -5935,6 +5940,39 @@ function App() {
       }
     }
   }, [adminScreen, editingQuestion, topics]);
+
+  // Восстановление позиции прокрутки после возврата к списку вопросов
+  useEffect(() => {
+    if ((adminScreen === 'topicQuestions' || adminScreen === 'list') && editingQuestionId) {
+      let attempts = 0;
+      const maxAttempts = 5;
+      
+      const tryScroll = () => {
+        attempts++;
+        const questionElement = document.getElementById(`question-${editingQuestionId}`);
+        if (questionElement) {
+          questionElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          // Очищаем сохраненный ID после успешной прокрутки
+          setEditingQuestionId(null);
+        } else if (attempts < maxAttempts) {
+          // Пытаемся еще раз через 300ms
+          setTimeout(tryScroll, 300);
+        } else {
+          // Если элемент не найден после всех попыток, восстанавливаем сохраненную позицию прокрутки
+          if (savedScrollPosition > 0) {
+            window.scrollTo({ top: savedScrollPosition, behavior: 'smooth' });
+          }
+          // Очищаем сохраненный ID после использования
+          setEditingQuestionId(null);
+        }
+      };
+      
+      // Начинаем попытки прокрутки через небольшую задержку
+      const timer = setTimeout(tryScroll, 300);
+
+      return () => clearTimeout(timer);
+    }
+  }, [adminScreen, editingQuestionId, savedScrollPosition]);
 
   // Функция для переключения темы вручную
   const toggleTheme = () => {
@@ -7614,6 +7652,7 @@ function App() {
                 allQuestions.map((question, index) => (
                   <div 
                     key={question.id} 
+                    id={`question-${question.id}`}
                     className="admin-topic-item" 
                     style={{ 
                       backgroundColor: question.isStatic ? '#f5f5f5' : '#fff3cd', 
@@ -7645,6 +7684,12 @@ function App() {
                             <button
                               onClick={() => {
                                 const savedQ = question.savedData;
+                                
+                                // Сохраняем позицию прокрутки перед открытием формы редактирования
+                                setSavedScrollPosition(window.scrollY || document.documentElement.scrollTop);
+                                // Сохраняем ID редактируемого вопроса
+                                setEditingQuestionId(question.id);
+                                
                                 setEditingQuestion(savedQ);
                                 
                                 // Преобразуем старый формат в новый (массив answers)
