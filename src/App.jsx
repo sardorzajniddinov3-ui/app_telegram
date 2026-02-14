@@ -12,7 +12,7 @@ import {
   clearQuestionsCache,
   isCacheAvailable 
 } from './cacheService'
-import { resolveImage } from './utils/imageUtils'
+import { resolveImage, resolveImageSrc } from './utils/imageUtils'
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'https://apptelegram-production-4131.up.railway.app';
 
@@ -100,6 +100,9 @@ function App() {
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0)
   const [selectedAnswer, setSelectedAnswer] = useState(null)
   const [isAnswered, setIsAnswered] = useState(false)
+  const [activeQuestionImageSrc, setActiveQuestionImageSrc] = useState(null)
+  const [imageLoaded, setImageLoaded] = useState(true)
+  const activeImageObjectUrlRef = useRef(null)
   const [results, setResults] = useState({})
   
   // Функция для сохранения результатов в localStorage
@@ -4982,6 +4985,79 @@ function App() {
       }
     }
   }
+
+  useEffect(() => {
+    if (screen !== 'quiz') {
+      if (activeImageObjectUrlRef.current) {
+        URL.revokeObjectURL(activeImageObjectUrlRef.current);
+        activeImageObjectUrlRef.current = null;
+      }
+      return;
+    }
+
+    const questions = testQuestions.length > 0
+      ? testQuestions
+      : (selectedTopic ? getMergedQuestions(selectedTopic.id) : []);
+    const currentQuestion = questions[currentQuestionIndex];
+    const currentImagePath = currentQuestion?.image || null;
+
+    // Сбрасываем текущую картинку перед показом новой, чтобы не мигало старое изображение.
+    setImageLoaded(!currentImagePath);
+    setActiveQuestionImageSrc(null);
+
+    if (activeImageObjectUrlRef.current) {
+      URL.revokeObjectURL(activeImageObjectUrlRef.current);
+      activeImageObjectUrlRef.current = null;
+    }
+
+    if (!currentImagePath) return;
+
+    let isCancelled = false;
+
+    (async () => {
+      const resolvedSrc = await resolveImageSrc(currentImagePath);
+      if (isCancelled) {
+        if (resolvedSrc?.startsWith('blob:')) {
+          URL.revokeObjectURL(resolvedSrc);
+        }
+        return;
+      }
+
+      if (resolvedSrc?.startsWith('blob:')) {
+        activeImageObjectUrlRef.current = resolvedSrc;
+      }
+
+      setActiveQuestionImageSrc(resolvedSrc);
+    })();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [screen, currentQuestionIndex, testQuestions, selectedTopic]);
+
+  useEffect(() => {
+    if (screen !== 'quiz' || !isAnswered) return;
+
+    const questions = testQuestions.length > 0
+      ? testQuestions
+      : (selectedTopic ? getMergedQuestions(selectedTopic.id) : []);
+    const nextQuestion = questions[currentQuestionIndex + 1];
+    const nextImagePath = nextQuestion?.image || null;
+
+    if (!nextImagePath) return;
+
+    let isCancelled = false;
+    (async () => {
+      const preloadedSrc = await resolveImageSrc(nextImagePath);
+      if (!isCancelled && preloadedSrc?.startsWith('blob:')) {
+        URL.revokeObjectURL(preloadedSrc);
+      }
+    })();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [screen, isAnswered, currentQuestionIndex, testQuestions, selectedTopic]);
 
   const handleAnswerClick = (answerId) => {
     // ========== ЭКЗАМЕН: Блокируем ответы, если время истекло ==========
@@ -10680,7 +10756,7 @@ function App() {
     });
     
     const question = questions[currentQuestionIndex]
-    const resolvedImage = question?.image ? resolveImage(question.image) : null;
+    const hasQuestionImage = Boolean(question?.image);
 
     if (!question) {
       return (
@@ -10741,17 +10817,28 @@ function App() {
           </h2>
           
           <div className="question-box">
-            {/* TODO: Ensure this image is compressed (WebP or compressed PNG under 50kb) */}
-            {resolvedImage && (
-              <img
-                src={resolvedImage}
-                alt="question"
-                className="question-image-new"
-                onError={(e) => {
-                  console.warn('⚠️ [IMAGE] Ошибка загрузки изображения (404 или другая):', resolvedImage);
-                  e.target.style.display = 'none';
-                }}
-              />
+            {hasQuestionImage && (
+              <div className="question-image-wrapper">
+                {!imageLoaded && (
+                  <div className="question-image-skeleton" aria-hidden="true">
+                    <div className="question-image-spinner"></div>
+                  </div>
+                )}
+                {activeQuestionImageSrc && (
+                  <img
+                    src={activeQuestionImageSrc}
+                    alt="question"
+                    className="question-image-new"
+                    onLoad={() => setImageLoaded(true)}
+                    onError={() => {
+                      console.warn('⚠️ [IMAGE] Ошибка загрузки изображения (404 или другая):', activeQuestionImageSrc);
+                      setImageLoaded(true);
+                      setActiveQuestionImageSrc(null);
+                    }}
+                    style={{ display: imageLoaded ? 'block' : 'none' }}
+                  />
+                )}
+              </div>
             )}
             <p className="question-text-new">{question.text}</p>
           </div>

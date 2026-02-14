@@ -264,6 +264,48 @@ button {
   object-fit: contain;
 }
 
+.question-image-wrapper {
+  position: relative;
+  width: 100%;
+  margin-bottom: 15px;
+}
+
+.question-image-skeleton {
+  width: 100%;
+  height: 220px;
+  border-radius: 10px;
+  background: linear-gradient(90deg, #dfeeff 25%, #f1f8ff 37%, #dfeeff 63%);
+  background-size: 400% 100%;
+  animation: questionImageShimmer 1.4s ease infinite;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.question-image-spinner {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 3px solid rgba(0, 0, 0, 0.15);
+  border-top-color: rgba(0, 0, 0, 0.45);
+  animation: questionImageSpin 0.85s linear infinite;
+}
+
+@keyframes questionImageShimmer {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: -100% 0;
+  }
+}
+
+@keyframes questionImageSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .question-text-new {
   font-size: 22px;
   font-weight: 600;
