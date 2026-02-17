@@ -116,9 +116,8 @@ function App() {
         Object.keys(resultsToSave).forEach(topicId => {
           if (Array.isArray(resultsToSave[topicId])) {
             resultsToStore[topicId] = resultsToSave[topicId].map((result, index) => {
-              // Для первого (последнего) результата каждой темы сохраняем полные данные
-              // для возможности открытия "Полного обзора" после обновления страницы
-              if (index === 0 && result.questions && result.userAnswers) {
+              // Сохраняем полные данные для ВСЕХ результатов, чтобы можно было открыть любой "Полный обзор"
+              if (result.questions && result.userAnswers) {
                 return {
                   id: result.id,
                   correct: result.correct,
@@ -129,21 +128,21 @@ function App() {
                   timeFormatted: result.timeFormatted,
                   timeSpent: result.timeSpent,
                   dateTime: result.dateTime,
-                  questions: result.questions, // Сохраняем для последнего результата
-                  userAnswers: result.userAnswers // Сохраняем для последнего результата
+                  questions: result.questions,
+                  userAnswers: result.userAnswers
                 };
               } else {
-                // Для остальных результатов сохраняем только метаданные
+                // Если данные неполные, сохраняем только метаданные
                 return {
-              id: result.id,
-              correct: result.correct,
-              total: result.total,
-              answered: result.answered,
-              percentage: result.percentage,
-              time: result.time,
-              timeFormatted: result.timeFormatted,
-              timeSpent: result.timeSpent,
-              dateTime: result.dateTime
+                  id: result.id,
+                  correct: result.correct,
+                  total: result.total,
+                  answered: result.answered,
+                  percentage: result.percentage,
+                  time: result.time,
+                  timeFormatted: result.timeFormatted,
+                  timeSpent: result.timeSpent,
+                  dateTime: result.dateTime
                 };
               }
             });
@@ -152,7 +151,7 @@ function App() {
           }
         });
         localStorage.setItem(storageKey, JSON.stringify(resultsToStore));
-        console.log('[RESULTS] Результаты сохранены в localStorage (с полными данными для последних результатов)');
+        console.log('[RESULTS] Результаты сохранены в localStorage с полными данными');
       }
     } catch (error) {
       console.error('[RESULTS] Ошибка сохранения результатов в localStorage:', error);
@@ -210,6 +209,50 @@ function App() {
       console.error('[RESULTS] Ошибка загрузки результатов из localStorage:', error);
     }
     return {};
+  };
+
+  const hasFullReviewData = (result) => {
+    return !!(
+      result &&
+      Array.isArray(result.questions) &&
+      result.questions.length > 0 &&
+      Array.isArray(result.userAnswers) &&
+      result.userAnswers.length > 0
+    );
+  };
+
+  const findFullResultForReview = (baseResult, topicId) => {
+    if (hasFullReviewData(baseResult)) {
+      return baseResult;
+    }
+
+    const localResults = loadResultsFromLocalStorage();
+    const normalizedTopicId = String(topicId || '').trim();
+    const localTopicResults = localResults[normalizedTopicId] || localResults[topicId] || [];
+    const allLocalResults = Object.values(localResults || {}).flatMap(v => Array.isArray(v) ? v : []);
+
+    const fullTopicResults = localTopicResults.filter(hasFullReviewData);
+    const fullAllResults = allLocalResults.filter(hasFullReviewData);
+
+    // 1) Пытаемся совпасть по ID (если ID одинаковые в БД и localStorage)
+    const byId = [...fullTopicResults, ...fullAllResults].find(r => r.id === baseResult?.id);
+    if (byId) return byId;
+
+    // 2) Пытаемся совпасть по "сигнатуре" результата
+    const bySignature = [...fullTopicResults, ...fullAllResults].find(r =>
+      Number(r.correct) === Number(baseResult?.correct) &&
+      Number(r.total) === Number(baseResult?.total) &&
+      Number(r.percentage) === Number(baseResult?.percentage)
+    );
+    if (bySignature) return bySignature;
+
+    // 3) Берем последний полный результат по теме
+    if (fullTopicResults.length > 0) return fullTopicResults[0];
+
+    // 4) Последний полный результат вообще
+    if (fullAllResults.length > 0) return fullAllResults[0];
+
+    return null;
   };
   
   // Функция для загрузки результатов из БД
@@ -424,7 +467,7 @@ function App() {
   // ========== ИИ-ОБЪЯСНЕНИЕ ОШИБОК: Функция для получения объяснения с эффектом печатания ==========
   // Система автоматического переключения моделей реализована в Edge Function
   // При ошибке 429 или 404 система автоматически переключается на следующую модель
-  const getExplanation = async (questionId, question, wrongAnswer, correctAnswer, isHintInTest = false) => {
+  const getExplanation = async (questionId, question, wrongAnswer, correctAnswer, imageUrl = null, isHintInTest = false) => {
     // Если объяснение уже загружено, не запрашиваем снова
     if (explanations[questionId]?.explanation) {
       return;
@@ -458,7 +501,7 @@ function App() {
     }));
     
     try {
-      console.log('Запрос объяснения для вопроса:', { questionId, question, wrongAnswer, correctAnswer });
+      console.log('Запрос объяснения для вопроса:', { questionId, question, wrongAnswer, correctAnswer, imageUrl });
       
       // ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА ПЕРЕД ОТПРАВКОЙ ЗАПРОСА
       const finalLimitCheck = await checkAILimit(isHintInTest);
@@ -481,7 +524,8 @@ function App() {
         body: {
           question: question,
           wrongAnswer: wrongAnswer,
-          correctAnswer: correctAnswer
+          correctAnswer: correctAnswer,
+          imageUrl: imageUrl
         }
       });
       
@@ -1050,7 +1094,7 @@ function App() {
       console.log('[ANALYTICS] Загрузка статистики для пользователя:', currentUserId);
       
       // Загружаем результаты тестов, сгруппированные по темам
-      const { data: testResults, error: testResultsError } = await supabase
+      const { data: dbTestResults, error: testResultsError } = await supabase
         .from('test_results')
         .select('topic_id, total_questions, correct_answers, percentage')
         .eq('user_id', Number(currentUserId))
@@ -1062,11 +1106,11 @@ function App() {
       }
       
       // Логируем загруженные результаты для отладки
-      if (testResults && testResults.length > 0) {
-        console.log('[ANALYTICS] Загружено результатов тестов:', testResults.length);
-        const uniqueTopicIds = [...new Set(testResults.map(r => r.topic_id))];
+      if (dbTestResults && dbTestResults.length > 0) {
+        console.log('[ANALYTICS] Загружено результатов тестов:', dbTestResults.length);
+        const uniqueTopicIds = [...new Set(dbTestResults.map(r => r.topic_id))];
         console.log('[ANALYTICS] Уникальные topic_id в результатах:', uniqueTopicIds);
-        testResults.slice(0, 5).forEach((r, i) => {
+        dbTestResults.slice(0, 5).forEach((r, i) => {
           console.log(`[ANALYTICS] Результат ${i + 1}:`, {
             topic_id: r.topic_id,
             percentage: r.percentage,
@@ -1079,7 +1123,7 @@ function App() {
       }
       
       // Загружаем ошибки пользователя, сгруппированные по темам
-      const { data: userErrors, error: userErrorsError } = await supabase
+      const { data: dbUserErrors, error: userErrorsError } = await supabase
         .from('user_errors')
         .select('topic_id, question_id, error_count')
         .eq('user_id', Number(currentUserId))
@@ -1105,6 +1149,64 @@ function App() {
         const str = String(id).trim();
         return str || null;
       };
+
+      let testResults = Array.isArray(dbTestResults) ? dbTestResults : [];
+      let userErrors = Array.isArray(dbUserErrors) ? dbUserErrors : [];
+
+      // Fallback: если в БД нет данных, строим статистику из локально сохраненных результатов.
+      if (testResults.length === 0) {
+        console.warn('[ANALYTICS] В БД нет результатов, используем локальные данные');
+
+        const localResultsSource = (results && Object.keys(results).length > 0)
+          ? results
+          : (() => {
+              try {
+                const storageKey = `test_results_${currentUserId}`;
+                const raw = localStorage.getItem(storageKey);
+                return raw ? JSON.parse(raw) : {};
+              } catch (e) {
+                console.error('[ANALYTICS] Ошибка чтения localStorage fallback:', e);
+                return {};
+              }
+            })();
+
+        const fallbackTestResults = [];
+        const fallbackUserErrors = [];
+
+        Object.entries(localResultsSource || {}).forEach(([topicId, topicResults]) => {
+          if (topicId === 'exam' || !Array.isArray(topicResults)) return;
+
+          topicResults.forEach(result => {
+            if (!result) return;
+
+            fallbackTestResults.push({
+              topic_id: String(topicId),
+              total_questions: Number(result.total) || 0,
+              correct_answers: Number(result.correct) || 0,
+              percentage: Number(result.percentage) || 0
+            });
+
+            const resultQuestions = Array.isArray(result.questions) ? result.questions : [];
+            const resultUserAnswers = Array.isArray(result.userAnswers) ? result.userAnswers : [];
+
+            resultUserAnswers.forEach((ua, idx) => {
+              if (!ua || ua.selectedAnswerId === null || ua.selectedAnswerId === undefined) return;
+              if (ua.isCorrect === true) return;
+
+              const q = resultQuestions[idx];
+              const qid = q?.id ?? `${topicId}_${idx}`;
+              fallbackUserErrors.push({
+                topic_id: String(topicId),
+                question_id: String(qid),
+                error_count: 1
+              });
+            });
+          });
+        });
+
+        testResults = fallbackTestResults;
+        userErrors = fallbackUserErrors;
+      }
       
       // Создаем Map для подсчета общего количества вопросов по темам
       const totalQuestionsByTopic = new Map();
@@ -9649,27 +9751,15 @@ function App() {
                         // Если в result нет questions и userAnswers (загружено из БД),
                         // пытаемся найти полные данные в localStorage
                         let fullResult = result;
-                        if (!result.questions || !result.userAnswers) {
+                        if (!hasFullReviewData(result)) {
                           console.log('[RESULTS] result не содержит полных данных, ищем в localStorage...');
-                          
-                          // Загружаем результаты из localStorage
-                          const localResults = loadResultsFromLocalStorage();
-                          const normalizedTopicId = String(selectedTopic.id || '').trim();
-                          
-                          // Ищем результаты для этой темы в localStorage
-                          const localTopicResults = localResults[normalizedTopicId] || localResults[selectedTopic.id] || [];
-                          
-                          // Ищем результат с тем же ID или самым свежим
-                          const matchingResult = localTopicResults.find(r => r.id === result.id) || localTopicResults[0];
-                          
-                          if (matchingResult && matchingResult.questions && matchingResult.userAnswers) {
-                            console.log('[RESULTS] ✅ Найдены полные данные в localStorage');
-                            fullResult = matchingResult;
-                          } else {
+                          fullResult = findFullResultForReview(result, selectedTopic?.id);
+                          if (!fullResult) {
                             console.warn('[RESULTS] ⚠️ Полные данные не найдены в localStorage');
                             alert('Полные данные результатов недоступны. Для просмотра детального обзора пройдите тест снова.');
                             return;
                           }
+                          console.log('[RESULTS] ✅ Найдены полные данные для Full Review');
                         }
                         
                         setSelectedResult(fullResult);
@@ -9712,27 +9802,15 @@ function App() {
                 // Если в latestResult нет questions и userAnswers (загружено из БД),
                 // пытаемся найти полные данные в localStorage
                 let fullResult = latestResult;
-                if (!latestResult.questions || !latestResult.userAnswers) {
+                if (!hasFullReviewData(latestResult)) {
                   console.log('[RESULTS] latestResult не содержит полных данных, ищем в localStorage...');
-                  
-                  // Загружаем результаты из localStorage
-                  const localResults = loadResultsFromLocalStorage();
-                  const normalizedTopicId = String(selectedTopic.id || '').trim();
-                  
-                  // Ищем результаты для этой темы в localStorage
-                  const localTopicResults = localResults[normalizedTopicId] || localResults[selectedTopic.id] || [];
-                  
-                  // Ищем результат с тем же ID или самым свежим
-                  const matchingResult = localTopicResults.find(r => r.id === latestResult.id) || localTopicResults[0];
-                  
-                  if (matchingResult && matchingResult.questions && matchingResult.userAnswers) {
-                    console.log('[RESULTS] ✅ Найдены полные данные в localStorage');
-                    fullResult = matchingResult;
-                  } else {
+                  fullResult = findFullResultForReview(latestResult, selectedTopic?.id);
+                  if (!fullResult) {
                     console.warn('[RESULTS] ⚠️ Полные данные не найдены в localStorage');
                     alert('Полные данные результатов недоступны. Для просмотра детального обзора пройдите тест снова.');
                     return;
                   }
+                  console.log('[RESULTS] ✅ Найдены полные данные для Full Review');
                 }
                 
                 setSelectedResult(fullResult);
@@ -9774,7 +9852,15 @@ function App() {
       }
     }
     
-    if (!reviewResult || !reviewResult.questions || !reviewResult.userAnswers) {
+    if (!hasFullReviewData(reviewResult)) {
+      const fallbackResult = findFullResultForReview(reviewResult, selectedTopic?.id);
+      if (fallbackResult) {
+        reviewResult = fallbackResult;
+        setSelectedResult(fallbackResult);
+      }
+    }
+
+    if (!hasFullReviewData(reviewResult)) {
       console.error('Full Review - Missing data:', {
         hasSelectedResult: !!selectedResult,
         hasSelectedTopic: !!selectedTopic,
@@ -10047,7 +10133,8 @@ function App() {
                           onClick={() => {
                             const wrongAnswerText = userSelectedAnswer?.text || userSelectedAnswer?.option_text || 'Выбранный ответ';
                             const correctAnswerText = correctAnswer?.text || correctAnswer?.option_text || 'Правильный ответ';
-                            getExplanation(questionId, question.text || question.question_text, wrongAnswerText, correctAnswerText);
+                            const questionImage = question.image || question.image_url || null;
+                            getExplanation(questionId, question.text || question.question_text, wrongAnswerText, correctAnswerText, questionImage);
                           }}
                           style={{
                             padding: '10px 20px',
@@ -10436,7 +10523,10 @@ function App() {
                             {!explanationData && (
                               <button
                                 className="explanation-button"
-                                onClick={() => getExplanation(questionId, question.text, wrongAnswerText, correctAnswerText)}
+                                onClick={() => {
+                                  const questionImage = question.image || question.image_url || null;
+                                  getExplanation(questionId, question.text, wrongAnswerText, correctAnswerText, questionImage);
+                                }}
                               >
                                 🤖 Почему это неправильно?
                               </button>
@@ -10940,7 +11030,10 @@ function App() {
                   {!explanationData && (
                     <button
                       className="explanation-button"
-                      onClick={() => getExplanation(questionId, question.text, userSelectedAnswer.text, correctAnswerObj.text)}
+                      onClick={() => {
+                        const questionImage = question.image || question.image_url || null;
+                        getExplanation(questionId, question.text, userSelectedAnswer.text, correctAnswerObj.text, questionImage);
+                      }}
                       style={{
                         padding: '12px 20px',
                         fontSize: '15px',
