@@ -37,6 +37,14 @@ function adminOnly(pool) {
   };
 }
 
+function mainAdminOnly(req, res, next) {
+  const id = req.telegramUser && req.telegramUser.id ? Number(req.telegramUser.id) : null;
+  if (id !== MAIN_ADMIN_TELEGRAM_ID) {
+    return res.status(403).json({ error: 'Forbidden: main admin only' });
+  }
+  next();
+}
+
 /**
  * @param {import('pg').Pool} pool
  */
@@ -210,6 +218,97 @@ function createAdminRouter(pool) {
     );
 
     res.json({ ok: true, user: rows[0] });
+  });
+
+  // POST /api/admin/broadcast - массовая рассылка сообщений
+  // body: { message: string }
+  router.post('/broadcast', telegramAuth, mainAdminOnly, async (req, res) => {
+    try {
+      const message = req.body && req.body.message;
+      const currentAdminId = req.telegramUser && req.telegramUser.id ? Number(req.telegramUser.id) : null;
+
+      // Проверяем, что сообщение не пустое
+      if (!message || typeof message !== 'string' || message.trim().length === 0) {
+        return res.status(400).json({ error: 'Message is required' });
+      }
+
+      // Проверяем токен бота
+      const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+      if (!BOT_TOKEN) {
+        return res.status(500).json({ error: 'Bot token not configured' });
+      }
+
+      console.log(`Admin ${currentAdminId} starting broadcast. Message: "${message.substring(0, 50)}..."`);
+
+      // Получаем всех пользователей из Supabase
+      const { rows: users } = await pool.query(
+        'SELECT telegram_id FROM users WHERE telegram_id IS NOT NULL ORDER BY telegram_id'
+      );
+
+      if (users.length === 0) {
+        return res.json({ ok: true, sent: 0, failed: 0, message: 'No users found' });
+      }
+
+      console.log(`Found ${users.length} users for broadcast`);
+
+      let sent = 0;
+      let failed = 0;
+      const failedUsers = [];
+
+      // Отправляем сообщения с задержкой
+      for (let i = 0; i < users.length; i++) {
+        const user = users[i];
+        const telegramId = user.telegram_id;
+
+        try {
+          const response = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              chat_id: telegramId,
+              text: message,
+              parse_mode: 'HTML'
+            })
+          });
+
+          const result = await response.json();
+
+          if (response.ok && result.ok) {
+            sent++;
+            console.log(`✅ Message sent to ${telegramId}`);
+          } else {
+            failed++;
+            failedUsers.push({ telegramId, error: result.description || 'Unknown error' });
+            console.log(`❌ Failed to send to ${telegramId}: ${result.description || 'Unknown error'}`);
+          }
+        } catch (error) {
+          failed++;
+          failedUsers.push({ telegramId, error: error.message });
+          console.log(`❌ Error sending to ${telegramId}: ${error.message}`);
+        }
+
+        // Добавляем задержку между отправками (100ms между сообщениями)
+        if (i < users.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+      }
+
+      console.log(`Broadcast completed. Sent: ${sent}, Failed: ${failed}`);
+
+      res.json({
+        ok: true,
+        sent,
+        failed,
+        total: users.length,
+        failedUsers: failedUsers.length > 0 ? failedUsers : undefined
+      });
+
+    } catch (err) {
+      console.error('Error in broadcast:', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
   });
 
   return router;

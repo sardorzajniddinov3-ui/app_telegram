@@ -1,4 +1,112 @@
 import { supabase } from '../supabase'
+import localforage from 'localforage'
+
+const imageCacheStore = localforage.createInstance({
+  name: 'TelegramQuizApp',
+  storeName: 'imageCache',
+  description: 'Cached question images'
+});
+
+function normalizeImagePath(imagePath) {
+  return imagePath.startsWith('/') ? imagePath.slice(1) : imagePath;
+}
+
+function getProjectIdFromEnv() {
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+  if (!supabaseUrl) return null;
+
+  try {
+    const parsed = new URL(supabaseUrl);
+    return parsed.hostname.split('.')[0] || null;
+  } catch {
+    return null;
+  }
+}
+
+async function getImageBlobFromIndexedDb(imagePath) {
+  const keysToTry = [imagePath, normalizeImagePath(imagePath)];
+
+  for (const key of keysToTry) {
+    try {
+      const cached = await imageCacheStore.getItem(key);
+      if (!cached) continue;
+
+      if (cached instanceof Blob) return cached;
+      if (cached?.blob instanceof Blob) return cached.blob;
+      if (cached?.data instanceof Blob) return cached.data;
+    } catch (error) {
+      console.warn('⚠️ [IMAGE] Ошибка чтения изображения из IndexedDB:', error);
+    }
+  }
+
+  return null;
+}
+
+async function saveImageBlobToIndexedDb(imagePath, blob) {
+  if (!(blob instanceof Blob)) return;
+
+  const normalizedPath = normalizeImagePath(imagePath);
+  await Promise.allSettled([
+    imageCacheStore.setItem(imagePath, blob),
+    imageCacheStore.setItem(normalizedPath, blob)
+  ]);
+}
+
+function buildSupabasePublicUrl(imagePath) {
+  const cleanPath = normalizeImagePath(imagePath);
+  const projectId = getProjectIdFromEnv();
+
+  if (projectId) {
+    return `https://${projectId}.supabase.co/storage/v1/object/public/${cleanPath}`;
+  }
+
+  const supabaseUrl = (import.meta.env.VITE_SUPABASE_URL || '').replace(/\/$/, '');
+  if (!supabaseUrl) return cleanPath;
+  return `${supabaseUrl}/storage/v1/object/public/${cleanPath}`;
+}
+
+/**
+ * Resolves image source by priority:
+ * 1) data:image/... => return as is
+ * 2) IndexedDB cached blob => URL.createObjectURL(blob)
+ * 3) Public Supabase Storage URL
+ *
+ * @param {string|null|undefined} imagePath
+ * @returns {Promise<string|null>}
+ */
+export async function resolveImageSrc(imagePath) {
+  if (!imagePath || typeof imagePath !== 'string') {
+    return null;
+  }
+
+  if (imagePath.startsWith('data:image')) {
+    return imagePath;
+  }
+
+  const cachedBlob = await getImageBlobFromIndexedDb(imagePath);
+  if (cachedBlob) {
+    return URL.createObjectURL(cachedBlob);
+  }
+
+  const remoteUrl = imagePath.startsWith('http://') || imagePath.startsWith('https://')
+    ? imagePath
+    : buildSupabasePublicUrl(imagePath);
+
+  try {
+    const response = await fetch(remoteUrl);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    const blob = await response.blob();
+    await saveImageBlobToIndexedDb(imagePath, blob);
+
+    return URL.createObjectURL(blob);
+  } catch (error) {
+    console.warn('⚠️ [IMAGE] Не удалось кешировать изображение, используем удаленный URL:', remoteUrl, error);
+    return remoteUrl;
+  }
+}
 
 /**
  * Универсальная функция для разрешения путей к изображениям
