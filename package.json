@@ -14,7 +14,8 @@
     "browser-image-compression": "^2.0.2",
     "localforage": "^1.10.0",
     "react": "^19.2.0",
-    "react-dom": "^19.2.0"
+    "react-dom": "^19.2.0",
+    "telegraf": "^4.16.3"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",

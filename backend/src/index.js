@@ -49,8 +49,8 @@ async function main() {
   // 1. САМОЕ ПЕРВОЕ - CORS
   app.use(cors({ origin: '*' }));
   
-  // 2. Потом JSON
-  app.use(express.json());
+  // 2. Потом JSON (увеличенный лимит нужен для base64 изображений в админ-рассылке)
+  app.use(express.json({ limit: '15mb' }));
   
   // 3. Потом логи (опционально)
   app.use((req, res, next) => {
