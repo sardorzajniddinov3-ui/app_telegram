@@ -15,6 +15,7 @@ import {
 import { resolveImage, resolveImageSrc } from './utils/imageUtils'
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'https://apptelegram-production-4131.up.railway.app';
+const BACKEND_FALLBACK_URL = 'https://apptelegram-production-4131.up.railway.app';
 
 // Компонент экрана загрузки
 const LoadingScreen = () => {
@@ -413,7 +414,7 @@ function App() {
   const [examTimeRemaining, setExamTimeRemaining] = useState(null) // Оставшееся время экзамена в секундах
   
   // Admin panel state
-  const [adminScreen, setAdminScreen] = useState('list') // 'list', 'add', 'edit', 'topicQuestions', 'addTopic', 'users', 'admins'
+  const [adminScreen, setAdminScreen] = useState('list') // 'list', 'add', 'edit', 'topicQuestions', 'addTopic', 'users', 'admins', 'broadcast'
   const [adminSelectedTopic, setAdminSelectedTopic] = useState(null) // Выбранная тема в админ-панели
   const [editingQuestion, setEditingQuestion] = useState(null)
   const [savedQuestions, setSavedQuestions] = useState([])
@@ -667,6 +668,12 @@ function App() {
   const [adminForm, setAdminForm] = useState({ telegramId: '' }) // Форма добавления админа
   const [adminFormLoading, setAdminFormLoading] = useState(false)
   const [adminFormMessage, setAdminFormMessage] = useState(null)
+  const [broadcastMessage, setBroadcastMessage] = useState('')
+  const [broadcastPhoto, setBroadcastPhoto] = useState('')
+  const [broadcastPhotoFile, setBroadcastPhotoFile] = useState(null)
+  const [broadcastLoading, setBroadcastLoading] = useState(false)
+  const [broadcastResult, setBroadcastResult] = useState(null)
+  const broadcastFileInputRef = useRef(null)
   const [userSearchQuery, setUserSearchQuery] = useState('') // Поиск пользователей
   const [selectedUser, setSelectedUser] = useState(null) // Выбранный пользователь для модального окна
   const [showUserModal, setShowUserModal] = useState(false) // Показать модальное окно пользователя
@@ -4159,6 +4166,154 @@ function App() {
       alert('Ошибка добавления администратора: ' + errorMessage);
     } finally {
       setAdminFormLoading(false);
+    }
+  };
+
+  const handleBroadcast = async (e) => {
+    e.preventDefault();
+    setBroadcastResult(null);
+    const messageText = broadcastMessage.trim();
+    const photoValue = broadcastPhoto.trim();
+    const hasPhotoFile = !!broadcastPhotoFile;
+
+    if (!messageText && !photoValue && !hasPhotoFile) {
+      alert('Введите текст сообщения или добавьте фото');
+      return;
+    }
+
+    if ((photoValue || hasPhotoFile) && messageText.length > 1024) {
+      alert('Подпись к фото не должна превышать 1024 символа');
+      return;
+    }
+
+    const confirmText = [
+      'Вы уверены, что хотите отправить рассылку?',
+      messageText ? `\nТекст: "${messageText.substring(0, 100)}..."` : '',
+      (photoValue || hasPhotoFile) ? '\nФото: добавлено' : ''
+    ].join('\n');
+    if (!confirm(confirmText)) {
+      return;
+    }
+
+    setBroadcastLoading(true);
+
+    try {
+      const telegramUserId = Number(window.Telegram?.WebApp?.initDataUnsafe?.user?.id) || 473842863;
+
+      // Получаем список telegram_id через profiles (та же таблица что и в admin-панели)
+      let userIds = [];
+      try {
+        const pageSize = 1000;
+        let lastId = null;
+        while (true) {
+          let query = supabase
+            .from('profiles')
+            .select('id')
+            .order('id', { ascending: true })
+            .limit(pageSize);
+          if (lastId !== null) {
+            query = query.gt('id', lastId);
+          }
+          const { data, error } = await query;
+          if (error) throw error;
+          if (!data || data.length === 0) break;
+          const chunk = data
+            .map(p => Number(p.id))
+            .filter(id => Number.isFinite(id) && id > 0);
+          userIds = userIds.concat(chunk);
+          if (data.length < pageSize) break;
+          lastId = data[data.length - 1].id;
+        }
+      } catch (supabaseErr) {
+        console.error('Ошибка загрузки пользователей:', supabaseErr);
+        throw new Error('Не удалось загрузить список пользователей: ' + (supabaseErr?.message || supabaseErr));
+      }
+
+      if (userIds.length === 0) {
+        alert('Нет пользователей для рассылки');
+        setBroadcastLoading(false);
+        return;
+      }
+
+      console.log(`[Broadcast] Загружено ${userIds.length} пользователей для рассылки`);
+
+      let photoDataUrl;
+      if (broadcastPhotoFile) {
+        photoDataUrl = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '');
+          reader.onerror = () => reject(new Error('Не удалось прочитать файл изображения'));
+          reader.readAsDataURL(broadcastPhotoFile);
+        });
+      }
+
+      const requestBody = JSON.stringify({
+        message: messageText || undefined,
+        photo: photoValue || undefined,
+        photoDataUrl: photoDataUrl || undefined,
+        userIds,
+        user: { id: telegramUserId }
+      });
+      const requestOptions = {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `tma ${window.Telegram?.WebApp?.initData || ''}`,
+          'x-telegram-user-id': String(telegramUserId)
+        },
+        body: requestBody
+      };
+
+      const endpoints = [BACKEND_URL];
+      if (!endpoints.includes(BACKEND_FALLBACK_URL)) {
+        endpoints.push(BACKEND_FALLBACK_URL);
+      }
+
+      let result = null;
+      let lastErrorMessage = 'Не удалось выполнить рассылку';
+
+      for (const baseUrl of endpoints) {
+        try {
+          const response = await fetch(`${baseUrl}/api/admin/broadcast`, requestOptions);
+          const rawText = await response.text();
+          let parsed;
+          try {
+            parsed = rawText ? JSON.parse(rawText) : null;
+          } catch (_parseErr) {
+            parsed = null;
+          }
+
+          if (response.ok) {
+            result = parsed || { ok: true, sent: 0, failed: 0, total: 0 };
+            break;
+          }
+
+          const apiError = parsed && parsed.error ? parsed.error : null;
+          const fallbackText = rawText ? rawText.slice(0, 160) : `HTTP ${response.status}`;
+          lastErrorMessage = `${baseUrl} -> ${apiError || fallbackText}`;
+        } catch (networkErr) {
+          lastErrorMessage = `${baseUrl} -> ${networkErr?.message || 'Network error'}`;
+        }
+      }
+
+      if (!result) {
+        throw new Error(lastErrorMessage);
+      }
+
+      setBroadcastResult(result);
+      setBroadcastMessage('');
+      setBroadcastPhoto('');
+      setBroadcastPhotoFile(null);
+      if (broadcastFileInputRef.current) {
+        broadcastFileInputRef.current.value = '';
+      }
+      alert(`Рассылка завершена!\n\nОтправлено: ${result.sent}\nОшибки: ${result.failed}\nВсего пользователей: ${result.total}`);
+    } catch (err) {
+      console.error('Ошибка рассылки:', err);
+      const errorMessage = err?.message || err?.toString() || 'Ошибка рассылки';
+      alert('Ошибка рассылки: ' + errorMessage);
+    } finally {
+      setBroadcastLoading(false);
     }
   };
 
@@ -9069,6 +9224,201 @@ function App() {
       );
     }
 
+    if (adminScreen === 'broadcast') {
+      return (
+        <div className="admin-container">
+          <div className="admin-content">
+            <div className="admin-header">
+              <button
+                className="back-button"
+                onClick={() => setAdminScreen('list')}
+              >
+                ← Назад
+              </button>
+              <h1 className="admin-title">Рассылка сообщений</h1>
+            </div>
+
+            <div className="admin-stats">
+              <p>📢 Отправка сообщений всем пользователям</p>
+              {broadcastResult && (
+                <div style={{
+                  backgroundColor: broadcastResult.failed > 0 ? '#FFF3CD' : '#D4EDDA',
+                  border: `2px solid ${broadcastResult.failed > 0 ? '#FFC107' : '#28A745'}`,
+                  borderRadius: '8px',
+                  padding: '12px',
+                  margin: '16px 0',
+                  color: broadcastResult.failed > 0 ? '#856404' : '#155724'
+                }}>
+                  <p><strong>Результат рассылки:</strong></p>
+                  <p>✅ Отправлено: {broadcastResult.sent}</p>
+                  <p>❌ Ошибки: {broadcastResult.failed}</p>
+                  <p>👥 Всего пользователей: {broadcastResult.total}</p>
+                  {broadcastResult.failedUsers && broadcastResult.failedUsers.length > 0 && (
+                    <details style={{ marginTop: '8px' }}>
+                      <summary>Ошибки отправки ({broadcastResult.failedUsers.length})</summary>
+                      <div style={{ maxHeight: '200px', overflowY: 'auto', marginTop: '8px' }}>
+                        {broadcastResult.failedUsers.map((error, idx) => (
+                          <p key={idx} style={{ fontSize: '12px', margin: '4px 0' }}>
+                            ID {error.telegramId}: {error.error}
+                          </p>
+                        ))}
+                      </div>
+                    </details>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <form onSubmit={handleBroadcast} className="admin-form">
+              <div style={{ marginBottom: '16px' }}>
+                <label style={{
+                  display: 'block',
+                  marginBottom: '8px',
+                  fontWeight: 'bold',
+                  color: 'var(--text-color)'
+                }}>
+                  Фото из галереи:
+                </label>
+                <input
+                  ref={broadcastFileInputRef}
+                  type="file"
+                  accept="image/*"
+                  disabled={broadcastLoading}
+                  onChange={(e) => {
+                    const file = e.target.files && e.target.files[0] ? e.target.files[0] : null;
+                    setBroadcastPhotoFile(file);
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '10px',
+                    borderRadius: '8px',
+                    border: '2px solid var(--border-color)',
+                    backgroundColor: 'var(--bg-color)',
+                    color: 'var(--text-color)',
+                    fontSize: '14px'
+                  }}
+                />
+                {broadcastPhotoFile && (
+                  <div style={{ fontSize: '12px', color: 'var(--secondary-color)', marginTop: '6px' }}>
+                    Выбрано: {broadcastPhotoFile.name}
+                  </div>
+                )}
+              </div>
+
+              <div style={{ marginBottom: '16px' }}>
+                <label style={{
+                  display: 'block',
+                  marginBottom: '8px',
+                  fontWeight: 'bold',
+                  color: 'var(--text-color)'
+                }}>
+                  Фото (URL или Telegram file_id):
+                </label>
+                <input
+                  type="text"
+                  value={broadcastPhoto}
+                  onChange={(e) => setBroadcastPhoto(e.target.value)}
+                  placeholder="https://... или AgACAgIAAxkBA..."
+                  disabled={broadcastLoading}
+                  style={{
+                    width: '100%',
+                    padding: '12px',
+                    borderRadius: '8px',
+                    border: '2px solid var(--border-color)',
+                    backgroundColor: 'var(--bg-color)',
+                    color: 'var(--text-color)',
+                    fontSize: '16px'
+                  }}
+                />
+                <div style={{
+                  fontSize: '12px',
+                  color: 'var(--secondary-color)',
+                  marginTop: '4px'
+                }}>
+                  Можно отправить только фото, только текст, или фото + подпись.
+                </div>
+              </div>
+
+              <div style={{ marginBottom: '16px' }}>
+                <label style={{
+                  display: 'block',
+                  marginBottom: '8px',
+                  fontWeight: 'bold',
+                  color: 'var(--text-color)'
+                }}>
+                  Текст сообщения для рассылки:
+                </label>
+                <textarea
+                  value={broadcastMessage}
+                  onChange={(e) => setBroadcastMessage(e.target.value)}
+                  placeholder="Введите текст сообщения (или подпись к фото)..."
+                  disabled={broadcastLoading}
+                  rows="6"
+                  style={{
+                    width: '100%',
+                    padding: '12px',
+                    borderRadius: '8px',
+                    border: '2px solid var(--border-color)',
+                    backgroundColor: 'var(--bg-color)',
+                    color: 'var(--text-color)',
+                    fontSize: '16px',
+                    resize: 'vertical',
+                    minHeight: '120px'
+                  }}
+                />
+                <div style={{
+                  fontSize: '12px',
+                  color: 'var(--secondary-color)',
+                  marginTop: '4px'
+                }}>
+                  Символов: {broadcastMessage.length} {broadcastPhoto.trim() ? '(для подписи к фото максимум 1024)' : ''}
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                <button
+                  type="submit"
+                  className="admin-submit-button"
+                  disabled={broadcastLoading || (!broadcastMessage.trim() && !broadcastPhoto.trim() && !broadcastPhotoFile)}
+                  style={{
+                    flex: '1',
+                    minWidth: '200px',
+                    backgroundColor: broadcastLoading ? '#90CAF9' : '#FF5722',
+                    color: 'white',
+                    cursor: broadcastLoading ? 'not-allowed' : 'pointer',
+                    opacity: (!broadcastMessage.trim() && !broadcastPhoto.trim() && !broadcastPhotoFile) ? 0.5 : 1
+                  }}
+                >
+                  {broadcastLoading ? '⏳ Отправляется...' : '📢 Отправить всем'}
+                </button>
+                <button
+                  type="button"
+                  className="admin-submit-button"
+                  onClick={() => {
+                    setBroadcastMessage('');
+                    setBroadcastPhoto('');
+                    setBroadcastPhotoFile(null);
+                    if (broadcastFileInputRef.current) {
+                      broadcastFileInputRef.current.value = '';
+                    }
+                    setBroadcastResult(null);
+                  }}
+                  disabled={broadcastLoading}
+                  style={{
+                    backgroundColor: '#6C757D',
+                    color: 'white',
+                    cursor: broadcastLoading ? 'not-allowed' : 'pointer'
+                  }}
+                >
+                  🗑️ Очистить
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      );
+    }
+
     // Admin list screen
     return (
       <div className="admin-container">
@@ -9120,6 +9470,15 @@ function App() {
                 }}
               >
                 👑 Администраторы
+              </button>
+              <button
+                className="admin-users-button"
+                onClick={() => {
+                  setBroadcastResult(null);
+                  setAdminScreen('broadcast');
+                }}
+              >
+                📢 Рассылка
               </button>
             </div>
           </div>
