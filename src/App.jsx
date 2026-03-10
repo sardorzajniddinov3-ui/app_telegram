@@ -5,13 +5,13 @@ import './App.css'
 import { initTelegramWebAppSafe, getTelegramColorScheme } from './telegram'
 import { supabase } from './supabase'
 import StatisticsScreen from './StatisticsScreen'
-import { 
-  saveTopics, 
-  loadTopics, 
-  saveQuestions, 
-  loadQuestions, 
+import {
+  saveTopics,
+  loadTopics,
+  saveQuestions,
+  loadQuestions,
   clearQuestionsCache,
-  isCacheAvailable 
+  isCacheAvailable
 } from './cacheService'
 import { resolveImage, resolveImageSrc } from './utils/imageUtils'
 
@@ -34,7 +34,7 @@ const LoadingScreen = () => {
 // Компонент для анимации печатания текста (Typewriter)
 const Typewriter = ({ text }) => {
   const [display, setDisplay] = useState('');
-  
+
   useEffect(() => {
     setDisplay(''); // Clear previous text instantly
     let i = 0;
@@ -70,7 +70,7 @@ function App() {
     { id: 10, name: "Информационно указательные, сервисные и доп. знаки", questionCount: 76 },
     { id: 11, name: "Дорожные разметки", questionCount: 54 }
   ];
-  
+
   const [topics, setTopics] = useState(defaultTopics);
 
   const questionsData = {
@@ -107,7 +107,7 @@ function App() {
   const [imageLoaded, setImageLoaded] = useState(true)
   const activeImageObjectUrlRef = useRef(null)
   const [results, setResults] = useState({})
-  
+
   // Функция для сохранения результатов в localStorage
   const saveResultsToLocalStorage = (resultsToSave) => {
     try {
@@ -193,7 +193,7 @@ function App() {
       }
     }
   };
-  
+
   // Функция для загрузки результатов из localStorage
   const loadResultsFromLocalStorage = () => {
     try {
@@ -257,19 +257,19 @@ function App() {
 
     return null;
   };
-  
+
   // Функция для загрузки результатов из БД
   const loadResultsFromDatabase = async () => {
     try {
       const tgUser = initTelegramWebAppSafe();
       const currentUserId = tgUser?.id ? String(tgUser.id) : userId;
-      
+
       if (!currentUserId) {
         return {};
       }
-      
+
       console.log('[RESULTS] Загрузка результатов из БД для пользователя:', currentUserId);
-      
+
       // Загружаем результаты тестов из БД
       const { data: testResults, error } = await supabase
         .from('test_results')
@@ -277,33 +277,33 @@ function App() {
         .eq('user_id', Number(currentUserId))
         .order('created_at', { ascending: false })
         .limit(1000); // Загружаем последние 1000 результатов
-      
+
       if (error) {
         console.error('[RESULTS] Ошибка загрузки результатов из БД:', error);
         return {};
       }
-      
+
       if (!testResults || testResults.length === 0) {
         console.log('[RESULTS] Нет результатов в БД');
         return {};
       }
-      
+
       // Группируем результаты по темам
       const resultsByTopic = {};
-      
+
       testResults.forEach(result => {
         // Пропускаем невалидные результаты
         if (!result || (result.topic_id === null && result.topic_id !== undefined && result.topic_id !== 0)) {
           console.warn('[RESULTS] Пропущен невалидный результат:', result);
           return;
         }
-        
+
         // ВАЖНО: Нормализуем topic_id - он может быть UUID, числом или строкой
         let topicId = null;
         if (result.topic_id !== null && result.topic_id !== undefined) {
           topicId = String(result.topic_id).trim();
         }
-        
+
         if (!topicId || topicId === 'null' || topicId === 'undefined') {
           console.warn('[RESULTS] Пропущен результат без валидного topic_id:', {
             topic_id: result.topic_id,
@@ -312,19 +312,19 @@ function App() {
           });
           return;
         }
-        
+
         // ВАЖНО: Используем нормализованный topicId как ключ
         if (!resultsByTopic[topicId]) {
           resultsByTopic[topicId] = [];
         }
-        
+
         console.log('[RESULTS] Добавляем результат в тему:', {
           topicId: topicId,
           resultId: result.id,
           correct: result.correct_answers,
           total: result.total_questions
         });
-        
+
         const formatTimeSpent = (seconds) => {
           if (!seconds && seconds !== 0) return '0 секунд';
           const mins = Math.floor(seconds / 60);
@@ -337,22 +337,22 @@ function App() {
             return `${secs} ${secs === 1 ? 'секунда' : secs < 5 ? 'секунды' : 'секунд'}`;
           }
         };
-        
+
         const formatTime = (seconds) => {
           if (!seconds && seconds !== 0) return '00:00';
           const mins = Math.floor(seconds / 60);
           const secs = seconds % 60;
           return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
         };
-        
+
         // Используем created_at или completed_at для даты
         const dateValue = result.created_at || result.completed_at || new Date().toISOString();
         const date = new Date(dateValue);
         const dateTime = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}:${String(date.getSeconds()).padStart(2, '0')}`;
-        
+
         // ВАЖНО: Используем ID из БД, если он есть, иначе генерируем уникальный
         const resultId = result.id || `DB_${topicId}_${Date.parse(dateValue)}`;
-        
+
         resultsByTopic[topicId].push({
           id: resultId,
           correct: Number(result.correct_answers) || 0,
@@ -365,12 +365,12 @@ function App() {
           dateTime: dateTime
         });
       });
-      
+
       // Ограничиваем до 5 результатов на тему
       Object.keys(resultsByTopic).forEach(topicId => {
         resultsByTopic[topicId] = resultsByTopic[topicId].slice(0, 5);
       });
-      
+
       console.log('[RESULTS] ✅ Загружено результатов из БД:', {
         totalTopics: Object.keys(resultsByTopic).length,
         topicIds: Object.keys(resultsByTopic),
@@ -395,7 +395,7 @@ function App() {
         }))
       });
       return resultsByTopic;
-      
+
     } catch (error) {
       console.error('[RESULTS] Ошибка загрузки результатов из БД:', error);
       return {};
@@ -407,14 +407,14 @@ function App() {
   const [userAnswers, setUserAnswers] = useState([]) // Сохраняем все ответы пользователя
   const userAnswersRef = useRef([]) // Референс для синхронного доступа к ответам
   const [testQuestions, setTestQuestions] = useState([]) // Сохраняем вопросы теста
-  
+
   // ========== ЭКЗАМЕН: Состояния для режима экзамена ==========
   const [activeMode, setActiveMode] = useState('topic') // 'topic' или 'exam'
   const [examQuestionCount, setExamQuestionCount] = useState(null) // Выбранное количество вопросов для экзамена
   const [isExamMode, setIsExamMode] = useState(false) // Флаг, что сейчас идет экзамен (не тест по теме)
   const [examTimeLimit, setExamTimeLimit] = useState(null) // Лимит времени для экзамена в секундах
   const [examTimeRemaining, setExamTimeRemaining] = useState(null) // Оставшееся время экзамена в секундах
-  
+
   // Admin panel state
   const [adminScreen, setAdminScreen] = useState('list') // 'list', 'add', 'edit', 'topicQuestions', 'addTopic', 'users', 'admins', 'broadcast'
   const [adminSelectedTopic, setAdminSelectedTopic] = useState(null) // Выбранная тема в админ-панели
@@ -440,14 +440,14 @@ function App() {
     imageInputMode: 'file', // 'file' или 'url'
     topicId: 1
   })
-  
+
   // Состояние для добавления темы
   const [newTopicName, setNewTopicName] = useState('')
   const [editingTopicId, setEditingTopicId] = useState(null) // ID редактируемой темы
   const [editingTopicName, setEditingTopicName] = useState('') // Название редактируемой темы
   const [draggedTopicIndex, setDraggedTopicIndex] = useState(null) // Индекс перетаскиваемой темы
   const [dragOverIndex, setDragOverIndex] = useState(null) // Индекс темы, над которой перетаскивают
-  
+
   // Состояние для регистрации пользователя
   const [userData, setUserData] = useState(null) // Данные текущего пользователя
   const [registrationForm, setRegistrationForm] = useState({
@@ -466,10 +466,10 @@ function App() {
   const [dbSubsError, setDbSubsError] = useState(null)
   const [grantForm, setGrantForm] = useState({ telegramId: '', days: '30', tariffId: 'pro' })
   const [grantLoading, setGrantLoading] = useState(false)
-  
+
   // ========== ИИ-ОБЪЯСНЕНИЕ ОШИБОК: Состояния ==========
   const [explanations, setExplanations] = useState({}) // { questionId: { explanation: string, loading: boolean, error: string } }
-  
+
   // ========== ИИ-ОБЪЯСНЕНИЕ ОШИБОК: Функция для получения объяснения с эффектом печатания ==========
   // Система автоматического переключения моделей реализована в Edge Function
   // При ошибке 429 или 404 система автоматически переключается на следующую модель
@@ -478,16 +478,16 @@ function App() {
     if (explanations[questionId]?.explanation) {
       return;
     }
-    
+
     // Проверяем лимит ИИ перед использованием
     const limitCheck = await checkAILimit(isHintInTest);
     console.log('[AI_LIMIT] Проверка лимита для объяснения:', limitCheck, 'isHintInTest:', isHintInTest);
-    
+
     // СТРОГАЯ ПРОВЕРКА: блокируем если allowed === false ИЛИ remaining === 0
     if (!limitCheck.allowed || limitCheck.remaining === 0) {
       console.log('[AI_LIMIT] ⛔⛔⛔ БЛОКИРУЕМ ЗАПРОС ОБЪЯСНЕНИЯ - ЛИМИТ ИСЧЕРПАН!');
       console.log('[AI_LIMIT] Детали блокировки:', { allowed: limitCheck.allowed, remaining: limitCheck.remaining });
-      const limitMessage = limitCheck.remaining === 0 
+      const limitMessage = limitCheck.remaining === 0
         ? 'Лимит использования ИИ исчерпан. Оформите подписку для увеличения лимита.'
         : `Осталось ${limitCheck.remaining} использований ИИ. Оформите подписку для увеличения лимита.`;
       console.log('[AI_LIMIT] Лимит исчерпан, блокируем запрос:', limitMessage);
@@ -497,26 +497,26 @@ function App() {
       }));
       return; // ВАЖНО: выходим из функции, не отправляем запрос
     }
-    
+
     console.log('[AI_LIMIT] Лимит позволяет использовать ИИ, отправляем запрос');
-    
+
     // Устанавливаем состояние загрузки
     setExplanations(prev => ({
       ...prev,
       [questionId]: { loading: true, explanation: null, error: null, streaming: false }
     }));
-    
+
     try {
       console.log('Запрос объяснения для вопроса:', { questionId, question, wrongAnswer, correctAnswer, imageUrl });
-      
+
       // ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА ПЕРЕД ОТПРАВКОЙ ЗАПРОСА
       const finalLimitCheck = await checkAILimit(isHintInTest);
       console.log('[AI_LIMIT] Финальная проверка перед отправкой объяснения:', finalLimitCheck);
-      
+
       // СТРОГАЯ ПРОВЕРКА: если allowed === false ИЛИ remaining === 0, блокируем
       if (!finalLimitCheck.allowed || finalLimitCheck.remaining === 0) {
         console.log('[AI_LIMIT] ⛔⛔⛔ БЛОКИРУЕМ ЗАПРОС ОБЪЯСНЕНИЯ ПЕРЕД ОТПРАВКОЙ - ЛИМИТ ИСЧЕРПАН!');
-        const limitMessage = finalLimitCheck.remaining === 0 
+        const limitMessage = finalLimitCheck.remaining === 0
           ? 'Лимит использования ИИ исчерпан. Оформите подписку для увеличения лимита.'
           : `Осталось ${finalLimitCheck.remaining} использований ИИ. Оформите подписку для увеличения лимита.`;
         setExplanations(prev => ({
@@ -525,7 +525,7 @@ function App() {
         }));
         return; // ВАЖНО: выходим из функции, не отправляем запрос
       }
-      
+
       const { data, error } = await supabase.functions.invoke('explain-answer', {
         body: {
           question: question,
@@ -534,19 +534,19 @@ function App() {
           imageUrl: imageUrl
         }
       });
-      
+
       console.log('Ответ от функции:', { data, error });
-      
+
       if (error) {
         console.error('Ошибка от Supabase:', error);
         throw new Error(error.message || JSON.stringify(error));
       }
-      
+
       if (!data || !data.explanation) {
         console.error('Нет данных или объяснения в ответе:', data);
         throw new Error('Функция вернула пустой ответ');
       }
-      
+
       // Проверяем, не является ли ответ финальным сообщением об исчерпании всех лимитов
       // Если это сообщение "Все лимиты ИИ временно исчерпаны", значит все модели не сработали
       if (data.explanation && data.explanation.includes('Все лимиты ИИ временно исчерпаны')) {
@@ -558,30 +558,30 @@ function App() {
         console.log('[AI] Все модели исчерпали лимиты');
         return;
       }
-      
+
       // Если это сообщение об ошибке одной модели, система fallback уже попробовала другие
       // Показываем ошибку только если это финальное сообщение
-      
+
       // Получаем полный текст объяснения
       const fullExplanation = data.explanation;
-      
+
       // ПОСЛЕ успешного ответа от ИИ обновляем ai_queries_count в Supabase
       console.log('[AI_LIMITS] Перед обновлением ai_queries_count после успешного запроса объяснения');
       const updatedCount = await incrementAIQueriesUsed();
       console.log('[AI_LIMITS] После обновления ai_queries_count:', updatedCount);
-      
+
       // Начинаем эффект печатания: показываем текст посимвольно
       setExplanations(prev => ({
         ...prev,
         [questionId]: { loading: false, explanation: '', error: null, streaming: true, fullText: fullExplanation }
       }));
-      
+
       // Печатаем текст посимвольно с задержкой
       let currentIndex = 0;
       const typeInterval = setInterval(() => {
         currentIndex++;
         const displayedText = fullExplanation.slice(0, currentIndex);
-        
+
         setExplanations(prev => {
           const current = prev[questionId];
           if (!current || current.fullText !== fullExplanation) {
@@ -589,39 +589,39 @@ function App() {
             clearInterval(typeInterval);
             return prev;
           }
-          
+
           if (currentIndex >= fullExplanation.length) {
             // Текст полностью напечатан
             clearInterval(typeInterval);
             return {
               ...prev,
-              [questionId]: { 
-                loading: false, 
-                explanation: fullExplanation, 
-                error: null, 
+              [questionId]: {
+                loading: false,
+                explanation: fullExplanation,
+                error: null,
                 streaming: false,
                 fullText: undefined // Удаляем fullText после завершения
               }
             };
           }
-          
+
           return {
             ...prev,
-            [questionId]: { 
-              loading: false, 
-              explanation: displayedText, 
-              error: null, 
+            [questionId]: {
+              loading: false,
+              explanation: displayedText,
+              error: null,
               streaming: true,
               fullText: fullExplanation
             }
           };
         });
       }, 20); // 20ms задержка между символами (можно настроить скорость)
-      
+
     } catch (err) {
       console.error('Ошибка при получении объяснения:', err);
       let errorMessage = err?.message || err?.toString() || 'Неизвестная ошибка';
-      
+
       // Обработка ошибок
       // Система fallback в Edge Function автоматически переключается между моделями
       // Если все модели исчерпали лимиты, показываем соответствующее сообщение
@@ -635,12 +635,12 @@ function App() {
       } else {
         errorMessage = `Ошибка: ${errorMessage}. Проверьте, что функция explain-answer создана в Supabase Dashboard.`;
       }
-      
+
       setExplanations(prev => ({
         ...prev,
-        [questionId]: { 
-          loading: false, 
-          explanation: null, 
+        [questionId]: {
+          loading: false,
+          explanation: null,
           error: errorMessage,
           streaming: false
         }
@@ -673,7 +673,7 @@ function App() {
   const [adminForm, setAdminForm] = useState({ telegramId: '' }) // Форма добавления админа
   const [adminFormLoading, setAdminFormLoading] = useState(false)
   const [adminFormMessage, setAdminFormMessage] = useState(null)
-  
+
   // Payment receipt states
   const [paymentReceiptFile, setPaymentReceiptFile] = useState(null)
   const [paymentReceiptPreview, setPaymentReceiptPreview] = useState(null)
@@ -692,16 +692,16 @@ function App() {
   const [problematicQuizzes, setProblematicQuizzes] = useState([]) // Проблемные темы
   const [aiTrainerAdvice, setAiTrainerAdvice] = useState(null) // Совет от ИИ после теста
   const [showAiAdvice, setShowAiAdvice] = useState(false) // Показать блок с советом ИИ
-  
+
   // ========== ЭКРАН СТАТИСТИКИ ==========
   const [analyticsData, setAnalyticsData] = useState(null) // Статистика по темам
   const [analyticsLoading, setAnalyticsLoading] = useState(false) // Загрузка статистики
   const [analyticsAiVerdict, setAnalyticsAiVerdict] = useState(null) // AI-вердикт для статистики
-  
+
   // ========== ПОДПИСКА ==========
   const [isLoadingSubscription, setIsLoadingSubscription] = useState(false) // Флаг для предотвращения множественных одновременных вызовов loadMySubscription
   const [subscriptionLoaded, setSubscriptionLoaded] = useState(false) // Флаг, что подписка уже загружена
-  
+
   // ========== ФЛАГИ ЗАГРУЗКИ ДЛЯ ПРЕДОТВРАЩЕНИЯ БЕСКОНЕЧНЫХ ЦИКЛОВ ==========
   const [questionsLoading, setQuestionsLoading] = useState(false) // Флаг загрузки вопросов в админке
   const [questionsLoaded, setQuestionsLoaded] = useState(false) // Флаг, что вопросы уже загружены
@@ -712,98 +712,98 @@ function App() {
   const [initialized, setInitialized] = useState(false) // Флаг завершения инициализации
 
   // ========== ФУНКЦИИ ПЕРСОНАЛЬНОГО ИИ-ТРЕНЕРА ==========
-  
+
   // 1. Анализ производительности пользователя
   const analyzeUserPerformance = async () => {
     if (!userId) return null;
-    
+
     try {
       console.log('[AI TRAINER] Анализ производительности пользователя:', userId);
-      
+
       // Получаем средний процент успеваемости по всем темам
       const { data: avgData, error: avgError } = await supabase
         .rpc('get_user_average_performance', { p_user_id: userId });
-      
+
       if (!avgError && avgData !== null) {
         setUserPerformance(avgData);
         console.log('[AI TRAINER] Средняя успеваемость:', avgData + '%');
       }
-      
+
       // Получаем 3 самые проблемные темы
       const { data: problemsData, error: problemsError } = await supabase
         .rpc('get_problematic_topics', { p_user_id: userId, p_limit: 3 });
-      
+
       if (!problemsError && problemsData && problemsData.length > 0) {
         setProblematicQuizzes(problemsData);
         console.log('[AI TRAINER] Проблемные темы:', problemsData);
         return problemsData;
       }
-      
+
       return [];
     } catch (error) {
       console.error('[AI TRAINER] Ошибка анализа производительности:', error);
       return [];
     }
   };
-  
+
   // 2. Адаптивный подбор вопросов (40% из ошибок пользователя)
   const getAdaptiveQuestions = async (topicId, totalQuestions = 20) => {
     if (!userId) return [];
-    
+
     try {
       console.log('[AI TRAINER] Адаптивный подбор вопросов для темы:', topicId);
-      
+
       // Получаем вопросы с ошибками пользователя
       const { data: errorQuestions, error: errorQuestionsError } = await supabase
         .rpc('get_user_error_questions', { p_user_id: userId, p_topic_id: String(topicId) });
-      
+
       if (errorQuestionsError) {
         console.warn('[AI TRAINER] Ошибка получения ошибочных вопросов:', errorQuestionsError);
       }
-      
+
       // Получаем все вопросы темы (используем getMergedQuestions как fallback)
       const allQuestions = getMergedQuestions(topicId);
-      
+
       if (!allQuestions || allQuestions.length === 0) {
         console.warn('[AI TRAINER] Нет вопросов для темы');
         return [];
       }
-      
+
       // Если нет ошибок или их мало, возвращаем случайные вопросы
       if (!errorQuestions || errorQuestions.length === 0) {
         console.log('[AI TRAINER] Нет ошибок пользователя, возвращаем случайные вопросы');
         return shuffleArray(allQuestions).slice(0, totalQuestions);
       }
-      
+
       // Вычисляем 40% от общего количества
       const errorQuestionCount = Math.ceil(totalQuestions * 0.4);
       const regularQuestionCount = totalQuestions - errorQuestionCount;
-      
+
       console.log('[AI TRAINER] Подбор: 40% ошибочных (${errorQuestionCount}), 60% обычных (${regularQuestionCount})');
-      
+
       // Получаем вопросы с ошибками
       const errorQuestionIds = errorQuestions.map(eq => eq.question_id);
       const questionsWithErrors = allQuestions.filter(q => errorQuestionIds.includes(q.id));
       const questionsWithoutErrors = allQuestions.filter(q => !errorQuestionIds.includes(q.id));
-      
+
       // Выбираем случайные вопросы с ошибками
       const selectedErrorQuestions = shuffleArray(questionsWithErrors).slice(0, errorQuestionCount);
-      
+
       // Дополняем обычными вопросами
       const selectedRegularQuestions = shuffleArray(questionsWithoutErrors).slice(0, regularQuestionCount);
-      
+
       // Объединяем и перемешиваем
       const finalQuestions = shuffleArray([...selectedErrorQuestions, ...selectedRegularQuestions]);
-      
+
       console.log('[AI TRAINER] Итого вопросов:', finalQuestions.length);
       return finalQuestions.slice(0, totalQuestions);
-      
+
     } catch (error) {
       console.error('[AI TRAINER] Ошибка адаптивного подбора:', error);
       return [];
     }
   };
-  
+
   // Вспомогательная функция для перемешивания массива
   const shuffleArray = (array) => {
     const shuffled = [...array];
@@ -813,22 +813,22 @@ function App() {
     }
     return shuffled;
   };
-  
+
   // 3. Получить совет от ИИ после теста
   const getAITrainerAdvice = async (testResult) => {
     // Получаем userId напрямую из Telegram (надежнее, чем полагаться на состояние)
     const tgUser = initTelegramWebAppSafe();
     const currentUserId = tgUser?.id ? String(tgUser.id) : userId; // Используем состояние как fallback
-    
+
     if (!currentUserId) {
       console.log('[AI TRAINER] Пропуск - userId не установлен (ни из Telegram, ни из состояния)');
       return;
     }
-    
+
     // Проверяем, является ли пользователь админом (админы имеют безлимитный доступ)
     const isUserAdmin = isAdmin || userRole === 'admin';
     console.log('[AI_LIMIT] Проверка админ-статуса:', { isAdmin, userRole, isUserAdmin });
-    
+
     // Если пользователь админ - пропускаем проверку лимита
     if (!isUserAdmin) {
       // ЖЕСТКАЯ БЛОКИРОВКА: Проверяем лимит перед использованием
@@ -836,15 +836,15 @@ function App() {
       console.log('[AI_LIMIT] Проверка лимита для совета:', limitCheck);
       console.log('[AI_LIMIT] limitCheck.allowed:', limitCheck.allowed, 'limitCheck.remaining:', limitCheck.remaining);
       console.log('[AI_LIMIT] limitCheck.used:', limitCheck.used, 'limitCheck.total:', limitCheck.total);
-      
+
       // ЖЕСТКАЯ БЛОКИРОВКА: если used >= total, функция НЕ должна запускаться
       if (limitCheck.total > 0 && limitCheck.used >= limitCheck.total) {
         console.log('[AI_LIMIT] ⛔⛔⛔ ЖЕСТКАЯ БЛОКИРОВКА: Лимит исчерпан! used >= total');
-        console.log('[AI_LIMIT] Детали блокировки:', { 
-          used: limitCheck.used, 
-          total: limitCheck.total, 
-          allowed: limitCheck.allowed, 
-          remaining: limitCheck.remaining 
+        console.log('[AI_LIMIT] Детали блокировки:', {
+          used: limitCheck.used,
+          total: limitCheck.total,
+          allowed: limitCheck.allowed,
+          remaining: limitCheck.remaining
         });
         const limitMessage = 'Лимит использования ИИ исчерпан. Перейдите на тариф PRO для безлимита.';
         console.log('[AI_LIMIT] Лимит исчерпан, блокируем запрос совета:', limitMessage);
@@ -852,12 +852,12 @@ function App() {
         setShowAiAdvice(true);
         return; // ВАЖНО: выходим из функции, не отправляем запрос
       }
-      
+
       // СТРОГАЯ ПРОВЕРКА: блокируем если allowed === false ИЛИ remaining === 0
       if (!limitCheck.allowed || limitCheck.remaining === 0) {
         console.log('[AI_LIMIT] ⛔⛔⛔ БЛОКИРУЕМ ЗАПРОС СОВЕТА - ЛИМИТ ИСЧЕРПАН!');
         console.log('[AI_LIMIT] Детали блокировки:', { allowed: limitCheck.allowed, remaining: limitCheck.remaining });
-        const limitMessage = limitCheck.remaining === 0 
+        const limitMessage = limitCheck.remaining === 0
           ? 'Лимит использования ИИ исчерпан. Перейдите на тариф PRO для безлимита.'
           : `Осталось ${limitCheck.remaining} использований ИИ. Оформите подписку для увеличения лимита.`;
         console.log('[AI_LIMIT] Лимит исчерпан, блокируем запрос совета:', limitMessage);
@@ -866,9 +866,9 @@ function App() {
         return; // ВАЖНО: выходим из функции, не отправляем запрос
       }
     }
-    
+
     console.log('[AI_LIMIT] Лимит позволяет использовать ИИ для совета, отправляем запрос');
-    
+
     try {
       console.log('[AI TRAINER] Запрос совета от ИИ для результата:', {
         correct: testResult.correct,
@@ -877,12 +877,12 @@ function App() {
         hasUserAnswers: !!testResult.userAnswers,
         userId: currentUserId
       });
-      
+
       // Сначала показываем блок с загрузкой
       setAiTrainerAdvice({ loading: true, text: null, error: null });
       setShowAiAdvice(true);
       console.log('[AI TRAINER] Блок показан, состояние:', { showAiAdvice: true, loading: true });
-      
+
       // Формируем список ошибок
       const errors = [];
       if (testResult.questions && testResult.userAnswers) {
@@ -899,7 +899,7 @@ function App() {
               return normalizeId(a.id) === normalizeId(userAnswer.selectedAnswerId);
             });
             const correctAnswer = question.answers.find(a => a.correct === true);
-            
+
             if (wrongAnswer && correctAnswer) {
               errors.push({
                 question: question.text || question.question || 'Вопрос',
@@ -910,24 +910,24 @@ function App() {
           }
         });
       }
-      
+
       console.log('[AI TRAINER] Сформировано ошибок:', errors.length);
-      
+
       // ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА ПЕРЕД ОТПРАВКОЙ ЗАПРОСА
       const finalLimitCheck = await checkAILimit(false);
       console.log('[AI_LIMIT] Финальная проверка перед отправкой совета:', finalLimitCheck);
-      
+
       // СТРОГАЯ ПРОВЕРКА: если allowed === false ИЛИ remaining === 0, блокируем
       if (!finalLimitCheck.allowed || finalLimitCheck.remaining === 0) {
         console.log('[AI_LIMIT] ⛔⛔⛔ БЛОКИРУЕМ ЗАПРОС СОВЕТА ПЕРЕД ОТПРАВКОЙ - ЛИМИТ ИСЧЕРПАН!');
-        const limitMessage = finalLimitCheck.remaining === 0 
+        const limitMessage = finalLimitCheck.remaining === 0
           ? 'Лимит использования ИИ исчерпан. Оформите подписку для увеличения лимита.'
           : `Осталось ${finalLimitCheck.remaining} использований ИИ. Оформите подписку для увеличения лимита.`;
         setAiTrainerAdvice({ loading: false, text: null, error: limitMessage });
         setShowAiAdvice(true);
         return; // ВАЖНО: выходим из функции, не отправляем запрос
       }
-      
+
       // Вызываем Edge Function
       const { data, error } = await supabase.functions.invoke('ai-trainer-advice', {
         body: {
@@ -937,19 +937,19 @@ function App() {
           totalCount: testResult.total || 0
         }
       });
-      
+
       if (error) {
         console.error('[AI TRAINER] Ошибка получения совета:', error);
         // При ошибке просто скрываем блок, не показываем ошибку пользователю
         setShowAiAdvice(false);
-        setAiTrainerAdvice({ 
-          loading: false, 
-          text: null, 
+        setAiTrainerAdvice({
+          loading: false,
+          text: null,
           error: null
         });
         return;
       }
-      
+
       if (data && data.advice) {
         console.log('[AI TRAINER] Получен совет:', data.advice);
         // ПОСЛЕ успешного ответа от ИИ обновляем ai_queries_count в Supabase
@@ -957,39 +957,39 @@ function App() {
         console.log('[AI_LIMITS] Перед обновлением ai_queries_count после успешного запроса совета');
         const updatedCount = await incrementAIQueriesUsed();
         console.log('[AI_LIMITS] После обновления ai_queries_count:', updatedCount);
-        setAiTrainerAdvice({ 
-          loading: false, 
-          text: data.advice, 
+        setAiTrainerAdvice({
+          loading: false,
+          text: data.advice,
           error: null
         });
       } else {
         // Если нет совета, скрываем блок
         setShowAiAdvice(false);
-        setAiTrainerAdvice({ 
-          loading: false, 
-          text: null, 
+        setAiTrainerAdvice({
+          loading: false,
+          text: null,
           error: null
         });
       }
-      
+
     } catch (error) {
       console.error('[AI TRAINER] Ошибка запроса совета:', error);
       // При ошибке скрываем блок
       setShowAiAdvice(false);
-      setAiTrainerAdvice({ 
-        loading: false, 
-        text: null, 
+      setAiTrainerAdvice({
+        loading: false,
+        text: null,
         error: null
       });
     }
   };
-  
+
   // 4. Сохранение результатов теста в базу данных
   const saveTestResultsToDatabase = async (testResult) => {
     // Получаем userId напрямую из Telegram
     const tgUser = initTelegramWebAppSafe();
     const currentUserId = tgUser?.id ? String(tgUser.id) : userId;
-    
+
     console.log('[RESULTS] Сохранение результатов в БД:', {
       userId: currentUserId,
       selectedTopicId: selectedTopic?.id,
@@ -1000,12 +1000,12 @@ function App() {
         percentage: testResult.percentage
       }
     });
-    
+
     if (!currentUserId || !selectedTopic) {
       console.log('[AI TRAINER] Пропуск сохранения в БД - нет userId или selectedTopic');
       return null;
     }
-    
+
     try {
       // ВАЖНО: Нормализуем topic_id для сохранения
       const normalizedTopicId = String(selectedTopic.id || '').trim();
@@ -1019,7 +1019,7 @@ function App() {
           percentage: testResult.percentage
         }
       });
-      
+
       // Сохраняем результаты теста
       const { data: resultData, error: resultError } = await supabase
         .from('test_results')
@@ -1034,14 +1034,14 @@ function App() {
         }])
         .select()
         .single();
-      
+
       if (resultError) {
         console.error('[AI TRAINER] Ошибка сохранения результатов:', resultError);
         return null;
       }
-      
+
       console.log('[AI TRAINER] Результаты сохранены, ID:', resultData.id);
-      
+
       // Сохраняем ошибки пользователя
       if (testResult.questions && testResult.userAnswers) {
         const errors = [];
@@ -1051,7 +1051,7 @@ function App() {
           if (userAnswer && userAnswer.selectedAnswerId !== undefined && userAnswer.selectedAnswerId !== null) {
             // Если isCorrect явно false или не установлен, считаем ответ неправильным
             const isIncorrect = userAnswer.isCorrect === false || userAnswer.isCorrect === undefined || userAnswer.isCorrect === null;
-            
+
             if (isIncorrect) {
               const correctAnswer = question.answers.find(a => a.correct === true);
               errors.push({
@@ -1064,7 +1064,7 @@ function App() {
             }
           }
         });
-        
+
         if (errors.length > 0) {
           // Используем upsert для обновления существующих ошибок
           // Если в таблице есть error_count, он должен увеличиваться автоматически или через триггер
@@ -1075,7 +1075,7 @@ function App() {
                 onConflict: 'user_id,question_id',
                 ignoreDuplicates: false
               });
-            
+
             if (upsertError) {
               console.error('[AI TRAINER] Ошибка сохранения ошибки пользователя:', upsertError);
             }
@@ -1083,9 +1083,9 @@ function App() {
           console.log('[AI TRAINER] Сохранено ошибок:', errors.length);
         }
       }
-      
+
       return resultData;
-      
+
     } catch (error) {
       console.error('[AI TRAINER] Ошибка сохранения в БД:', error);
       return null;
@@ -1093,22 +1093,22 @@ function App() {
   };
 
   // ========== ФУНКЦИИ ДЛЯ ЭКРАНА СТАТИСТИКИ ==========
-  
+
   // Загрузка статистики по темам из test_results и user_errors
   const loadAnalyticsData = async () => {
     const tgUser = initTelegramWebAppSafe();
     const currentUserId = tgUser?.id ? String(tgUser.id) : userId;
-    
+
     if (!currentUserId) {
       console.log('[ANALYTICS] Пропуск загрузки - нет userId');
       return null;
     }
-    
+
     setAnalyticsLoading(true);
-    
+
     try {
       console.log('[ANALYTICS] Загрузка статистики для пользователя:', currentUserId);
-      
+
       // Загружаем результаты тестов, сгруппированные по темам
       const { data: dbTestResults, error: testResultsError } = await supabase
         .from('test_results')
@@ -1116,11 +1116,11 @@ function App() {
         .eq('user_id', Number(currentUserId))
         .order('created_at', { ascending: false })
         .limit(10000); // Большой лимит для всех результатов
-      
+
       if (testResultsError) {
         console.error('[ANALYTICS] Ошибка загрузки результатов тестов:', testResultsError);
       }
-      
+
       // Логируем загруженные результаты для отладки
       if (dbTestResults && dbTestResults.length > 0) {
         console.log('[ANALYTICS] Загружено результатов тестов:', dbTestResults.length);
@@ -1137,28 +1137,28 @@ function App() {
       } else {
         console.log('[ANALYTICS] Нет результатов тестов в БД');
       }
-      
+
       // Загружаем ошибки пользователя, сгруппированные по темам
       const { data: dbUserErrors, error: userErrorsError } = await supabase
         .from('user_errors')
         .select('topic_id, question_id, error_count')
         .eq('user_id', Number(currentUserId))
         .limit(10000); // Большой лимит для всех ошибок
-      
+
       if (userErrorsError) {
         console.error('[ANALYTICS] Ошибка загрузки ошибок:', userErrorsError);
       }
-      
+
       // Загружаем общее количество вопросов в каждой теме из БД
       const { data: allQuestions, error: questionsError } = await supabase
         .from('questions')
         .select('quiz_id, id')
         .range(0, 9999); // Загружаем все вопросы
-      
+
       if (questionsError) {
         console.error('[ANALYTICS] Ошибка загрузки вопросов:', questionsError);
       }
-      
+
       // Функция нормализации ID для консистентного сравнения
       const normalizeTopicId = (id) => {
         if (!id) return null;
@@ -1176,15 +1176,15 @@ function App() {
         const localResultsSource = (results && Object.keys(results).length > 0)
           ? results
           : (() => {
-              try {
-                const storageKey = `test_results_${currentUserId}`;
-                const raw = localStorage.getItem(storageKey);
-                return raw ? JSON.parse(raw) : {};
-              } catch (e) {
-                console.error('[ANALYTICS] Ошибка чтения localStorage fallback:', e);
-                return {};
-              }
-            })();
+            try {
+              const storageKey = `test_results_${currentUserId}`;
+              const raw = localStorage.getItem(storageKey);
+              return raw ? JSON.parse(raw) : {};
+            } catch (e) {
+              console.error('[ANALYTICS] Ошибка чтения localStorage fallback:', e);
+              return {};
+            }
+          })();
 
         const fallbackTestResults = [];
         const fallbackUserErrors = [];
@@ -1223,7 +1223,7 @@ function App() {
         testResults = fallbackTestResults;
         userErrors = fallbackUserErrors;
       }
-      
+
       // Создаем Map для подсчета общего количества вопросов по темам
       const totalQuestionsByTopic = new Map();
       if (allQuestions && allQuestions.length > 0) {
@@ -1234,9 +1234,9 @@ function App() {
           }
         });
       }
-      
+
       console.log('[ANALYTICS] Вопросы по темам:', Array.from(totalQuestionsByTopic.entries()).map(([id, count]) => ({ topicId: id, count })));
-      
+
       // Создаем Map для подсчета ошибок по темам (ключ - topic_id, значение - Set question_id)
       const errorsByTopic = new Map();
       if (userErrors && userErrors.length > 0) {
@@ -1251,9 +1251,9 @@ function App() {
           }
         });
       }
-      
+
       console.log('[ANALYTICS] Ошибки по темам:', Array.from(errorsByTopic.entries()).map(([id, set]) => ({ topicId: id, errorCount: set.size })));
-      
+
       // Создаем Set всех вопросов с ошибками для быстрой проверки
       const questionsWithErrors = new Set();
       if (userErrors && userErrors.length > 0) {
@@ -1264,16 +1264,16 @@ function App() {
           }
         });
       }
-      
+
       // Группируем результаты по темам
       const topicStats = new Map();
-      
+
       // Обрабатываем результаты тестов
       if (testResults && testResults.length > 0) {
         testResults.forEach(result => {
           const topicId = normalizeTopicId(result.topic_id);
           if (!topicId) return;
-          
+
           if (!topicStats.has(topicId)) {
             topicStats.set(topicId, {
               topicId: topicId,
@@ -1286,14 +1286,14 @@ function App() {
               correctlySolvedQuestions: new Set() // Уникальные вопросы, решенные правильно
             });
           }
-          
+
           const stats = topicStats.get(topicId);
           stats.totalTests += 1;
           stats.totalQuestions += result.total_questions || 0;
           stats.totalCorrect += result.correct_answers || 0;
         });
       }
-      
+
       // Обрабатываем ошибки и определяем правильно решенные вопросы
       // Используем уже созданный errorsByTopic для подсчета ошибок
       errorsByTopic.forEach((errorQuestionsSet, topicId) => {
@@ -1310,11 +1310,11 @@ function App() {
             correctlySolvedQuestions: new Set()
           });
         }
-        
+
         // Устанавливаем количество уникальных вопросов с ошибками
         topicStats.get(topicId).errorCount = errorQuestionsSet.size;
       });
-      
+
       // Вычисляем процент для каждой темы на основе результатов тестов
       // Используем средний процент из test_results, так как это наиболее точный показатель прогресса
       topicStats.forEach((stats, topicId) => {
@@ -1325,7 +1325,7 @@ function App() {
           errorCount: stats.errorCount,
           totalQuestionsInTopic: stats.totalQuestionsInTopic
         });
-        
+
         // Приоритет 1: Используем средний процент из результатов тестов (самый точный)
         if (stats.totalTests > 0 && testResults) {
           // Фильтруем результаты для этой конкретной темы
@@ -1343,9 +1343,9 @@ function App() {
             }
             return matches;
           });
-          
+
           console.log(`[ANALYTICS] Тема ${topicId}: найдено ${topicResults.length} результатов из ${testResults.length} всего`);
-          
+
           if (topicResults.length > 0) {
             // Вычисляем средний процент из всех тестов по теме
             const sumPercentage = topicResults.reduce((sum, r) => {
@@ -1366,28 +1366,28 @@ function App() {
               console.log(`[ANALYTICS] Тема ${topicId}: нет данных о вопросах, прогресс = 0%`);
             }
           }
-        } 
+        }
         // Приоритет 2: Если нет тестов, но есть данные о вопросах, используем их
         else if (stats.totalQuestions > 0) {
           stats.averagePercentage = (stats.totalCorrect / stats.totalQuestions) * 100;
           console.log(`[ANALYTICS] Тема ${topicId} (fallback): правильных ${stats.totalCorrect} из ${stats.totalQuestions} = ${stats.averagePercentage.toFixed(2)}%`);
-        } 
+        }
         // Приоритет 3: Если есть только ошибки, но нет тестов, прогресс = 0
         else if (stats.errorCount > 0) {
           stats.averagePercentage = 0;
           console.log(`[ANALYTICS] Тема ${topicId}: только ошибки (${stats.errorCount}), нет тестов, прогресс = 0%`);
-        } 
+        }
         // Приоритет 4: Если нет данных вообще
         else {
           stats.averagePercentage = 0;
           console.log(`[ANALYTICS] Тема ${topicId}: нет данных, прогресс = 0%`);
         }
-        
+
         // Ограничиваем процент от 0 до 100
         stats.averagePercentage = Math.max(0, Math.min(100, stats.averagePercentage));
         console.log(`[ANALYTICS] Тема ${topicId}: ФИНАЛЬНЫЙ процент = ${stats.averagePercentage.toFixed(2)}%`);
       });
-      
+
       // Преобразуем Map в массив и добавляем информацию о теме
       const analyticsArray = Array.from(topicStats.values()).map(stats => {
         // Нормализуем ID при поиске темы для правильного сравнения
@@ -1395,7 +1395,7 @@ function App() {
           const normalizedTopicId = normalizeTopicId(t.id);
           return normalizedTopicId === stats.topicId;
         });
-        
+
         console.log(`[ANALYTICS] Поиск темы для stats.topicId=${stats.topicId}:`, {
           found: !!topic,
           topicName: topic ? topic.name : 'не найдена',
@@ -1403,38 +1403,38 @@ function App() {
           normalizedTopicId: topic ? normalizeTopicId(topic.id) : null,
           allTopics: topics.map(t => ({ id: t.id, normalizedId: normalizeTopicId(t.id), name: t.name }))
         });
-        
+
         return {
           ...stats,
           topicName: topic ? topic.name : `Тема ${stats.topicId}`,
           color: stats.averagePercentage < 50 ? 'red' : stats.averagePercentage < 80 ? 'yellow' : 'green'
         };
       });
-      
+
       // Сортируем по количеству ошибок (для слабых мест)
       const weakTopics = [...analyticsArray]
         .sort((a, b) => b.errorCount - a.errorCount)
         .slice(0, 3);
-      
+
       // Логируем итоговые данные для отладки
       console.log('[ANALYTICS] Итоговая статистика:');
       analyticsArray.forEach(topic => {
         console.log(`  - ${topic.topicName}: ${topic.averagePercentage.toFixed(2)}% (тестов: ${topic.totalTests}, вопросов: ${topic.totalQuestions}, правильных: ${topic.totalCorrect}, ошибок: ${topic.errorCount})`);
       });
-      
+
       setAnalyticsData({
         topics: analyticsArray,
         weakTopics: weakTopics,
         totalTopics: analyticsArray.length
       });
-      
+
       console.log('[ANALYTICS] Статистика загружена:', analyticsArray.length, 'тем');
-      
+
       return {
         topics: analyticsArray,
         weakTopics: weakTopics
       };
-      
+
     } catch (error) {
       console.error('[ANALYTICS] Ошибка загрузки статистики:', error);
       return null;
@@ -1442,65 +1442,65 @@ function App() {
       setAnalyticsLoading(false);
     }
   };
-  
+
   // Загрузка AI-вердикта для статистики
   const loadAnalyticsAiVerdict = async () => {
     const tgUser = initTelegramWebAppSafe();
     const currentUserId = tgUser?.id ? String(tgUser.id) : userId;
-    
+
     if (!currentUserId || !analyticsData) {
       return;
     }
-    
+
     // Устанавливаем состояние загрузки
     setAnalyticsAiVerdict({
       loading: true,
       text: null,
       error: null
     });
-    
+
     try {
       console.log('[ANALYTICS] Загрузка AI-вердикта для статистики');
       console.log('[ANALYTICS] Данные статистики:', {
         topicsCount: analyticsData.topics.length,
         weakTopicsCount: analyticsData.weakTopics?.length || 0
       });
-      
+
       // Формируем данные для AI
       const userErrorsArray = analyticsData.weakTopics && analyticsData.weakTopics.length > 0
         ? analyticsData.weakTopics.map(topic => ({
-            topic_id: String(topic.topicId),
-            topic_name: String(topic.topicName),
-            error_count: Number(topic.errorCount) || 0,
-            percentage: Number(topic.averagePercentage) || 0
-          }))
+          topic_id: String(topic.topicId),
+          topic_name: String(topic.topicName),
+          error_count: Number(topic.errorCount) || 0,
+          percentage: Number(topic.averagePercentage) || 0
+        }))
         : [];
-      
+
       const avgScore = analyticsData.topics.length > 0
         ? analyticsData.topics.reduce((sum, t) => sum + (Number(t.averagePercentage) || 0), 0) / analyticsData.topics.length
         : 0;
-      
+
       const requestData = {
         userId: String(currentUserId),
         userErrors: userErrorsArray,
         totalScore: Math.round(avgScore * 100) / 100 // Округляем до 2 знаков
       };
-      
+
       console.log('[ANALYTICS] Отправка запроса:', {
         userId: requestData.userId,
         userErrorsCount: requestData.userErrors.length,
         totalScore: requestData.totalScore
       });
-      
+
       // Проверяем лимит ИИ перед использованием (это другой тип использования)
       const limitCheck = await checkAILimit(false);
       console.log('[AI_LIMIT] Проверка лимита для вердикта в статистике:', limitCheck);
-      
+
       // СТРОГАЯ ПРОВЕРКА: блокируем если allowed === false ИЛИ remaining === 0
       if (!limitCheck.allowed || limitCheck.remaining === 0) {
         console.log('[AI_LIMIT] ⛔⛔⛔ БЛОКИРУЕМ ЗАПРОС ВЕРДИКТА - ЛИМИТ ИСЧЕРПАН!');
         console.log('[AI_LIMIT] Детали блокировки:', { allowed: limitCheck.allowed, remaining: limitCheck.remaining });
-        const limitMessage = limitCheck.remaining === 0 
+        const limitMessage = limitCheck.remaining === 0
           ? 'Лимит использования ИИ исчерпан. Оформите подписку для увеличения лимита.'
           : `Осталось ${limitCheck.remaining} использований ИИ. Оформите подписку для увеличения лимита.`;
         console.log('[AI_LIMIT] Лимит исчерпан, блокируем запрос вердикта:', limitMessage);
@@ -1511,17 +1511,17 @@ function App() {
         });
         return; // ВАЖНО: выходим из функции, не отправляем запрос
       }
-      
+
       console.log('[AI_LIMIT] Лимит позволяет использовать ИИ для вердикта, отправляем запрос');
-      
+
       // ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА ПЕРЕД ОТПРАВКОЙ ЗАПРОСА
       const finalLimitCheck = await checkAILimit(false);
       console.log('[AI_LIMIT] Финальная проверка перед отправкой вердикта (App.jsx):', finalLimitCheck);
-      
+
       // СТРОГАЯ ПРОВЕРКА: если allowed === false ИЛИ remaining === 0, блокируем
       if (!finalLimitCheck.allowed || finalLimitCheck.remaining === 0) {
         console.log('[AI_LIMIT] ⛔⛔⛔ БЛОКИРУЕМ ЗАПРОС ВЕРДИКТА ПЕРЕД ОТПРАВКОЙ - ЛИМИТ ИСЧЕРПАН!');
-        const limitMessage = finalLimitCheck.remaining === 0 
+        const limitMessage = finalLimitCheck.remaining === 0
           ? 'Лимит использования ИИ исчерпан. Оформите подписку для увеличения лимита.'
           : `Осталось ${finalLimitCheck.remaining} использований ИИ. Оформите подписку для увеличения лимита.`;
         setAnalyticsAiVerdict({
@@ -1531,13 +1531,13 @@ function App() {
         });
         return; // ВАЖНО: выходим из функции, не отправляем запрос
       }
-      
+
       const { data, error } = await supabase.functions.invoke('ai-trainer-advice', {
         body: requestData
       });
-      
+
       console.log('[ANALYTICS] Ответ от Edge Function:', { data, error });
-      
+
       if (error) {
         console.error('[ANALYTICS] Ошибка запроса AI-вердикта:', error);
         setAnalyticsAiVerdict({
@@ -1547,13 +1547,13 @@ function App() {
         });
         return;
       }
-      
+
       if (data && data.advice) {
         // ПОСЛЕ успешного ответа от ИИ обновляем ai_queries_count в Supabase
         console.log('[AI_LIMITS] Перед обновлением ai_queries_count после успешного запроса вердикта');
         const updatedCount = await incrementAIQueriesUsed();
         console.log('[AI_LIMITS] После обновления ai_queries_count:', updatedCount);
-        
+
         setAnalyticsAiVerdict({
           loading: false,
           text: data.advice.substring(0, 200), // Ограничиваем до 200 символов
@@ -1566,7 +1566,7 @@ function App() {
           error: null
         });
       }
-      
+
     } catch (error) {
       console.error('[ANALYTICS] Ошибка загрузки AI-вердикта:', error);
       setAnalyticsAiVerdict({
@@ -1578,7 +1578,7 @@ function App() {
   };
 
   // ========== ФУНКЦИИ ДЛЯ РАБОТЫ С SUPABASE (ТЕМЫ И ВОПРОСЫ) ==========
-  
+
   // Загрузка квизов (тем) из Supabase с использованием IndexedDB кэша
   const loadTopicsFromSupabase = async (useCache = true) => {
     try {
@@ -1593,7 +1593,7 @@ function App() {
             // Только если есть сеть
             if (navigator.onLine) {
               setTimeout(() => {
-                loadTopicsFromSupabase(false).catch(() => {});
+                loadTopicsFromSupabase(false).catch(() => { });
               }, 2000);
             } else {
               console.log('[CACHE] Оффлайн режим, используем только кэш');
@@ -1633,17 +1633,17 @@ function App() {
             setTopics(cachedTopics);
             return;
           }
-          } catch (e) {
+        } catch (e) {
           console.warn('[CACHE] Не удалось загрузить темы из кэша:', e);
-          }
-          setTopics(defaultTopics);
+        }
+        setTopics(defaultTopics);
         return;
       }
 
       if (data && data.length > 0) {
         // Оптимизация: загружаем все вопросы одним запросом и считаем количество для каждой темы
         const { data: allQuestions, error: questionsError } = await supabase
-              .from('questions')
+          .from('questions')
           .select('quiz_id')
           .range(0, 9999); // Явно указываем диапазон для загрузки до 10000 вопросов (обход ограничения Supabase в 1000 строк)
 
@@ -1663,17 +1663,17 @@ function App() {
         const topicsWithCounts = data.map((quiz, index) => {
           // Нормализуем ID темы для сравнения
           const normalizedQuizId = String(quiz.id).trim();
-            return {
-              id: quiz.id, // UUID, но в коде может использоваться как строка
-              name: quiz.title || quiz.name || 'Без названия',
+          return {
+            id: quiz.id, // UUID, но в коде может использоваться как строка
+            name: quiz.title || quiz.name || 'Без названия',
             questionCount: questionCounts.get(normalizedQuizId) || 0,
             order: index + 1 // Используем порядок из массива
-            };
+          };
         });
 
         setTopics(topicsWithCounts);
         console.log(`✅ Загружено тем из Supabase: ${topicsWithCounts.length} (без лимитов)`);
-        
+
         // Сохраняем в IndexedDB для следующего раза
         try {
           await saveTopics(topicsWithCounts);
@@ -1693,10 +1693,10 @@ function App() {
           setTopics(cachedTopics);
           return;
         }
-        } catch (e) {
+      } catch (e) {
         console.warn('[CACHE] Не удалось загрузить темы из кэша:', e);
-        }
-        setTopics(defaultTopics);
+      }
+      setTopics(defaultTopics);
     }
   };
 
@@ -1708,20 +1708,20 @@ function App() {
         try {
           const cachedQuestions = await loadQuestions();
           if (cachedQuestions && cachedQuestions.length > 0) {
-                  setSavedQuestions(cachedQuestions);
-                  console.log('✅ Используем кэшированные вопросы для мгновенной загрузки:', cachedQuestions.length, 'вопросов');
-                  // Обновляем в фоне (не блокируем интерфейс) - через 10 секунд после загрузки страницы
+            setSavedQuestions(cachedQuestions);
+            console.log('✅ Используем кэшированные вопросы для мгновенной загрузки:', cachedQuestions.length, 'вопросов');
+            // Обновляем в фоне (не блокируем интерфейс) - через 10 секунд после загрузки страницы
             // Только если есть сеть
             if (navigator.onLine) {
-                  setTimeout(() => {
-                    loadQuestionsFromSupabase(false).catch(() => {});
-                  }, 10000);
-                } else {
+              setTimeout(() => {
+                loadQuestionsFromSupabase(false).catch(() => { });
+              }, 10000);
+            } else {
               console.log('[CACHE] Оффлайн режим, используем только кэш');
             }
             return;
-                }
-              } catch (e) {
+          }
+        } catch (e) {
           console.warn('[CACHE] Ошибка загрузки вопросов из кэша, загружаем из БД:', e);
         }
       }
@@ -1733,7 +1733,7 @@ function App() {
         if (cachedQuestions && cachedQuestions.length > 0) {
           setSavedQuestions(cachedQuestions);
           return;
-                }
+        }
         setSavedQuestions([]);
         return;
       }
@@ -1750,7 +1750,7 @@ function App() {
       if (questionsError) {
         console.error('❌ Ошибка загрузки вопросов из Supabase:', questionsError);
         console.log('[LOAD] Переходим на альтернативный запрос без вложенных опций...');
-        
+
         // Пробуем альтернативный запрос с вложенными опциями
         console.log('🔄 Пробуем альтернативный запрос с опциями...');
         const { data: questionsDataAlt, error: questionsErrorAlt } = await supabase
@@ -1761,38 +1761,38 @@ function App() {
 
         if (questionsErrorAlt) {
           console.error('❌ Альтернативный запрос тоже не удался:', questionsErrorAlt);
-        // Fallback на кэш
-        try {
-          const cachedQuestions = await loadQuestions();
-          if (cachedQuestions && cachedQuestions.length > 0) {
-            setSavedQuestions(cachedQuestions);
-            return;
-          }
-        } catch (e) {
+          // Fallback на кэш
+          try {
+            const cachedQuestions = await loadQuestions();
+            if (cachedQuestions && cachedQuestions.length > 0) {
+              setSavedQuestions(cachedQuestions);
+              return;
+            }
+          } catch (e) {
             console.warn('[CACHE] Не удалось загрузить вопросы из кэша:', e);
           }
-        setSavedQuestions([]);
-        return;
-      }
+          setSavedQuestions([]);
+          return;
+        }
 
         // Если альтернативный запрос успешен, загружаем опции отдельно
         if (questionsDataAlt && questionsDataAlt.length > 0) {
           const questionIds = questionsDataAlt.map(q => q.id);
-          
+
           // Разбиваем на батчи по 100 элементов, чтобы избежать ошибки 400
           // Загружаем все батчи ПАРАЛЛЕЛЬНО для максимальной скорости
           const batchSize = 100;
           const batches = [];
-          
+
           for (let i = 0; i < questionIds.length; i += batchSize) {
             const batch = questionIds.slice(i, i + batchSize);
             batches.push(batch);
           }
-          
+
           console.log(`[OPTIONS] Загружаем ${batches.length} батчей опций параллельно...`);
-          
+
           // Загружаем все батчи одновременно через Promise.all
-          const batchPromises = batches.map((batch, index) => 
+          const batchPromises = batches.map((batch, index) =>
             supabase
               .from('options')
               .select('question_id, option_text, is_correct, created_at')
@@ -1810,13 +1810,13 @@ function App() {
                 return [];
               })
           );
-          
+
           // Ждем загрузки всех батчей параллельно
           const batchResults = await Promise.all(batchPromises);
-          
+
           // Объединяем все результаты
           const allOptionsData = batchResults.flat();
-          
+
           const optionsData = allOptionsData;
           const optionsError = allOptionsData.length === 0 ? { message: 'No options loaded' } : null;
 
@@ -1863,20 +1863,20 @@ function App() {
               console.warn(`[OPTIONS] Вопрос ${q.id}: опции не найдены или пусты`);
             }
           });
-          
+
           console.log(`[OPTIONS] Всего вопросов с опциями: ${optionsByQuestion.size} из ${questionsWithOptions.length}`);
 
           // Обрабатываем данные
           const formattedQuestions = questionsWithOptions.map(q => {
             // Берем опции из вложенного массива options (из связанной таблицы)
             let options = optionsByQuestion.get(q.id) || [];
-            
+
             // Если опций нет в Map, но они есть в объекте вопроса (из вложенного select)
             if (options.length === 0 && q.options && Array.isArray(q.options) && q.options.length > 0) {
               options = q.options;
               optionsByQuestion.set(q.id, options);
             }
-            
+
             // Сортируем опции по created_at
             options = options.sort((a, b) => {
               return (a.created_at || '').localeCompare(b.created_at || '');
@@ -1888,11 +1888,11 @@ function App() {
             } else {
               console.log(`[OPTIONS] Вопрос ${q.id}: найдено ${options.length} опций из связанной таблицы`);
             }
-            
+
             const answerMap = {};
             let correctKey = 'a';
             const answerKeys = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
-            
+
             // Преобразуем опции из связанной таблицы в поля answer_a, answer_b и т.д.
             options.forEach((option, index) => {
               if (index < answerKeys.length) {
@@ -1915,12 +1915,12 @@ function App() {
               answers_count: options.length || 0,
               created_at: q.created_at
             };
-            
+
             // Проверяем, что хотя бы один ответ есть
             if (Object.keys(answerMap).length === 0) {
               console.error(`[OPTIONS] ❌ Вопрос ${q.id} не имеет опций после форматирования!`);
             }
-            
+
             return formattedQuestion;
           });
 
@@ -1942,22 +1942,22 @@ function App() {
             }
             return q;
           });
-          
+
           setSavedQuestions(questionsToSave);
           console.log(`✅ Загружено вопросов из Supabase (альтернативный запрос): ${questionsToSave.length} из ${formattedQuestions.length} (без лимитов)`);
-          
+
           // Сохраняем в IndexedDB для следующего раза
           try {
             await saveQuestions(questionsToSave);
-              } catch (e) {
+          } catch (e) {
             console.warn('[CACHE] Не удалось сохранить вопросы в кэш:', e);
-            }
-          
+          }
+
           return;
         }
 
         // Fallback на кэш
-              try {
+        try {
           const cachedQuestions = await loadQuestions();
           if (cachedQuestions && cachedQuestions.length > 0) {
             setSavedQuestions(cachedQuestions);
@@ -1965,7 +1965,7 @@ function App() {
           }
         } catch (e) {
           console.warn('[CACHE] Не удалось загрузить вопросы из кэша:', e);
-            }
+        }
         setSavedQuestions([]);
         return;
       }
@@ -1977,7 +1977,7 @@ function App() {
         const optionsByQuestion = new Map();
         let questionsWithOptionsCount = 0;
         let questionsWithoutOptions = [];
-        
+
         questionsData.forEach(q => {
           if (q.options && Array.isArray(q.options) && q.options.length > 0) {
             optionsByQuestion.set(q.id, q.options);
@@ -1988,7 +1988,7 @@ function App() {
             questionsWithoutOptions.push(q.id);
           }
         });
-        
+
         console.log(`[LOAD] Вопросов с опциями во вложенном формате: ${questionsWithOptionsCount} из ${questionsData.length}`);
         if (questionsWithoutOptions.length > 0) {
           console.warn(`[DB_ERROR] Вопросов без опций: ${questionsWithoutOptions.length}`, questionsWithoutOptions.slice(0, 10));
@@ -1996,19 +1996,19 @@ function App() {
 
         // Если опций нет в вложенном формате, загружаем отдельно (редкий случай)
         if (optionsByQuestion.size === 0 && questionsData.length > 0) {
-        const questionIds = questionsData.map(q => q.id);
-          
+          const questionIds = questionsData.map(q => q.id);
+
           // Разбиваем на батчи по 100 элементов, чтобы избежать ошибки 400
           const batchSize = 100;
           let allOptionsData = [];
-          
+
           for (let i = 0; i < questionIds.length; i += batchSize) {
             const batch = questionIds.slice(i, i + batchSize);
             const { data: batchOptionsData, error: batchOptionsError } = await supabase
-          .from('options')
+              .from('options')
               .select('question_id, option_text, is_correct, created_at')
               .in('question_id', batch)
-          .order('created_at', { ascending: true });
+              .order('created_at', { ascending: true });
 
             if (batchOptionsError) {
               console.error(`❌ Ошибка загрузки опций для батча ${i / batchSize + 1}:`, batchOptionsError);
@@ -2016,11 +2016,11 @@ function App() {
               allOptionsData = allOptionsData.concat(batchOptionsData);
             }
           }
-          
+
           const optionsData = allOptionsData;
-          
+
           if (optionsData && optionsData.length > 0) {
-          optionsData.forEach(option => {
+            optionsData.forEach(option => {
               const existing = optionsByQuestion.get(option.question_id) || [];
               existing.push(option);
               optionsByQuestion.set(option.question_id, existing);
@@ -2032,18 +2032,18 @@ function App() {
         const formattedQuestions = questionsData.map(q => {
           // Берем опции из вложенного массива options (из связанной таблицы)
           let options = optionsByQuestion.get(q.id) || [];
-          
+
           // Если опций нет в Map, но они есть в объекте вопроса (из вложенного select)
           if (options.length === 0 && q.options && Array.isArray(q.options) && q.options.length > 0) {
             options = q.options;
             optionsByQuestion.set(q.id, options);
           }
-          
+
           // Сортируем опции по created_at
           options = options.sort((a, b) => {
             return (a.created_at || '').localeCompare(b.created_at || '');
           });
-          
+
           // Проверка: если массив options пустой, выводим ошибку
           if (options.length === 0) {
             console.error(`[DB_ERROR] У вопроса ${q.id} нет записей в таблице options`);
@@ -2052,14 +2052,14 @@ function App() {
           const answerMap = {};
           let correctKey = 'a';
           const answerKeys = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
-          
+
           // Преобразуем опции из связанной таблицы в поля answer_a, answer_b и т.д.
           options.forEach((option, index) => {
             if (index < answerKeys.length) {
               const key = answerKeys[index];
-            answerMap[`answer_${key}`] = option.option_text || '';
-            if (option.is_correct) {
-              correctKey = key;
+              answerMap[`answer_${key}`] = option.option_text || '';
+              if (option.is_correct) {
+                correctKey = key;
               }
             }
           });
@@ -2076,7 +2076,7 @@ function App() {
             created_at: q.created_at
           };
         });
-        
+
         // Сохраняем ВСЕ вопросы, даже без опций (чтобы хотя бы вопросы показывались)
         const questionsToSave = formattedQuestions.map(q => {
           // Если нет опций, создаем пустые поля, чтобы вопрос все равно сохранился
@@ -2093,15 +2093,15 @@ function App() {
           }
           return q;
         });
-        
+
         // Сохраняем в состояние и кэш
         setSavedQuestions(questionsToSave);
         console.log(`✅ Загружено вопросов из Supabase: ${questionsToSave.length} из ${formattedQuestions.length} (без лимитов)`);
-        
+
         // Сохраняем в IndexedDB для следующего раза
         try {
           await saveQuestions(questionsToSave);
-            } catch (e) {
+        } catch (e) {
           console.warn('[CACHE] Не удалось сохранить вопросы в кэш:', e);
         }
       } else {
@@ -2169,13 +2169,13 @@ function App() {
 
       // Пропускаем пустые ответы, чтобы в тесте не было «3.» и «4.» без текста
       if (text && String(text).trim() !== '') {
-      answers.push({
-        id,
+        answers.push({
+          id,
           text: String(text).trim(),
-        // Пока логика одна: один правильный ответ по букве в q.correct
-        correct: q.correct === key
-      });
-    }
+          // Пока логика одна: один правильный ответ по букве в q.correct
+          correct: q.correct === key
+        });
+      }
     });
 
     return answers;
@@ -2187,10 +2187,10 @@ function App() {
   // Function to get merged questions (static + saved from Supabase)
   const getMergedQuestions = (topicId) => {
     const staticQuestions = questionsData[topicId] || [];
-    
+
     // Нормализуем topicId для сравнения (приводим к строке и убираем пробелы)
     const normalizedTopicId = String(topicId).trim();
-    
+
     // Используем savedQuestions из состояния (загружены из Supabase)
     const savedForTopic = savedQuestions
       .filter(q => {
@@ -2201,15 +2201,15 @@ function App() {
       .map(q => {
         const answers = buildAnswersFromSavedQuestion(q);
         return {
-        id: q.id,
-        text: q.question,
-        image: q.image_url,
+          id: q.id,
+          text: q.question,
+          image: q.image_url,
           answers: answers
         };
       });
-    
+
     const allQuestions = [...staticQuestions, ...savedForTopic];
-    
+
     // Логируем только если нет вопросов И еще не логировали для этой темы
     if (allQuestions.length === 0 && !warnedTopicsCacheRef.current.has(normalizedTopicId)) {
       warnedTopicsCacheRef.current.add(normalizedTopicId);
@@ -2225,7 +2225,7 @@ function App() {
         }))
       });
     }
-    
+
     return allQuestions;
   };
 
@@ -2233,7 +2233,7 @@ function App() {
   // Использует существующую структуру данных, не дублирует вопросы
   const getAllQuestions = () => {
     const allQuestions = [];
-    
+
     // Собираем вопросы из всех тем
     topics.forEach(topic => {
       // Статические вопросы из questionsData (если topic.id - число)
@@ -2247,7 +2247,7 @@ function App() {
           });
         });
       }
-      
+
       // Сохраненные вопросы из Supabase для этого квиза
       const savedForTopic = savedQuestions.filter(q => q.topic_id === topic.id);
       savedForTopic.forEach(q => {
@@ -2261,7 +2261,7 @@ function App() {
         });
       });
     });
-    
+
     return allQuestions;
   };
 
@@ -2269,27 +2269,27 @@ function App() {
   // Использует алгоритм Fisher-Yates для перемешивания
   const getRandomQuestions = (allQuestions, count) => {
     if (allQuestions.length === 0) return [];
-    
+
     // Ограничиваем количество доступными вопросами
     const maxCount = Math.min(count, allQuestions.length);
-    
+
     // Создаем копию массива для перемешивания
     const shuffled = [...allQuestions];
-    
+
     // Алгоритм Fisher-Yates для случайного перемешивания
     for (let i = shuffled.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
     }
-    
+
     // Берем первые N уникальных вопросов
     // Используем Set для отслеживания уникальности по ID
     const uniqueQuestions = [];
     const seenIds = new Set();
-    
+
     for (const question of shuffled) {
       if (uniqueQuestions.length >= maxCount) break;
-      
+
       // Проверяем уникальность по ID вопроса
       const questionId = question.id || `${question.sourceTopicId}_${question.text}`;
       if (!seenIds.has(questionId)) {
@@ -2297,38 +2297,38 @@ function App() {
         uniqueQuestions.push(question);
       }
     }
-    
+
     return uniqueQuestions;
   };
 
   // Функция для обработки регистрации пользователя
   const handleRegistration = async (e) => {
     e.preventDefault();
-    
+
     if (!registrationForm.name.trim() || !registrationForm.phone.trim()) {
       alert('Пожалуйста, заполните все поля');
       return;
     }
-    
+
     const tgUser = initTelegramWebAppSafe();
-    
+
     // КРИТИЧНО: Проверяем, что telegram_id получен от Telegram
     if (!tgUser?.id) {
       console.error('[REGISTRATION] Ошибка: telegram_id не получен от Telegram');
       alert('Ошибка: не удалось получить ID пользователя от Telegram. Пожалуйста, откройте приложение через Telegram.');
       return;
     }
-    
+
     const userId = Number(tgUser.id);
     const telegramUsername = tgUser?.username || null;
-    
+
     // Валидация userId
     if (!Number.isFinite(userId) || userId <= 0) {
       console.error('[REGISTRATION] Невалидный userId:', userId);
       alert('Ошибка: невалидный ID пользователя. Пожалуйста, перезагрузите приложение.');
       return;
     }
-    
+
     try {
       // Сохраняем в Supabase
       const { data: existingData, error: checkError } = await supabase
@@ -2387,7 +2387,7 @@ function App() {
           hint: error.hint,
           userId
         });
-        
+
         // Более детальное сообщение об ошибке
         let errorMessage = 'Ошибка сохранения данных.';
         if (error.message) {
@@ -2399,7 +2399,7 @@ function App() {
         if (error.hint) {
           errorMessage += `\nПодсказка: ${error.hint}`;
         }
-        
+
         alert(errorMessage);
         return;
       }
@@ -2421,17 +2421,17 @@ function App() {
 
       setUserData(newUser);
       setUserRole('user');
-      
+
       // Всегда создаем пробную подписку после регистрации через форму
       console.log('✅ Пользователь зарегистрирован через форму, создаем пробную подписку на 3 дня');
       const trialCreated = await createTrialSubscription(userId);
-      
+
       // Устанавливаем данные для окна поздравления
       setTrialDays(3);
-      
+
       // Переходим на экран topics (это закроет экран регистрации)
       setScreen('topics');
-      
+
       // ВСЕГДА показываем окно поздравления после регистрации через форму,
       // независимо от того, была ли создана пробная подписка или уже существовала
       setTimeout(() => {
@@ -2444,14 +2444,14 @@ function App() {
           setShowConfetti(false);
         }, 3000);
       }, 300);
-      
+
       if (trialCreated) {
         console.log('✅ Пробная подписка успешно создана');
         // Статус подписки уже обновлен внутри createTrialSubscription через loadMySubscription
       } else {
         console.log('ℹ️ Пробная подписка уже была создана ранее или не удалось создать');
       }
-      
+
       // Подписка будет загружена автоматически через useEffect при появлении userId
     } catch (err) {
       console.error('Ошибка регистрации:', err);
@@ -2463,14 +2463,14 @@ function App() {
   const loadUsersFromSupabase = async (reset = false) => {
     setUsersLoading(true);
     setUsersError(null);
-    
+
     // Если reset = true, сбрасываем курсор и список
     if (reset) {
       setUsersCursor(null);
       setUsersList([]);
       setHasMoreUsers(true);
     }
-    
+
     try {
       // Загружаем пользователей из profiles с курсорной пагинацией
       // Сортируем по дате регистрации (created_at)
@@ -2479,12 +2479,12 @@ function App() {
         .select('*')
         .order('created_at', { ascending: userSortOrder === 'asc' })
         .limit(USERS_PAGE_SIZE);
-      
+
       // Если есть курсор, загружаем записи с id больше курсора
       if (usersCursor && !reset) {
         query = query.gt('id', usersCursor);
       }
-      
+
       const { data: profilesData, error: profilesError } = await query;
 
       if (profilesError) {
@@ -2517,11 +2517,11 @@ function App() {
       const formattedUsers = (profilesData || []).map(profile => {
         const userId = String(profile.id);
         const subscription = subscriptionsMap.get(userId);
-        
+
         // Определяем активную подписку
         let hasActiveSubscription = false;
         let subscriptionEndDate = null;
-        
+
         if (subscription && subscription.end_date) {
           const endDate = new Date(subscription.end_date);
           hasActiveSubscription = endDate > new Date();
@@ -2532,7 +2532,7 @@ function App() {
         // Сравниваем с лимитами тарифов для определения названия тарифа
         let tariffName = null;
         const aiLimitTotal = profile.ai_limit_total || 0;
-        
+
         // Находим тариф по ai_limit_total
         // Сначала проверяем PRO (unlimited = 999999)
         if (aiLimitTotal >= 999999) {
@@ -2544,7 +2544,7 @@ function App() {
             const tariffLimit = t.aiLimits?.otherUsage === -1 ? 999999 : (t.aiLimits?.otherUsage || 0);
             return tariffLimit === aiLimitTotal;
           });
-          
+
           if (matchingTariff) {
             tariffName = matchingTariff.name;
           } else if (aiLimitTotal === 3) {
@@ -2556,12 +2556,12 @@ function App() {
 
         return {
           userId: userId,
-        telegramUsername: profile.username || null,
-        name: profile.first_name || 'Без имени',
-        phone: profile.phone || 'Не указан',
-        registrationDate: profile.created_at || new Date().toISOString(),
-        lastVisit: profile.created_at || new Date().toISOString(),
-        subscription: {
+          telegramUsername: profile.username || null,
+          name: profile.first_name || 'Без имени',
+          phone: profile.phone || 'Не указан',
+          registrationDate: profile.created_at || new Date().toISOString(),
+          lastVisit: profile.created_at || new Date().toISOString(),
+          subscription: {
             active: hasActiveSubscription,
             startDate: subscription?.start_date || null,
             endDate: subscriptionEndDate,
@@ -2579,17 +2579,17 @@ function App() {
       } else {
         setUsersList(prev => [...prev, ...formattedUsers]);
       }
-      
+
       // Обновляем курсор для следующей загрузки
-      const nextCursor = profilesData && profilesData.length > 0 
-        ? profilesData[profilesData.length - 1].id 
+      const nextCursor = profilesData && profilesData.length > 0
+        ? profilesData[profilesData.length - 1].id
         : null;
       setUsersCursor(nextCursor);
-      
+
       // Проверяем, есть ли еще данные для загрузки
       setHasMoreUsers(profilesData && profilesData.length === USERS_PAGE_SIZE);
-      
-      console.log('[CURSOR] Загружено пользователей:', formattedUsers.length, 
+
+      console.log('[CURSOR] Загружено пользователей:', formattedUsers.length,
         '| Всего:', (reset || usersList.length === 0) ? formattedUsers.length : usersList.length + formattedUsers.length,
         '| Следующий курсор:', nextCursor,
         '| Есть еще:', profilesData && profilesData.length === USERS_PAGE_SIZE);
@@ -2603,7 +2603,7 @@ function App() {
       setUsersLoading(false);
     }
   };
-  
+
   // Функция для загрузки следующей страницы пользователей
   const loadMoreUsers = async () => {
     if (!hasMoreUsers || usersLoading) {
@@ -2635,12 +2635,12 @@ function App() {
       // Иначе определяем автоматически из Telegram
       const tg = window.Telegram?.WebApp;
       let theme = 'light'; // По умолчанию светлая тема
-      
+
       if (tg) {
         // Используем colorScheme из Telegram WebApp
         const colorScheme = tg.colorScheme || getTelegramColorScheme();
         theme = colorScheme === 'dark' ? 'dark' : 'light';
-        
+
         // Также можно использовать themeParams для более точной настройки
         if (tg.themeParams?.bg_color) {
           // Если фон темный, считаем темной темой
@@ -2662,11 +2662,11 @@ function App() {
           theme = 'dark';
         }
       }
-      
+
       // Устанавливаем атрибут data-theme на body
       document.body.setAttribute('data-theme', theme);
       setIsDarkMode(theme === 'dark');
-      
+
       console.log('Тема применена:', theme);
     };
 
@@ -2678,12 +2678,12 @@ function App() {
     if (tg) {
       tg.ready();
       tg.expand();
-      
+
       // Слушаем изменения темы через событие themeChanged
       if (tg.onEvent) {
         tg.onEvent('themeChanged', applyTheme);
       }
-      
+
       // Также слушаем изменения системной темы (fallback)
       const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
       if (mediaQuery.addEventListener) {
@@ -2692,7 +2692,7 @@ function App() {
         // Для старых браузеров
         mediaQuery.addListener(applyTheme);
       }
-      
+
       return () => {
         if (tg.offEvent) {
           tg.offEvent('themeChanged', applyTheme);
@@ -2724,13 +2724,13 @@ function App() {
     if (initialized) {
       return;
     }
-    
+
     let timeoutId = null;
     const init = async () => {
       try {
         // Помечаем, что инициализация началась
         setInitialized(true);
-        
+
         const tgUser = initTelegramWebAppSafe();
 
         // Получаем ID пользователя из Telegram (или фоллбек)
@@ -2744,12 +2744,12 @@ function App() {
         try {
           const cachedQuestions = await loadQuestions();
           if (cachedQuestions && cachedQuestions.length > 0) {
-                  // Устанавливаем вопросы СРАЗУ, до показа интерфейса
-                  setSavedQuestions(cachedQuestions);
-                  questionsLoadedFromCache = true;
-                  console.log('✅ Вопросы загружены из кэша при инициализации:', cachedQuestions.length, 'вопросов');
-                }
-              } catch (e) {
+            // Устанавливаем вопросы СРАЗУ, до показа интерфейса
+            setSavedQuestions(cachedQuestions);
+            questionsLoadedFromCache = true;
+            console.log('✅ Вопросы загружены из кэша при инициализации:', cachedQuestions.length, 'вопросов');
+          }
+        } catch (e) {
           console.warn('[CACHE] Ошибка загрузки вопросов из кэша при инициализации:', e);
         }
 
@@ -2767,7 +2767,7 @@ function App() {
 
         // Теперь показываем интерфейс - вопросы уже загружены
         setLoading(false);
-        
+
         // Загружаем результаты тестов из localStorage и БД
         const loadAllResults = async () => {
           try {
@@ -2777,52 +2777,52 @@ function App() {
               setResults(localResults);
               console.log('[RESULTS] Результаты загружены из localStorage при инициализации:', Object.keys(localResults).length, 'тем');
             }
-            
+
             // Затем загружаем из БД (может быть медленнее, но более актуально)
             const dbResults = await loadResultsFromDatabase();
             console.log('[RESULTS] Загружено результатов из БД:', Object.keys(dbResults).length, 'тем');
-            
+
             // ВСЕГДА объединяем результаты, даже если один из источников пустой
             // Начинаем с результатов из localStorage
-              const mergedResults = { ...localResults };
-            
+            const mergedResults = { ...localResults };
+
             // Добавляем все результаты из БД; при совпадении по сигнатуре берём полные данные из localStorage
-              Object.keys(dbResults).forEach(topicId => {
-                const localTopicResults = localResults[topicId] || [];
-                const dbTopicResults = dbResults[topicId] || [];
-                const uniqueResults = [];
-                const seenSignature = new Set();
-                const signature = (r) => `${r.correct}_${r.total}_${r.percentage}_${(r.dateTime || '').slice(0, 10)}`;
+            Object.keys(dbResults).forEach(topicId => {
+              const localTopicResults = localResults[topicId] || [];
+              const dbTopicResults = dbResults[topicId] || [];
+              const uniqueResults = [];
+              const seenSignature = new Set();
+              const signature = (r) => `${r.correct}_${r.total}_${r.percentage}_${(r.dateTime || '').slice(0, 10)}`;
 
-                dbTopicResults.forEach(dbResult => {
-                  if (!dbResult) return;
-                  const sig = signature(dbResult);
-                  const fullFromLocal = localTopicResults.find(
-                    c => c && signature(c) === sig && hasFullReviewData(c)
-                  );
-                  const toPush = fullFromLocal || dbResult;
-                  if (!seenSignature.has(sig)) {
-                    seenSignature.add(sig);
-                    uniqueResults.push(toPush);
-                  }
-                });
-                localTopicResults.forEach(result => {
-                  if (!result) return;
-                  const sig = signature(result);
-                  if (hasFullReviewData(result) && !seenSignature.has(sig)) {
-                    seenSignature.add(sig);
-                    uniqueResults.push(result);
-                  }
-                });
-
-                uniqueResults.sort((a, b) => {
-                  const dateA = a.dateTime ? new Date(a.dateTime).getTime() : 0;
-                  const dateB = b.dateTime ? new Date(b.dateTime).getTime() : 0;
-                  return dateB - dateA;
-                });
-                mergedResults[topicId] = uniqueResults.slice(0, 5);
+              dbTopicResults.forEach(dbResult => {
+                if (!dbResult) return;
+                const sig = signature(dbResult);
+                const fullFromLocal = localTopicResults.find(
+                  c => c && signature(c) === sig && hasFullReviewData(c)
+                );
+                const toPush = fullFromLocal || dbResult;
+                if (!seenSignature.has(sig)) {
+                  seenSignature.add(sig);
+                  uniqueResults.push(toPush);
+                }
               });
-              
+              localTopicResults.forEach(result => {
+                if (!result) return;
+                const sig = signature(result);
+                if (hasFullReviewData(result) && !seenSignature.has(sig)) {
+                  seenSignature.add(sig);
+                  uniqueResults.push(result);
+                }
+              });
+
+              uniqueResults.sort((a, b) => {
+                const dateA = a.dateTime ? new Date(a.dateTime).getTime() : 0;
+                const dateB = b.dateTime ? new Date(b.dateTime).getTime() : 0;
+                return dateB - dateA;
+              });
+              mergedResults[topicId] = uniqueResults.slice(0, 5);
+            });
+
             // Также добавляем темы из localStorage, которых нет в БД
             Object.keys(localResults).forEach(topicId => {
               if (!mergedResults[topicId] || mergedResults[topicId].length === 0) {
@@ -2839,13 +2839,13 @@ function App() {
                 }
               }
             });
-            
+
             // ВСЕГДА обновляем результаты, даже если они не изменились
-              setResults(mergedResults);
-            
+            setResults(mergedResults);
+
             // Сохраняем объединенные результаты обратно в localStorage для следующего раза
-              saveResultsToLocalStorage(mergedResults);
-            
+            saveResultsToLocalStorage(mergedResults);
+
             const totalTopics = Object.keys(mergedResults).length;
             const totalResults = Object.values(mergedResults).reduce((sum, arr) => sum + (arr?.length || 0), 0);
             console.log('[RESULTS] ✅ Все результаты загружены и объединены:', totalTopics, 'тем,', totalResults, 'результатов');
@@ -2863,10 +2863,10 @@ function App() {
             }
           }
         };
-        
+
         // Загружаем результаты в фоне
         loadAllResults();
-        
+
         // ВАЖНО: Принудительно загружаем лимиты ИИ из БД при инициализации
         // Это гарантирует, что лимиты всегда актуальны при обновлении страницы
         if (userId) {
@@ -2896,25 +2896,25 @@ function App() {
               });
           }, 500); // Небольшая задержка для гарантии, что userId установлен
         }
-        
+
         // Загружаем остальные данные в фоне для обновления
         Promise.all([
           loadTopicsFromSupabase(),
           // Если вопросы уже загружены из кэша, обновляем их в фоне
-          questionsLoadedFromCache ? loadQuestionsFromSupabase(false).catch(() => {}) : Promise.resolve()
+          questionsLoadedFromCache ? loadQuestionsFromSupabase(false).catch(() => { }) : Promise.resolve()
         ]).catch(err => {
           console.error('Ошибка загрузки данных:', err);
         });
-        
+
         // Проверяем админ-статус в фоне
         checkAdminStatus(userId).then(adminStatus => {
           if (adminStatus) {
             console.log('✅ Пользователь является администратором (из таблицы admins)');
-              setUserRole('admin');
-              setScreen('topics');
+            setUserRole('admin');
+            setScreen('topics');
           }
         }).catch(err => console.error('Ошибка проверки админ-статуса:', err));
-        
+
         // Админ-статус проверяется асинхронно выше, продолжаем инициализацию
         // Проверяем, зарегистрирован ли пользователь в Supabase
         // Оптимизируем запрос - выбираем только нужные поля для быстрой загрузки
@@ -2925,7 +2925,7 @@ function App() {
             .select('id, first_name, phone, username, created_at, is_premium, premium_until, ai_queries_count, ai_limit_total')
             .eq('id', Number(userId))
             .single();
-          
+
           setProfilesLoaded(true);
           setProfilesLoading(false);
 
@@ -2935,8 +2935,8 @@ function App() {
             // ВАЖНО: Используем значения из БД, не сбрасываем их
             const aiQueriesCount = Number(data.ai_queries_count) ?? 0;
             const aiLimitTotal = Number(data.ai_limit_total) ?? 0;
-            console.log('[AI_LIMITS] Загружено из profiles при инициализации (существующий пользователь):', { 
-              ai_queries_count: aiQueriesCount, 
+            console.log('[AI_LIMITS] Загружено из profiles при инициализации (существующий пользователь):', {
+              ai_queries_count: aiQueriesCount,
               ai_limit_total: aiLimitTotal,
               userId: Number(userId)
             });
@@ -2947,32 +2947,32 @@ function App() {
             });
             // Помечаем, что лимиты загружены, чтобы не загружать повторно
             setAILimitsLoaded(true);
-            
+
             // Проверяем, заполнена ли форма регистрации (есть ли имя и телефон)
             // Если пользователь зарегистрирован, но не заполнил форму, показываем экран регистрации
-            const hasRegistrationData = data.first_name && data.first_name.trim() && 
-                                       (data.phone && data.phone.trim() || data.phone === null);
-            
+            const hasRegistrationData = data.first_name && data.first_name.trim() &&
+              (data.phone && data.phone.trim() || data.phone === null);
+
             // Если пользователь уже полностью зарегистрирован (есть имя и телефон), переходим на topics
             // Если данных нет или они неполные, показываем экран регистрации
             if (hasRegistrationData && data.phone && data.phone.trim()) {
-            setUserData({
-              userId: String(data.id),
-              telegramUsername: data.username || null,
-              name: data.first_name || 'Без имени',
-              phone: data.phone || 'Не указан',
-              registrationDate: data.created_at || new Date().toISOString(),
-              lastVisit: data.created_at || new Date().toISOString(),
-              subscription: {
-                active: data.is_premium && data.premium_until && new Date(data.premium_until) > new Date(),
-                startDate: null,
-                endDate: data.premium_until || null
-              }
-            });
-            setUserRole('user');
-            setScreen('topics');
-            // Подписка будет загружена автоматически через useEffect при открытии экрана topics
-            return;
+              setUserData({
+                userId: String(data.id),
+                telegramUsername: data.username || null,
+                name: data.first_name || 'Без имени',
+                phone: data.phone || 'Не указан',
+                registrationDate: data.created_at || new Date().toISOString(),
+                lastVisit: data.created_at || new Date().toISOString(),
+                subscription: {
+                  active: data.is_premium && data.premium_until && new Date(data.premium_until) > new Date(),
+                  startDate: null,
+                  endDate: data.premium_until || null
+                }
+              });
+              setUserRole('user');
+              setScreen('topics');
+              // Подписка будет загружена автоматически через useEffect при открытии экрана topics
+              return;
             } else {
               // Пользователь есть в базе, но форма регистрации не заполнена - показываем экран регистрации
               console.log('Пользователь найден, но форма регистрации не заполнена - показываем экран регистрации');
@@ -2990,7 +2990,7 @@ function App() {
             .select('id, ai_queries_count, ai_limit_total')
             .eq('id', Number(userId))
             .maybeSingle();
-          
+
           const now = new Date().toISOString();
           const baseUpsert = {
             id: Number(userId),
@@ -3005,25 +3005,25 @@ function App() {
           // Если профиль новый, устанавливаем дефолтные значения
           const isNewProfile = !existingProfile || checkError;
           let upsertData;
-          
+
           if (isNewProfile) {
             // Новый профиль: устанавливаем дефолтные значения
-            upsertData = { 
-            ...baseUpsert, 
-            phone: null,
-            ai_limit_total: 3, // Лимит ИИ для новых пользователей с пробной подпиской
+            upsertData = {
+              ...baseUpsert,
+              phone: null,
+              ai_limit_total: 3, // Лимит ИИ для новых пользователей с пробной подпиской
               ai_queries_count: 0 // Сбрасываем счетчик только для новых пользователей
             };
           } else {
             // Существующий профиль: сохраняем текущие значения ai_queries_count и ai_limit_total
-            upsertData = { 
-              ...baseUpsert, 
+            upsertData = {
+              ...baseUpsert,
               phone: null,
               // НЕ перезаписываем ai_queries_count и ai_limit_total для существующих пользователей
               // Они останутся такими же, как были
             };
           }
-          
+
           let { error: upsertError } = await supabase
             .from('profiles')
             .upsert(upsertData, { onConflict: 'id' });
@@ -3031,13 +3031,13 @@ function App() {
           if (upsertError && /column .*phone/i.test(upsertError.message || '')) {
             // Повторная попытка без phone
             if (isNewProfile) {
-            upsertData = { 
-              ...baseUpsert,
-              ai_limit_total: 3, // Лимит ИИ для новых пользователей
-              ai_queries_count: 0
-            };
+              upsertData = {
+                ...baseUpsert,
+                ai_limit_total: 3, // Лимит ИИ для новых пользователей
+                ai_queries_count: 0
+              };
             } else {
-              upsertData = { 
+              upsertData = {
                 ...baseUpsert
                 // НЕ перезаписываем ai_queries_count и ai_limit_total
               };
@@ -3049,37 +3049,37 @@ function App() {
               console.error('Ошибка создания профиля:', retryError);
             }
           }
-          
+
           // Помечаем профиль как загруженный после создания
           setProfilesLoaded(true);
-          
+
           // ВСЕГДА загружаем актуальные значения ai_queries_count и ai_limit_total из БД
           // Это гарантирует, что мы используем правильные значения, даже если профиль существовал
           try {
             const { data: newProfileData, error: profileLoadError } = await supabase
-            .from('profiles')
-            .select('ai_queries_count, ai_limit_total')
-            .eq('id', Number(userId))
+              .from('profiles')
+              .select('ai_queries_count, ai_limit_total')
+              .eq('id', Number(userId))
               .maybeSingle();
-            
-              if (!profileLoadError && newProfileData) {
+
+            if (!profileLoadError && newProfileData) {
               // ВАЖНО: Используем ?? вместо ||, чтобы не заменять 0 на 0
               const aiQueriesCount = Number(newProfileData.ai_queries_count) ?? 0;
               const aiLimitTotal = Number(newProfileData.ai_limit_total) ?? 0;
-                console.log('[AI_LIMITS] Загружено из profiles после создания/обновления профиля:', { 
-                  ai_queries_count: aiQueriesCount, 
+              console.log('[AI_LIMITS] Загружено из profiles после создания/обновления профиля:', {
+                ai_queries_count: aiQueriesCount,
                 ai_limit_total: aiLimitTotal,
                 isNewProfile
-                });
-                setUserProfile({
-                  ai_queries_count: aiQueriesCount,
-                  ai_limit_total: aiLimitTotal
-                });
+              });
+              setUserProfile({
+                ai_queries_count: aiQueriesCount,
+                ai_limit_total: aiLimitTotal
+              });
               // Помечаем лимиты как загруженные
               setAILimitsLoaded(true);
             } else if (profileLoadError) {
               console.error('[AI_LIMITS] Ошибка загрузки лимитов после создания профиля:', profileLoadError);
-              }
+            }
           } catch (err) {
             console.error('[AI_LIMITS] Исключение при загрузке лимитов после создания профиля:', err);
           }
@@ -3106,7 +3106,7 @@ function App() {
                       console.log('Пробная подписка создана при инициализации');
                       // Статус подписки уже обновлен внутри createTrialSubscription через loadMySubscription
                     }
-                  }).catch(err => 
+                  }).catch(err =>
                     console.error('Ошибка создания пробной подписки при инициализации:', err)
                   );
                 }
@@ -3185,7 +3185,7 @@ function App() {
       saveResultsToLocalStorage(results);
     }
   }, [results, userId]); // Сохраняем при каждом изменении results
-  
+
   // Автоматическая загрузка статистики при открытии экрана analytics
   // ВАЖНО: Загружаем данные заново каждый раз при открытии экрана для актуальности
   useEffect(() => {
@@ -3229,7 +3229,7 @@ function App() {
   const createTrialSubscription = async (telegramId) => {
     try {
       const telegramIdAsNumber = Math.floor(Number(telegramId));
-      
+
       if (!telegramIdAsNumber || !Number.isFinite(telegramIdAsNumber) || telegramIdAsNumber <= 0) {
         console.warn('Невалидный ID пользователя для создания пробной подписки:', telegramId);
         return false;
@@ -3275,17 +3275,17 @@ function App() {
       }
 
       console.log('Пробная подписка успешно создана:', data);
-      
+
       // Устанавливаем лимит ИИ = 3 для пользователя с пробной подпиской
       const { error: updateLimitError } = await supabase
         .from('profiles')
-        .update({ 
-          ai_limit_total: 3, 
+        .update({
+          ai_limit_total: 3,
           // Сбрасываем счетчик при установке лимита
-          ai_queries_count: 0 
+          ai_queries_count: 0
         })
         .eq('id', telegramIdAsNumber);
-      
+
       if (updateLimitError) {
         console.error('Ошибка установки лимита ИИ для пробной подписки:', updateLimitError);
         // Не возвращаем false, так как подписка уже создана
@@ -3297,7 +3297,7 @@ function App() {
           ai_limit_total: 3
         });
       }
-      
+
       // Обновляем статус подписки сразу после создания
       try {
         await loadMySubscription();
@@ -3306,7 +3306,7 @@ function App() {
         console.warn('Не удалось обновить статус подписки после создания:', err);
         // Не возвращаем false, так как подписка уже создана
       }
-      
+
       return true;
     } catch (err) {
       console.error('Исключение при создании пробной подписки:', err);
@@ -3320,26 +3320,26 @@ function App() {
       console.log('[SUBSCRIPTION] Загрузка подписки уже выполняется, пропускаем');
       return;
     }
-    
+
     setIsLoadingSubscription(true);
     try {
       const tgUser = initTelegramWebAppSafe();
       const userIdRaw = tgUser?.id;
-      
+
       // Приводим ID к числу и проверяем, что это валидное число
       const currentUserId = userIdRaw ? Number(userIdRaw) : null;
-      
+
       if (!currentUserId || !Number.isFinite(currentUserId) || currentUserId <= 0) {
         console.warn('Не удалось получить валидный ID пользователя для проверки подписки:', userIdRaw);
         setSubscriptionInfo({ active: false, subscriptionExpiresAt: null });
         return;
       }
-      
+
       // Убеждаемся, что это целое число (BigInt в БД)
       const telegramIdAsNumber = Math.floor(currentUserId);
-      
+
       console.log('Проверка подписки для пользователя:', telegramIdAsNumber, '(тип:', typeof telegramIdAsNumber, ')');
-      
+
       // Проверяем подписку в таблице subscriptions
       const now = new Date().toISOString();
       const { data, error } = await supabase
@@ -3350,7 +3350,7 @@ function App() {
         .order('end_date', { ascending: false })
         .limit(1)
         .single();
-      
+
       if (error) {
         // Если ошибка - "не найдено", это нормально (нет активной подписки)
         if (error.code === 'PGRST116') {
@@ -3361,7 +3361,7 @@ function App() {
           console.warn('[SUBSCRIPTION] Ошибка 406/301 при загрузке подписки (возможно, проблема с RLS или заголовками):', error.message);
           // Устанавливаем отсутствие подписки, но не показываем ошибку пользователю
           setSubscriptionInfo({ active: false, subscriptionExpiresAt: null });
-          
+
           // Проверяем наличие pending платежей
           if (currentUserId) {
             const { data: pendingPayments, error: paymentError } = await supabase
@@ -3371,7 +3371,7 @@ function App() {
               .eq('status', 'pending')
               .order('created_at', { ascending: false })
               .limit(1);
-            
+
             if (!paymentError && pendingPayments && pendingPayments.length > 0) {
               // Есть pending платеж, устанавливаем статус обработки
               setIsPaymentProcessing(true);
@@ -3410,21 +3410,21 @@ function App() {
         setSubscriptionInfo({ active: false, subscriptionExpiresAt: null });
         return;
       }
-      
+
       if (data && data.end_date) {
         console.log('Найдена активная подписка:', data);
         const endDate = new Date(data.end_date);
         const isActive = endDate > new Date();
-        
+
         // Проверяем, изменилась ли подписка (новая подписка)
         const previousEndDate = subscriptionInfo?.subscriptionExpiresAt;
         const isNewSubscription = previousEndDate !== data.end_date;
-        
+
         setSubscriptionInfo({
           active: isActive,
           subscriptionExpiresAt: data.end_date
         });
-        
+
         // Если обнаружена новая подписка, сбрасываем счетчик ИИ
         if (isActive && isNewSubscription) {
           console.log('Обнаружена новая подписка, сбрасываем счетчик ИИ');
@@ -3440,7 +3440,7 @@ function App() {
                 .from('profiles')
                 .update({ ai_queries_count: 0 })
                 .eq('id', userIdNumber);
-              
+
               if (updateError) {
                 console.error('Ошибка сброса счетчика ИИ в profiles:', updateError);
               } else {
@@ -3453,7 +3453,7 @@ function App() {
           }
         }
         // Убрали загрузку данных профиля здесь - она уже загружается при инициализации и через loadAILimitsFromProfile
-        
+
         // Если подписка активна, сбрасываем статус обработки платежа
         if (isActive) {
           setIsPaymentProcessing(false);
@@ -3467,7 +3467,7 @@ function App() {
       } else {
         console.log('Подписка не найдена или истекла');
         setSubscriptionInfo({ active: false, subscriptionExpiresAt: null });
-        
+
         // Если подписка неактивна, проверяем наличие pending платежей
         const tgUser = initTelegramWebAppSafe();
         const userId = tgUser?.id ? Number(tgUser.id) : null;
@@ -3479,7 +3479,7 @@ function App() {
             .eq('status', 'pending')
             .order('created_at', { ascending: false })
             .limit(1);
-          
+
           if (!paymentError && pendingPayments && pendingPayments.length > 0) {
             // Есть pending платеж, устанавливаем статус обработки
             setIsPaymentProcessing(true);
@@ -3502,7 +3502,7 @@ function App() {
     } catch (error) {
       console.error('Ошибка загрузки подписки:', error);
       setSubscriptionInfo({ active: false, subscriptionExpiresAt: null });
-      
+
       // При ошибке проверяем pending платежи
       const tgUser = initTelegramWebAppSafe();
       const userId = tgUser?.id ? Number(tgUser.id) : null;
@@ -3515,7 +3515,7 @@ function App() {
             .eq('status', 'pending')
             .order('created_at', { ascending: false })
             .limit(1);
-          
+
           if (!paymentError && pendingPayments && pendingPayments.length > 0) {
             setIsPaymentProcessing(true);
             try {
@@ -3561,48 +3561,48 @@ function App() {
     if (isUserAdmin) {
       return true;
     }
-    
+
     const s = subscriptionInfo;
     if (!s) return false;
-    
+
     // Проверяем, что подписка активна и дата окончания в будущем
     const end = s.subscriptionExpiresAt ? new Date(s.subscriptionExpiresAt).getTime() : null;
     const isActive = Boolean(s.active && end && end > Date.now());
-    
+
     // Дополнительная проверка: если active = false, но end_date в будущем, считаем активной
     // (на случай, если данные не синхронизированы)
     if (!isActive && end && end > Date.now()) {
       return true;
     }
-    
+
     return isActive;
   };
 
   const getSubscriptionTimeRemaining = () => {
     if (!subscriptionInfo || !subscriptionInfo.subscriptionExpiresAt) return null;
-    
+
     try {
       // Получаем текущую дату и дату окончания подписки
       const now = new Date();
       const expires = new Date(subscriptionInfo.subscriptionExpiresAt);
-      
+
       // Проверяем, что дата окончания в будущем
       if (expires <= now) return null;
-      
+
       // Вычисляем разницу в миллисекундах
       const remaining = expires.getTime() - now.getTime();
-    if (remaining <= 0) return null;
+      if (remaining <= 0) return null;
 
       // Вычисляем количество полных дней (используем Math.floor для точного подсчета)
-    const days = Math.floor(remaining / (1000 * 60 * 60 * 24));
+      const days = Math.floor(remaining / (1000 * 60 * 60 * 24));
 
       // Если дней больше 0, показываем дни
-    if (days > 0) {
+      if (days > 0) {
         // Правильное склонение для русского языка
         let dayWord;
         const lastDigit = days % 10;
         const lastTwoDigits = days % 100;
-        
+
         if (lastTwoDigits >= 11 && lastTwoDigits <= 14) {
           dayWord = 'дней';
         } else if (lastDigit === 1) {
@@ -3614,14 +3614,14 @@ function App() {
         }
         return `${days} ${dayWord}`;
       }
-      
+
       // Если дней нет, вычисляем часы
       const hours = Math.floor(remaining / (1000 * 60 * 60));
-    if (hours > 0) {
+      if (hours > 0) {
         let hourWord;
         const lastDigit = hours % 10;
         const lastTwoDigits = hours % 100;
-        
+
         if (lastTwoDigits >= 11 && lastTwoDigits <= 14) {
           hourWord = 'часов';
         } else if (lastDigit === 1) {
@@ -3633,14 +3633,14 @@ function App() {
         }
         return `${hours} ${hourWord}`;
       }
-      
+
       // Если часов нет, вычисляем минуты
       const minutes = Math.floor(remaining / (1000 * 60));
       if (minutes > 0) {
         let minuteWord;
         const lastDigit = minutes % 10;
         const lastTwoDigits = minutes % 100;
-        
+
         if (lastTwoDigits >= 11 && lastTwoDigits <= 14) {
           minuteWord = 'минут';
         } else if (lastDigit === 1) {
@@ -3652,7 +3652,7 @@ function App() {
         }
         return `${minutes} ${minuteWord}`;
       }
-      
+
       return null;
     } catch (error) {
       console.error('Ошибка вычисления оставшегося времени подписки:', error);
@@ -3688,10 +3688,10 @@ function App() {
     setDbSubsError(null);
     try {
       console.log('Загрузка активных подписок из Supabase...');
-      
+
       // Получаем текущую дату в ISO формате
       const now = new Date().toISOString();
-      
+
       // Загружаем все активные подписки (где end_date > текущей даты)
       const { data, error } = await supabase
         .from('subscriptions')
@@ -3705,7 +3705,7 @@ function App() {
       }
 
       console.log('Активные подписки из Supabase:', data);
-      
+
       // Преобразуем данные в формат, который ожидает компонент
       const formattedSubs = (data || []).map(sub => ({
         telegramId: sub.telegram_id || sub.user_id,
@@ -3713,12 +3713,12 @@ function App() {
         subscriptionStatus: 'active',
         subscriptionExpiresAt: sub.end_date || sub.expires_at
       }));
-      
+
       setDbActiveSubs(formattedSubs);
     } catch (e) {
       const errorMsg = e?.message || e?.toString() || JSON.stringify(e) || 'Ошибка загрузки подписок';
       console.error('Ошибка загрузки подписок:', e);
-        setDbSubsError(errorMsg);
+      setDbSubsError(errorMsg);
       setDbActiveSubs([]);
       alert('Ошибка загрузки подписок: ' + errorMsg);
     } finally {
@@ -3732,12 +3732,12 @@ function App() {
     const telegramId = Number(grantForm.telegramId);
     const days = Number(grantForm.days);
     const tariffId = grantForm.tariffId || 'pro';
-    
+
     if (!Number.isFinite(telegramId) || telegramId <= 0) {
       setGrantMessage('Введите корректный Telegram ID');
       return;
     }
-    
+
     // Находим выбранный тариф
     const selectedTariff = tariffs.find(t => t.id === tariffId) || tariffs.find(t => t.id === 'pro');
     if (!selectedTariff) {
@@ -3745,9 +3745,9 @@ function App() {
       setGrantLoading(false);
       return;
     }
-    
+
     const subscriptionDays = Number.isFinite(days) && days > 0 ? days : selectedTariff.days;
-    
+
     // Определяем subscription_tier на основе тарифа
     let subscriptionTier = 'standard';
     if (tariffId === 'pro') {
@@ -3755,27 +3755,27 @@ function App() {
     } else if (tariffId === 'test') {
       subscriptionTier = 'test';
     }
-    
+
     setGrantLoading(true);
     try {
       console.log('Выдача подписки в Supabase:', { telegramId, days: subscriptionDays, tariff: subscriptionTier });
-      
+
       // Вычисляем дату окончания подписки
       const endDate = new Date();
       endDate.setDate(endDate.getDate() + subscriptionDays);
       const endDateISO = endDate.toISOString();
-      
+
       // Убеждаемся, что telegramId - это целое число (BigInt в БД)
       const telegramIdAsNumber = Math.floor(telegramId);
       console.log('Выдача подписки для пользователя:', telegramIdAsNumber, '(тип:', typeof telegramIdAsNumber, ')');
-      
+
       // Проверяем, есть ли уже подписка у пользователя
       const { data: existing, error: checkError } = await supabase
         .from('subscriptions')
         .select('*')
         .eq('telegram_id', telegramIdAsNumber)
         .single();
-      
+
       let result;
       if (existing && !checkError) {
         // Обновляем существующую подписку
@@ -3790,7 +3790,7 @@ function App() {
           .eq('telegram_id', telegramIdAsNumber)
           .select()
           .single();
-        
+
         if (error) {
           throw new Error(error.message || JSON.stringify(error));
         }
@@ -3808,27 +3808,27 @@ function App() {
           .insert(insertData)
           .select()
           .single();
-        
+
         if (error) {
           throw new Error(error.message || JSON.stringify(error));
         }
         result = data;
       }
-      
+
       // Обновляем ai_limit_total в profiles на основе тарифа
       try {
-        const aiLimitTotal = selectedTariff.aiLimits?.unlimited ? 999999 : 
-                           (selectedTariff.aiLimits?.otherUsage === -1 ? 999999 : 
-                           (selectedTariff.aiLimits?.otherUsage || 0));
-        
+        const aiLimitTotal = selectedTariff.aiLimits?.unlimited ? 999999 :
+          (selectedTariff.aiLimits?.otherUsage === -1 ? 999999 :
+            (selectedTariff.aiLimits?.otherUsage || 0));
+
         const { error: profileUpdateError } = await supabase
           .from('profiles')
-          .update({ 
+          .update({
             ai_limit_total: aiLimitTotal,
             ai_queries_count: 0 // Сбрасываем счетчик при выдаче новой подписки
           })
           .eq('id', telegramIdAsNumber);
-        
+
         if (profileUpdateError) {
           console.warn('Ошибка обновления лимита ИИ в profiles:', profileUpdateError);
         } else {
@@ -3837,14 +3837,14 @@ function App() {
       } catch (profileErr) {
         console.warn('Ошибка обновления профиля:', profileErr);
       }
-      
+
       console.log('Подписка выдана в Supabase:', result);
       const endDateFormatted = new Date(result.end_date).toLocaleString('ru-RU');
       setGrantMessage(`Подписка "${selectedTariff.name}" выдана: до ${endDateFormatted}`);
-      
+
       // Обновляем список пользователей (сбрасываем для актуальных данных)
       await loadUsersFromSupabase(true);
-      
+
       // Удаляем запись из payment_requests после успешной выдачи подписки
       try {
         console.log('🗑️ Удаление записи из payment_requests для пользователя:', {
@@ -3908,7 +3908,7 @@ function App() {
             telegramId: telegramIdAsNumber
           });
           // Не блокируем процесс, если не удалось удалить запрос
-      } else {
+        } else {
           const deletedCount = deletedRequests?.length || 0;
           if (deletedCount > 0) {
             console.log('✅ Успешно удалено записей из payment_requests:', deletedCount, deletedRequests);
@@ -3925,7 +3925,7 @@ function App() {
         });
         // Не блокируем процесс, если не удалось удалить запрос
       }
-      
+
       // Обновляем список активных подписок
       await loadSubscriptions();
       // Обновляем список пользователей, чтобы отобразить актуальный статус подписки
@@ -3935,7 +3935,7 @@ function App() {
     } catch (e2) {
       const errorMsg = e2?.message || e2?.toString() || JSON.stringify(e2) || 'Ошибка выдачи подписки';
       console.error('Ошибка выдачи подписки:', e2);
-        setGrantMessage(errorMsg);
+      setGrantMessage(errorMsg);
       alert('Ошибка выдачи подписки: ' + errorMsg);
     } finally {
       setGrantLoading(false);
@@ -3950,7 +3950,7 @@ function App() {
 
     try {
       const telegramIdAsNumber = Math.floor(Number(telegramId));
-      
+
       if (!Number.isFinite(telegramIdAsNumber) || telegramIdAsNumber <= 0) {
         alert('Некорректный ID пользователя');
         return;
@@ -3988,10 +3988,10 @@ function App() {
 
       console.log('Подписка отозвана в Supabase:', data);
       alert(`Подписка успешно отозвана у пользователя ${telegramIdAsNumber}`);
-      
+
       // Обновляем список активных подписок
       await loadSubscriptions();
-      
+
       // Обновляем список пользователей, если мы на экране пользователей
       if (adminScreen === 'users') {
         await loadUsersFromSupabase();
@@ -4014,7 +4014,7 @@ function App() {
     if (!Number.isFinite(userIdNumber) || userIdNumber <= 0) {
       setIsAdmin(false);
       return false;
-    const MAIN_ADMIN_TELEGRAM_ID = 473842863;
+      const MAIN_ADMIN_TELEGRAM_ID = 473842863;
     }
 
     // Проверяем главного админа (запасной вариант)
@@ -4079,14 +4079,14 @@ function App() {
       }
 
       console.log('Данные администраторов из Supabase:', data);
-      
+
       // Преобразуем данные в формат, который ожидает компонент
       const formattedAdmins = (data || []).map(admin => ({
         telegramId: admin.telegram_id,
         createdAt: admin.created_at,
         createdBy: admin.created_by
       }));
-      
+
       setAdminsList(formattedAdmins);
     } catch (e) {
       const errorMessage = e?.message || e?.toString() || JSON.stringify(e) || 'Ошибка загрузки администраторов';
@@ -4107,37 +4107,37 @@ function App() {
       setAdminFormMessage('Введите корректный Telegram ID');
       return;
     }
-    
+
     // Получаем текущего пользователя для created_by
     const tgUser = initTelegramWebAppSafe();
     const currentUserIdRaw = tgUser?.id;
     const currentUserId = currentUserIdRaw ? Number(currentUserIdRaw) : null;
-    const createdBy = (currentUserId && Number.isFinite(currentUserId) && currentUserId > 0) 
-      ? Math.floor(currentUserId) 
+    const createdBy = (currentUserId && Number.isFinite(currentUserId) && currentUserId > 0)
+      ? Math.floor(currentUserId)
       : 473842863; // Используем главного админа как fallback
-    
+
     // Убеждаемся, что telegramId - это целое число (BigInt в БД)
     const telegramIdAsNumber = Math.floor(telegramId);
-    
+
     setAdminFormLoading(true);
     try {
       console.log('Добавление администратора в Supabase:', telegramIdAsNumber, '(тип:', typeof telegramIdAsNumber, ')');
-      
+
       // Проверяем, не является ли уже админом
       const { data: existing, error: checkError } = await supabase
         .from('admins')
         .select('telegram_id')
         .eq('telegram_id', telegramIdAsNumber)
         .single();
-      
+
       if (checkError && checkError.code !== 'PGRST116') { // PGRST116 = not found, это нормально
         throw new Error(checkError.message || 'Ошибка проверки существующего администратора');
       }
-      
+
       if (existing) {
         throw new Error('Пользователь уже является администратором');
       }
-      
+
       // Добавляем администратора
       const { data, error } = await supabase
         .from('admins')
@@ -4147,17 +4147,17 @@ function App() {
         })
         .select()
         .single();
-      
+
       if (error) {
         console.error('Ошибка добавления администратора в Supabase:', error);
         throw new Error(error.message || JSON.stringify(error));
       }
-      
+
       console.log('Администратор добавлен в Supabase:', data);
       setAdminFormMessage('Администратор успешно добавлен');
       setAdminForm({ telegramId: '' });
       await loadAdmins();
-      
+
       // Если добавлен текущий пользователь, обновляем его админ-статус
       const tgUser = initTelegramWebAppSafe();
       const currentUserId = tgUser?.id ? String(tgUser.id) : null;
@@ -4180,7 +4180,7 @@ function App() {
   const handleBroadcast = async (e) => {
     e.preventDefault();
     setBroadcastResult(null);
-    
+
     if (!broadcastMessage.trim()) {
       alert('Введите текст сообщения для рассылки');
       return;
@@ -4205,7 +4205,7 @@ function App() {
       });
 
       const result = await response.json();
-      
+
       if (!response.ok) {
         throw new Error(result.error || `HTTP ${response.status}`);
       }
@@ -4230,25 +4230,25 @@ function App() {
     try {
       // Убеждаемся, что telegramId - это целое число (BigInt в БД)
       const telegramIdAsNumber = Math.floor(Number(telegramId));
-      
+
       if (!Number.isFinite(telegramIdAsNumber) || telegramIdAsNumber <= 0) {
         alert('Некорректный ID администратора');
         return;
       }
-      
+
       console.log('Удаление администратора из Supabase:', telegramIdAsNumber, '(тип:', typeof telegramIdAsNumber, ')');
-      
+
       const { data, error } = await supabase
         .from('admins')
         .delete()
         .eq('telegram_id', telegramIdAsNumber)
         .select();
-      
+
       if (error) {
         console.error('Ошибка удаления администратора из Supabase:', error);
         throw new Error(error.message || JSON.stringify(error));
       }
-      
+
       console.log('Администратор удален из Supabase:', data);
       await loadAdmins();
     } catch (e) {
@@ -4284,17 +4284,17 @@ function App() {
     if (e) {
       e.preventDefault();
     }
-    
+
     const topicName = newTopicName.trim();
-    
+
     if (!topicName) {
       return;
     }
-    
+
     try {
       // Получаем текущие темы
       const currentTopics = Array.isArray(topics) && topics.length > 0 ? topics : [];
-      
+
       // Сохраняем в Supabase (quizzes использует UUID, генерируется автоматически)
       const { data, error } = await supabase
         .from('quizzes')
@@ -4324,20 +4324,20 @@ function App() {
         questionCount: 0,
         order: currentTopics.length + 1
       };
-      
+
       // Добавляем новую тему к списку
       const updatedTopics = [...currentTopics, newTopic];
-      
+
       // Обновляем состояние
       setTopics(updatedTopics);
-      
+
       // Сохраняем в IndexedDB
       try {
         await saveTopics(updatedTopics);
       } catch (e) {
         console.warn('[CACHE] Не удалось сохранить темы в кэш:', e);
       }
-      
+
       // Очищаем форму
       setNewTopicName('');
     } catch (error) {
@@ -4361,12 +4361,12 @@ function App() {
   // Функция для сохранения изменений темы (квиза)
   const handleSaveEditTopic = async () => {
     const topicName = editingTopicName.trim();
-    
+
     if (!topicName) {
       alert('Название темы не может быть пустым!');
       return;
     }
-    
+
     try {
       // Обновляем в Supabase (quizzes)
       const { error } = await supabase
@@ -4381,12 +4381,12 @@ function App() {
       }
 
       const currentTopics = Array.isArray(topics) && topics.length > 0 ? topics : [];
-      const updatedTopics = currentTopics.map(t => 
-        t.id === editingTopicId 
+      const updatedTopics = currentTopics.map(t =>
+        t.id === editingTopicId
           ? { ...t, name: topicName }
           : t
       );
-      
+
       setTopics(updatedTopics);
       // Сохраняем в IndexedDB
       try {
@@ -4394,7 +4394,7 @@ function App() {
       } catch (e) {
         console.warn('[CACHE] Не удалось сохранить темы в кэш:', e);
       }
-      
+
       setEditingTopicId(null);
       setEditingTopicName('');
     } catch (error) {
@@ -4414,7 +4414,7 @@ function App() {
     if (!confirm(`Вы уверены, что хотите удалить тему "${topic.name}"?`)) {
       return;
     }
-    
+
     try {
       // Удаляем из Supabase (quizzes) - вопросы и опции удалятся автоматически через CASCADE
       const { error } = await supabase
@@ -4437,10 +4437,10 @@ function App() {
       } catch (e) {
         console.warn('[CACHE] Не удалось сохранить темы в кэш:', e);
       }
-      
+
       // Перезагружаем вопросы, так как некоторые могли быть удалены
       await loadQuestionsFromSupabase();
-      
+
       if (editingTopicId === topic.id) {
         handleCancelEditTopic();
       }
@@ -4478,23 +4478,23 @@ function App() {
 
   const handleDrop = async (e, dropIndex) => {
     e.preventDefault();
-    
+
     if (draggedTopicIndex === null || draggedTopicIndex === dropIndex) {
       setDraggedTopicIndex(null);
       setDragOverIndex(null);
       return;
     }
-    
+
     try {
       const currentTopics = [...topics];
       const draggedTopic = currentTopics[draggedTopicIndex];
-      
+
       // Удаляем тему из старой позиции
       currentTopics.splice(draggedTopicIndex, 1);
-      
+
       // Вставляем тему в новую позицию
       currentTopics.splice(dropIndex, 0, draggedTopic);
-      
+
       // Обновляем порядок в Supabase
       const updates = currentTopics.map((topic, index) => ({
         id: topic.id,
@@ -4514,7 +4514,7 @@ function App() {
         ...topic,
         order: index + 1
       }));
-      
+
       setTopics(updatedTopics);
       // Сохраняем в IndexedDB
       try {
@@ -4522,7 +4522,7 @@ function App() {
       } catch (e) {
         console.warn('[CACHE] Не удалось сохранить темы в кэш:', e);
       }
-      
+
       setDraggedTopicIndex(null);
       setDragOverIndex(null);
     } catch (error) {
@@ -4541,14 +4541,14 @@ function App() {
         return;
       }
     }
-    
+
     if (!selectedTopic || !selectedTopic.id) {
       alert('Ошибка: не выбрана тема для теста.');
       return;
     }
-    
+
     const questions = getMergedQuestions(selectedTopic.id);
-    
+
     if (!questions || questions.length === 0) {
       const topicIdStr = String(selectedTopic.id).trim();
       // Показываем alert только один раз (не спамим)
@@ -4559,7 +4559,7 @@ function App() {
       }
       return;
     }
-    
+
     setCurrentQuestionIndex(0)
     setSelectedAnswer(null)
     setIsAnswered(false)
@@ -4584,31 +4584,31 @@ function App() {
         return;
       }
     }
-    
+
     setExamQuestionCount(count);
-    
+
     // Собираем все вопросы из всех тем
     const allQuestions = getAllQuestions();
-    
+
     if (allQuestions.length === 0) {
       alert('Нет доступных вопросов для экзамена. Пожалуйста, добавьте вопросы в разделе "Тема".');
       return;
     }
-    
+
     // Выбираем случайные уникальные вопросы
     const examQuestions = getRandomQuestions(allQuestions, count);
-    
+
     if (examQuestions.length < count) {
       alert(`Доступно только ${examQuestions.length} вопросов из ${count} запрошенных.`);
     }
-    
+
     // Экзамен: Устанавливаем лимит времени в зависимости от количества вопросов
     // 20 вопросов = 20 минут, 50 вопросов = 50 минут, 100 вопросов = 100 минут
     const timeLimitMinutes = count;
     const timeLimitSeconds = timeLimitMinutes * 60;
     setExamTimeLimit(timeLimitSeconds);
     setExamTimeRemaining(timeLimitSeconds);
-    
+
     // Инициализируем экзамен
     setCurrentQuestionIndex(0);
     setSelectedAnswer(null);
@@ -4632,7 +4632,7 @@ function App() {
         return;
       }
     }
-    
+
     // Сначала устанавливаем режим, затем переключаем экран
     if (mode === 'topic') {
       setActiveMode('topic');
@@ -4680,7 +4680,7 @@ function App() {
           const remaining = Math.max(0, examTimeLimit - elapsed);
           setExamTimeRemaining(remaining);
           setElapsedTime(elapsed);
-          
+
           // Экзамен: автоматическое завершение при истечении времени
           if (remaining === 0) {
             clearInterval(interval);
@@ -4808,308 +4808,308 @@ function App() {
           return;
         }
       }
-    
-    // Используем референс для получения актуальных ответов (синхронный доступ)
-    const currentUserAnswers = (userAnswersRef.current && Array.isArray(userAnswersRef.current) && userAnswersRef.current.length > 0) 
-      ? userAnswersRef.current 
-      : (Array.isArray(userAnswers) ? userAnswers : []);
-    
-    // Отладочная информация - проверяем состояние userAnswers
-    console.log('saveTestResults - userAnswers state:', {
-      userAnswersLength: userAnswers.length,
-      refLength: userAnswersRef.current.length,
-      usingRef: userAnswersRef.current.length > 0,
-      userAnswers: currentUserAnswers.map((a, i) => ({
-        index: i,
-        answer: a,
-        hasSelectedId: a ? (a.selectedAnswerId !== undefined && a.selectedAnswerId !== null) : false,
-        selectedId: a ? a.selectedAnswerId : null,
-        selectedIdType: a ? typeof a.selectedAnswerId : null
-      })),
-      questionsLength: questions.length,
-      testQuestionsLength: testQuestions.length
-    });
-    
-    // Функция нормализации ID для сравнения
-    const normalizeId = (id) => {
-      if (id === null || id === undefined) return null;
-      const num = Number(id);
-      if (!isNaN(num)) return num;
-      return String(id);
-    };
-    
-    // Обновляем userAnswers с правильным isCorrect перед сохранением
-    const updatedUserAnswers = currentUserAnswers.map((userAnswer, index) => {
-      const question = questions[index];
-      
-      // Проверяем, что вопрос существует и имеет ответы
-      if (!question || !question.answers || !Array.isArray(question.answers) || question.answers.length === 0) {
-        return userAnswer; // Возвращаем как есть, если вопрос некорректен
-      }
-      
-      if (userAnswer && userAnswer.selectedAnswerId !== undefined && userAnswer.selectedAnswerId !== null) {
-        // Находим выбранный ответ в вопросе
-        const userSelectedId = userAnswer.selectedAnswerId;
-        const selectedAnswer = question.answers.find(a => {
-          if (!a || a.id === undefined || a.id === null) return false;
-          const answerId = a.id;
-          const normalizedUser = normalizeId(userSelectedId);
-          const normalizedAnswer = normalizeId(answerId);
-          return normalizedUser !== null && normalizedAnswer !== null && normalizedUser === normalizedAnswer;
-        });
-        
-        // Устанавливаем isCorrect в объект userAnswer
-        const isCorrect = selectedAnswer && selectedAnswer.correct === true;
-        return {
-          ...userAnswer,
-          isCorrect: isCorrect
-        };
-      }
-      
-      return userAnswer;
-    });
-    
-    // Пересчитываем правильные ответы на основе обновленных userAnswers
-    let correctCount = 0;
-    let answeredCount = 0;
-    
-    questions.forEach((question, index) => {
-      // Проверяем, что вопрос существует и имеет ответы
-      if (!question || !question.answers || !Array.isArray(question.answers) || question.answers.length === 0) {
-        console.warn(`Question ${index + 1} не имеет ответов или некорректна:`, question);
-        return;
-      }
-      
-      const userAnswer = updatedUserAnswers[index];
-      
-      if (userAnswer && userAnswer.selectedAnswerId !== undefined && userAnswer.selectedAnswerId !== null) {
-        answeredCount++;
-        
-        // Проверяем правильность (используем уже установленное isCorrect)
-        if (userAnswer.isCorrect === true) {
-          correctCount++;
+
+      // Используем референс для получения актуальных ответов (синхронный доступ)
+      const currentUserAnswers = (userAnswersRef.current && Array.isArray(userAnswersRef.current) && userAnswersRef.current.length > 0)
+        ? userAnswersRef.current
+        : (Array.isArray(userAnswers) ? userAnswers : []);
+
+      // Отладочная информация - проверяем состояние userAnswers
+      console.log('saveTestResults - userAnswers state:', {
+        userAnswersLength: userAnswers.length,
+        refLength: userAnswersRef.current.length,
+        usingRef: userAnswersRef.current.length > 0,
+        userAnswers: currentUserAnswers.map((a, i) => ({
+          index: i,
+          answer: a,
+          hasSelectedId: a ? (a.selectedAnswerId !== undefined && a.selectedAnswerId !== null) : false,
+          selectedId: a ? a.selectedAnswerId : null,
+          selectedIdType: a ? typeof a.selectedAnswerId : null
+        })),
+        questionsLength: questions.length,
+        testQuestionsLength: testQuestions.length
+      });
+
+      // Функция нормализации ID для сравнения
+      const normalizeId = (id) => {
+        if (id === null || id === undefined) return null;
+        const num = Number(id);
+        if (!isNaN(num)) return num;
+        return String(id);
+      };
+
+      // Обновляем userAnswers с правильным isCorrect перед сохранением
+      const updatedUserAnswers = currentUserAnswers.map((userAnswer, index) => {
+        const question = questions[index];
+
+        // Проверяем, что вопрос существует и имеет ответы
+        if (!question || !question.answers || !Array.isArray(question.answers) || question.answers.length === 0) {
+          return userAnswer; // Возвращаем как есть, если вопрос некорректен
         }
-        
-        // Отладочная информация
-        console.log(`Question ${index + 1} check:`, {
-          questionId: question.id,
-          userSelectedId: userAnswer.selectedAnswerId,
-          isCorrect: userAnswer.isCorrect
-        });
-      } else {
-        console.log(`Question ${index + 1}: No answer`, {
-          questionId: question.id,
-          userAnswer: userAnswer
-        });
-      }
-    });
-    
-    console.log('Final count:', {
-      correctCount,
-      answeredCount,
-      totalQuestions: questions.length,
-      percentage: questions.length > 0 ? Math.round((correctCount / questions.length) * 100) : 0
-    });
-    
-    const percentage = questions.length > 0 ? Math.round((correctCount / questions.length) * 100) : 0;
-    // ========== ЭКЗАМЕН: Для экзамена используем другой формат ID, для теста по теме - стандартный ==========
-    const resultId = isExamMode 
-      ? `EXAM${examQuestionCount || '0'}_${String(Date.now()).slice(-6)}`
-      : (selectedTopic ? `ID${selectedTopic.id}${String(Date.now()).slice(-6)}` : `ID0${String(Date.now()).slice(-6)}`);
-    const now = new Date();
-    const dateTime = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
-    
-    const formatTimeSpent = (seconds) => {
-      const mins = Math.floor(seconds / 60);
-      const secs = seconds % 60;
-      if (mins > 0 && secs > 0) {
-        return `${mins} ${mins === 1 ? 'минута' : mins < 5 ? 'минуты' : 'минут'} ${secs} ${secs === 1 ? 'секунда' : secs < 5 ? 'секунды' : 'секунд'}`;
-      } else if (mins > 0) {
-        return `${mins} ${mins === 1 ? 'минута' : mins < 5 ? 'минуты' : 'минут'}`;
-      } else {
-        return `${secs} ${secs === 1 ? 'секунда' : secs < 5 ? 'секунды' : 'секунд'}`;
-      }
-    };
-    
-    // Глубокое копирование вопросов и ответов для сохранения
-    const questionsCopy = questions.map(q => {
-      if (!q || !q.answers || !Array.isArray(q.answers)) {
-        console.warn('Некорректный вопрос при копировании:', q);
+
+        if (userAnswer && userAnswer.selectedAnswerId !== undefined && userAnswer.selectedAnswerId !== null) {
+          // Находим выбранный ответ в вопросе
+          const userSelectedId = userAnswer.selectedAnswerId;
+          const selectedAnswer = question.answers.find(a => {
+            if (!a || a.id === undefined || a.id === null) return false;
+            const answerId = a.id;
+            const normalizedUser = normalizeId(userSelectedId);
+            const normalizedAnswer = normalizeId(answerId);
+            return normalizedUser !== null && normalizedAnswer !== null && normalizedUser === normalizedAnswer;
+          });
+
+          // Устанавливаем isCorrect в объект userAnswer
+          const isCorrect = selectedAnswer && selectedAnswer.correct === true;
+          return {
+            ...userAnswer,
+            isCorrect: isCorrect
+          };
+        }
+
+        return userAnswer;
+      });
+
+      // Пересчитываем правильные ответы на основе обновленных userAnswers
+      let correctCount = 0;
+      let answeredCount = 0;
+
+      questions.forEach((question, index) => {
+        // Проверяем, что вопрос существует и имеет ответы
+        if (!question || !question.answers || !Array.isArray(question.answers) || question.answers.length === 0) {
+          console.warn(`Question ${index + 1} не имеет ответов или некорректна:`, question);
+          return;
+        }
+
+        const userAnswer = updatedUserAnswers[index];
+
+        if (userAnswer && userAnswer.selectedAnswerId !== undefined && userAnswer.selectedAnswerId !== null) {
+          answeredCount++;
+
+          // Проверяем правильность (используем уже установленное isCorrect)
+          if (userAnswer.isCorrect === true) {
+            correctCount++;
+          }
+
+          // Отладочная информация
+          console.log(`Question ${index + 1} check:`, {
+            questionId: question.id,
+            userSelectedId: userAnswer.selectedAnswerId,
+            isCorrect: userAnswer.isCorrect
+          });
+        } else {
+          console.log(`Question ${index + 1}: No answer`, {
+            questionId: question.id,
+            userAnswer: userAnswer
+          });
+        }
+      });
+
+      console.log('Final count:', {
+        correctCount,
+        answeredCount,
+        totalQuestions: questions.length,
+        percentage: questions.length > 0 ? Math.round((correctCount / questions.length) * 100) : 0
+      });
+
+      const percentage = questions.length > 0 ? Math.round((correctCount / questions.length) * 100) : 0;
+      // ========== ЭКЗАМЕН: Для экзамена используем другой формат ID, для теста по теме - стандартный ==========
+      const resultId = isExamMode
+        ? `EXAM${examQuestionCount || '0'}_${String(Date.now()).slice(-6)}`
+        : (selectedTopic ? `ID${selectedTopic.id}${String(Date.now()).slice(-6)}` : `ID0${String(Date.now()).slice(-6)}`);
+      const now = new Date();
+      const dateTime = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
+
+      const formatTimeSpent = (seconds) => {
+        const mins = Math.floor(seconds / 60);
+        const secs = seconds % 60;
+        if (mins > 0 && secs > 0) {
+          return `${mins} ${mins === 1 ? 'минута' : mins < 5 ? 'минуты' : 'минут'} ${secs} ${secs === 1 ? 'секунда' : secs < 5 ? 'секунды' : 'секунд'}`;
+        } else if (mins > 0) {
+          return `${mins} ${mins === 1 ? 'минута' : mins < 5 ? 'минуты' : 'минут'}`;
+        } else {
+          return `${secs} ${secs === 1 ? 'секунда' : secs < 5 ? 'секунды' : 'секунд'}`;
+        }
+      };
+
+      // Глубокое копирование вопросов и ответов для сохранения
+      const questionsCopy = questions.map(q => {
+        if (!q || !q.answers || !Array.isArray(q.answers)) {
+          console.warn('Некорректный вопрос при копировании:', q);
+          return {
+            ...q,
+            answers: []
+          };
+        }
         return {
           ...q,
-          answers: []
+          answers: q.answers.map(a => ({ ...a }))
         };
-      }
-      return {
-        ...q,
-        answers: q.answers.map(a => ({ ...a }))
-      };
-    });
-    
-    // Глубокое копирование ответов пользователя (используем updatedUserAnswers с установленным isCorrect)
-    const userAnswersCopy = Array.isArray(updatedUserAnswers) 
-      ? updatedUserAnswers.map(a => a ? { ...a } : null)
-      : [];
-    
-    // Проверяем, что testStartTime не null перед вычислением времени
-    const finalTime = testStartTime ? Math.floor((Date.now() - testStartTime) / 1000) : 0;
-    
-    const newResult = {
-      id: resultId,
-      correct: correctCount,
-      total: questions.length,
-      answered: answeredCount,
-      percentage: percentage,
-      time: finalTime,
-      timeFormatted: formatTime(finalTime),
-      timeSpent: formatTimeSpent(finalTime),
-      dateTime: dateTime,
-      userAnswers: userAnswersCopy, // Глубокое копирование (используем актуальные ответы)
-      questions: questionsCopy // Глубокое копирование
-    };
-    
-    console.log('Saving test results:', {
-      correctCount,
-      total: questions.length,
-      answeredCount,
-      percentage,
-      userAnswersCount: userAnswersCopy.length,
-      questionsCount: questionsCopy.length,
-      firstQuestion: questionsCopy[0] ? {
-        id: questionsCopy[0].id,
-        text: questionsCopy[0].text.substring(0, 30),
-        answers: questionsCopy[0].answers.map(a => ({ id: a.id, idType: typeof a.id, correct: a.correct }))
-      } : null,
-      firstUserAnswer: userAnswersCopy[0]
-    });
-
-    // ========== ЭКЗАМЕН: Для экзамена сохраняем результаты отдельно, для теста по теме - в results[selectedTopic.id] ==========
-    if (isExamMode) {
-      console.log('Сохранение результатов экзамена:', {
-        isExamMode,
-        examQuestionCount,
-        questionsCount: questions.length,
-        result: newResult
       });
-      
-      // Сохраняем результаты экзамена в отдельный ключ
-      const examResults = results['exam'] || [];
-      const updatedExamResults = [newResult, ...examResults].slice(0, 5);
-      
-      const updatedResults = { 
-        ...results, 
-        'exam': updatedExamResults
+
+      // Глубокое копирование ответов пользователя (используем updatedUserAnswers с установленным isCorrect)
+      const userAnswersCopy = Array.isArray(updatedUserAnswers)
+        ? updatedUserAnswers.map(a => a ? { ...a } : null)
+        : [];
+
+      // Проверяем, что testStartTime не null перед вычислением времени
+      const finalTime = testStartTime ? Math.floor((Date.now() - testStartTime) / 1000) : 0;
+
+      const newResult = {
+        id: resultId,
+        correct: correctCount,
+        total: questions.length,
+        answered: answeredCount,
+        percentage: percentage,
+        time: finalTime,
+        timeFormatted: formatTime(finalTime),
+        timeSpent: formatTimeSpent(finalTime),
+        dateTime: dateTime,
+        userAnswers: userAnswersCopy, // Глубокое копирование (используем актуальные ответы)
+        questions: questionsCopy // Глубокое копирование
       };
-      
-      setResults(updatedResults);
-      // Сохраняем в localStorage
-      saveResultsToLocalStorage(updatedResults);
-      
-      // Сбрасываем все состояния экзамена
-      setTestStartTime(null);
-      setElapsedTime(0);
-      setExamTimeLimit(null);
-      setExamTimeRemaining(null);
-      setIsExamMode(false); // Сбрасываем флаг экзамена
-      setSelectedExamResult(newResult); // Сохраняем результат для отображения
-      
-      console.log('Переход на экран результатов экзамена');
-      // Показываем экран результатов экзамена
-      setScreen('examResult');
-    } else {
-      // Сохраняем результаты теста по теме (существующая логика)
-      // Проверяем, что selectedTopic существует перед использованием
-      if (!selectedTopic || !selectedTopic.id) {
-        console.error('Ошибка: selectedTopic не определен');
-        alert('Ошибка: не выбрана тема для сохранения результатов');
-        return;
-      }
-      
-      const topicResults = results[selectedTopic.id] || [];
-      const updatedTopicResults = [newResult, ...topicResults].slice(0, 5);
-      
-      const updatedResults = { 
-        ...results, 
-        [selectedTopic.id]: updatedTopicResults
-      };
-      
-      setResults(updatedResults);
-      // Сохраняем в localStorage
-      saveResultsToLocalStorage(updatedResults);
-      
-      setTestStartTime(null);
-      setElapsedTime(0);
-      setScreen('topicDetail');
-      
-      // ========== ИИ-ТРЕНЕР: Сохраняем результаты в БД ==========
-      // Сохраняем результаты в БД (асинхронно, не блокируем UI)
-      saveTestResultsToDatabase(newResult).then(() => {
-        console.log('[AI TRAINER] Результаты сохранены в БД');
-        // После сохранения перезагружаем результаты из БД, чтобы они точно отобразились
-        setTimeout(() => {
-          loadResultsFromDatabase().then(dbResults => {
-            if (Object.keys(dbResults).length > 0) {
-              // Берём текущие из localStorage (там только что сохранён полный результат), не из state (в замыкании state старый)
-              const currentResults = loadResultsFromLocalStorage();
-              const mergedResults = { ...currentResults };
-              
-              Object.keys(dbResults).forEach(topicId => {
-                const currentTopicResults = currentResults[topicId] || [];
-                const dbTopicResults = dbResults[topicId] || [];
-                const uniqueResults = [];
-                const seenSignature = new Set();
 
-                const signature = (r) => `${r.correct}_${r.total}_${r.percentage}_${(r.dateTime || '').slice(0, 10)}`;
-
-                // Для каждого результата из БД: если есть полный результат в current с той же сигнатурой — берём полный
-                dbTopicResults.forEach(dbResult => {
-                  if (!dbResult) return;
-                  const sig = signature(dbResult);
-                  const fullFromCurrent = currentTopicResults.find(
-                    c => c && signature(c) === sig && hasFullReviewData(c)
-                  );
-                  const toPush = fullFromCurrent || dbResult;
-                  if (!seenSignature.has(sig)) {
-                    seenSignature.add(sig);
-                    uniqueResults.push(toPush);
-                  }
-                });
-
-                // Добавляем полные результаты из current, которых ещё нет (другая сессия / только localStorage)
-                currentTopicResults.forEach(result => {
-                  if (!result) return;
-                  const sig = signature(result);
-                  if (hasFullReviewData(result) && !seenSignature.has(sig)) {
-                    seenSignature.add(sig);
-                    uniqueResults.push(result);
-                  }
-                });
-
-                // Сортируем по дате (новые первые)
-                uniqueResults.sort((a, b) => {
-                  const dateA = a.dateTime ? new Date(a.dateTime).getTime() : 0;
-                  const dateB = b.dateTime ? new Date(b.dateTime).getTime() : 0;
-                  return dateB - dateA;
-                });
-
-                mergedResults[topicId] = uniqueResults.slice(0, 5);
-              });
-              
-              setResults(mergedResults);
-              saveResultsToLocalStorage(mergedResults);
-              console.log('[RESULTS] Результаты перезагружены из БД после сохранения');
-            }
-          }).catch(err => {
-            console.error('[RESULTS] Ошибка перезагрузки результатов:', err);
-          });
-        }, 500); // Небольшая задержка для гарантии сохранения в БД
-      }).catch(err => {
-        console.error('[AI TRAINER] Ошибка сохранения в БД:', err);
+      console.log('Saving test results:', {
+        correctCount,
+        total: questions.length,
+        answeredCount,
+        percentage,
+        userAnswersCount: userAnswersCopy.length,
+        questionsCount: questionsCopy.length,
+        firstQuestion: questionsCopy[0] ? {
+          id: questionsCopy[0].id,
+          text: questionsCopy[0].text.substring(0, 30),
+          answers: questionsCopy[0].answers.map(a => ({ id: a.id, idType: typeof a.id, correct: a.correct }))
+        } : null,
+        firstUserAnswer: userAnswersCopy[0]
       });
-      
-      // Сохраняем результат для возможного запроса совета (по кнопке)
-      // Не вызываем getAITrainerAdvice автоматически - только по нажатию кнопки
-    }
+
+      // ========== ЭКЗАМЕН: Для экзамена сохраняем результаты отдельно, для теста по теме - в results[selectedTopic.id] ==========
+      if (isExamMode) {
+        console.log('Сохранение результатов экзамена:', {
+          isExamMode,
+          examQuestionCount,
+          questionsCount: questions.length,
+          result: newResult
+        });
+
+        // Сохраняем результаты экзамена в отдельный ключ
+        const examResults = results['exam'] || [];
+        const updatedExamResults = [newResult, ...examResults].slice(0, 5);
+
+        const updatedResults = {
+          ...results,
+          'exam': updatedExamResults
+        };
+
+        setResults(updatedResults);
+        // Сохраняем в localStorage
+        saveResultsToLocalStorage(updatedResults);
+
+        // Сбрасываем все состояния экзамена
+        setTestStartTime(null);
+        setElapsedTime(0);
+        setExamTimeLimit(null);
+        setExamTimeRemaining(null);
+        setIsExamMode(false); // Сбрасываем флаг экзамена
+        setSelectedExamResult(newResult); // Сохраняем результат для отображения
+
+        console.log('Переход на экран результатов экзамена');
+        // Показываем экран результатов экзамена
+        setScreen('examResult');
+      } else {
+        // Сохраняем результаты теста по теме (существующая логика)
+        // Проверяем, что selectedTopic существует перед использованием
+        if (!selectedTopic || !selectedTopic.id) {
+          console.error('Ошибка: selectedTopic не определен');
+          alert('Ошибка: не выбрана тема для сохранения результатов');
+          return;
+        }
+
+        const topicResults = results[selectedTopic.id] || [];
+        const updatedTopicResults = [newResult, ...topicResults].slice(0, 5);
+
+        const updatedResults = {
+          ...results,
+          [selectedTopic.id]: updatedTopicResults
+        };
+
+        setResults(updatedResults);
+        // Сохраняем в localStorage
+        saveResultsToLocalStorage(updatedResults);
+
+        setTestStartTime(null);
+        setElapsedTime(0);
+        setScreen('topicDetail');
+
+        // ========== ИИ-ТРЕНЕР: Сохраняем результаты в БД ==========
+        // Сохраняем результаты в БД (асинхронно, не блокируем UI)
+        saveTestResultsToDatabase(newResult).then(() => {
+          console.log('[AI TRAINER] Результаты сохранены в БД');
+          // После сохранения перезагружаем результаты из БД, чтобы они точно отобразились
+          setTimeout(() => {
+            loadResultsFromDatabase().then(dbResults => {
+              if (Object.keys(dbResults).length > 0) {
+                // Берём текущие из localStorage (там только что сохранён полный результат), не из state (в замыкании state старый)
+                const currentResults = loadResultsFromLocalStorage();
+                const mergedResults = { ...currentResults };
+
+                Object.keys(dbResults).forEach(topicId => {
+                  const currentTopicResults = currentResults[topicId] || [];
+                  const dbTopicResults = dbResults[topicId] || [];
+                  const uniqueResults = [];
+                  const seenSignature = new Set();
+
+                  const signature = (r) => `${r.correct}_${r.total}_${r.percentage}_${(r.dateTime || '').slice(0, 10)}`;
+
+                  // Для каждого результата из БД: если есть полный результат в current с той же сигнатурой — берём полный
+                  dbTopicResults.forEach(dbResult => {
+                    if (!dbResult) return;
+                    const sig = signature(dbResult);
+                    const fullFromCurrent = currentTopicResults.find(
+                      c => c && signature(c) === sig && hasFullReviewData(c)
+                    );
+                    const toPush = fullFromCurrent || dbResult;
+                    if (!seenSignature.has(sig)) {
+                      seenSignature.add(sig);
+                      uniqueResults.push(toPush);
+                    }
+                  });
+
+                  // Добавляем полные результаты из current, которых ещё нет (другая сессия / только localStorage)
+                  currentTopicResults.forEach(result => {
+                    if (!result) return;
+                    const sig = signature(result);
+                    if (hasFullReviewData(result) && !seenSignature.has(sig)) {
+                      seenSignature.add(sig);
+                      uniqueResults.push(result);
+                    }
+                  });
+
+                  // Сортируем по дате (новые первые)
+                  uniqueResults.sort((a, b) => {
+                    const dateA = a.dateTime ? new Date(a.dateTime).getTime() : 0;
+                    const dateB = b.dateTime ? new Date(b.dateTime).getTime() : 0;
+                    return dateB - dateA;
+                  });
+
+                  mergedResults[topicId] = uniqueResults.slice(0, 5);
+                });
+
+                setResults(mergedResults);
+                saveResultsToLocalStorage(mergedResults);
+                console.log('[RESULTS] Результаты перезагружены из БД после сохранения');
+              }
+            }).catch(err => {
+              console.error('[RESULTS] Ошибка перезагрузки результатов:', err);
+            });
+          }, 500); // Небольшая задержка для гарантии сохранения в БД
+        }).catch(err => {
+          console.error('[AI TRAINER] Ошибка сохранения в БД:', err);
+        });
+
+        // Сохраняем результат для возможного запроса совета (по кнопке)
+        // Не вызываем getAITrainerAdvice автоматически - только по нажатию кнопки
+      }
     } catch (error) {
       console.error('Критическая ошибка в saveTestResults:', error);
       alert('Произошла ошибка при сохранении результатов теста. Попробуйте еще раз.');
@@ -5129,10 +5129,10 @@ function App() {
 
   const handleExitTest = () => {
     // ========== ЭКЗАМЕН: Разные сообщения для экзамена и теста ==========
-    const message = isExamMode 
+    const message = isExamMode
       ? 'Вы уверены, что хотите выйти из экзамена? Результаты будут сохранены.'
       : 'Вы уверены, что хотите выйти из теста? Результаты будут сохранены.';
-    
+
     if (confirm(message)) {
       try {
         saveTestResults();
@@ -5145,10 +5145,10 @@ function App() {
 
   const handleFinishTest = () => {
     // ========== ЭКЗАМЕН: Разные сообщения для экзамена и теста ==========
-    const message = isExamMode 
+    const message = isExamMode
       ? 'Завершить экзамен? Результаты будут сохранены.'
       : 'Завершить тест? Результаты будут сохранены.';
-    
+
     if (confirm(message)) {
       try {
         saveTestResults();
@@ -5240,21 +5240,21 @@ function App() {
     if (isAnswered) return
     setSelectedAnswer(answerId)
     setIsAnswered(true)
-    
+
     // Используем сохраненные вопросы теста
     const questions = testQuestions.length > 0 ? testQuestions : getMergedQuestions(selectedTopic.id)
     const question = questions[currentQuestionIndex]
-    
+
     if (!question) return
-    
+
     // Находим выбранный ответ
     const answer = question.answers.find(a => {
       // Сравниваем с учетом возможных различий типов
-      return a.id === answerId || 
-             String(a.id) === String(answerId) ||
-             (Number(a.id) === Number(answerId) && !isNaN(Number(a.id)) && !isNaN(Number(answerId)))
+      return a.id === answerId ||
+        String(a.id) === String(answerId) ||
+        (Number(a.id) === Number(answerId) && !isNaN(Number(a.id)) && !isNaN(Number(answerId)))
     })
-    
+
     if (!answer) {
       console.error('Answer not found!', {
         answerId: answerId,
@@ -5263,17 +5263,17 @@ function App() {
       });
       return;
     }
-    
+
     // Используем ID из найденного ответа, чтобы гарантировать правильный тип
     const savedAnswerId = answer.id;
-    
+
     // Проверяем правильность ответа
     const isCorrect = answer.correct === true;
-    
+
     if (isCorrect) {
       setCorrectAnswersCount(prev => prev + 1)
     }
-    
+
     // Сохраняем ответ пользователя с ID из объекта ответа
     const updatedAnswers = [...userAnswers];
     updatedAnswers[currentQuestionIndex] = {
@@ -5281,7 +5281,7 @@ function App() {
       selectedAnswerId: savedAnswerId, // Используем ID из объекта ответа
       isCorrect: isCorrect
     };
-    
+
     // Отладочная информация
     console.log('Answer clicked:', {
       questionIndex: currentQuestionIndex,
@@ -5300,11 +5300,11 @@ function App() {
       isCorrect: isCorrect,
       savedAnswer: updatedAnswers[currentQuestionIndex]
     });
-    
+
     setUserAnswers(updatedAnswers);
     // Обновляем референс синхронно
     userAnswersRef.current = updatedAnswers;
-    
+
     // Дополнительная отладка - проверяем, что ответ действительно сохранился
     console.log('After saving answer - updatedAnswers:', {
       currentIndex: currentQuestionIndex,
@@ -5315,36 +5315,36 @@ function App() {
         hasData: a !== undefined && a !== null
       }))
     });
-    
+
     // Автоматический переход к следующему вопросу ТОЛЬКО при правильном ответе
     // Если ответ неправильный, тест не переходит к следующему вопросу
     if (isCorrect) {
-    const isLastQuestion = currentQuestionIndex + 1 >= questions.length;
-    
-    if (!isLastQuestion) {
+      const isLastQuestion = currentQuestionIndex + 1 >= questions.length;
+
+      if (!isLastQuestion) {
         // Небольшая пауза, чтобы пользователь успел увидеть подсветку правильного ответа
-      setTimeout(() => {
-        setCurrentQuestionIndex(prev => prev + 1);
-        setSelectedAnswer(null);
-        setIsAnswered(false);
-      }, 400);
-    } else {
-      // Если это был последний вопрос, проверяем, все ли вопросы отвечены,
-      // и при желании пользователя завершаем тест
-      setTimeout(() => {
-        const allAnswered = questions.every((q, idx) => 
-          updatedAnswers[idx] !== undefined && updatedAnswers[idx] !== null
-        );
-        
-        if (allAnswered) {
-          setTimeout(() => {
-            if (confirm('Все вопросы отвечены! Завершить тест?')) {
-              saveTestResults();
-            }
-          }, 400);
-        }
-      }, 150);
-    }
+        setTimeout(() => {
+          setCurrentQuestionIndex(prev => prev + 1);
+          setSelectedAnswer(null);
+          setIsAnswered(false);
+        }, 400);
+      } else {
+        // Если это был последний вопрос, проверяем, все ли вопросы отвечены,
+        // и при желании пользователя завершаем тест
+        setTimeout(() => {
+          const allAnswered = questions.every((q, idx) =>
+            updatedAnswers[idx] !== undefined && updatedAnswers[idx] !== null
+          );
+
+          if (allAnswered) {
+            setTimeout(() => {
+              if (confirm('Все вопросы отвечены! Завершить тест?')) {
+                saveTestResults();
+              }
+            }, 400);
+          }
+        }, 150);
+      }
     }
     // Если ответ неправильный, тест остается на текущем вопросе
   }
@@ -5367,7 +5367,7 @@ function App() {
         minute: '2-digit',
         second: '2-digit'
       }).replace(',', '');
-      
+
       const formatTimeSpent = (seconds) => {
         const mins = Math.floor(seconds / 60);
         const secs = seconds % 60;
@@ -5379,7 +5379,7 @@ function App() {
           return `${secs} ${secs === 1 ? 'секунда' : secs < 5 ? 'секунды' : 'секунд'}`;
         }
       };
-      
+
       const newResult = {
         id: resultId,
         correct: correctAnswersCount,
@@ -5396,9 +5396,9 @@ function App() {
       // Сохраняем максимум 5 результатов
       const topicResults = results[selectedTopic.id] || [];
       const updatedResults = [newResult, ...topicResults].slice(0, 5);
-      
-      setResults({ 
-        ...results, 
+
+      setResults({
+        ...results,
         [selectedTopic.id]: updatedResults
       })
       setTestStartTime(null);
@@ -5423,36 +5423,36 @@ function App() {
   // Admin functions
   const handleAdminSubmit = async (e) => {
     e.preventDefault();
-    
+
     // Валидация формы
     if (!questionForm.text.trim()) {
       alert('Пожалуйста, введите текст вопроса');
       return;
     }
-    
+
     // Проверяем, что есть минимум 2 ответа
     if (questionForm.answers.length < 2) {
       alert('Минимум должно быть 2 варианта ответа!');
       return;
     }
-    
+
     // Проверяем, что все ответы заполнены
     const emptyAnswers = questionForm.answers.filter(a => !a.text.trim());
     if (emptyAnswers.length > 0) {
       alert('Пожалуйста, заполните все варианты ответов');
       return;
     }
-    
+
     // Проверяем, что выбран правильный ответ
     const hasCorrectAnswer = questionForm.answers.some(a => a.id === questionForm.correct);
     if (!hasCorrectAnswer) {
       alert('Пожалуйста, выберите правильный ответ');
       return;
     }
-    
+
     // Обрабатываем изображение
     let imageUrl = null;
-    
+
     // Если выбран режим ввода URL и URL введен
     if (questionForm.imageInputMode === 'url' && questionForm.imageUrlInput && questionForm.imageUrlInput.trim()) {
       const inputUrl = questionForm.imageUrlInput.trim();
@@ -5460,12 +5460,12 @@ function App() {
       try {
         new URL(inputUrl);
         imageUrl = inputUrl;
-        
+
         // Если обновляем вопрос и было старое изображение (из Storage), удаляем его
-        if (editingQuestion && editingQuestion.image_url && 
-            !editingQuestion.image_url.startsWith('http://') && 
-            !editingQuestion.image_url.startsWith('https://') &&
-            !editingQuestion.image_url.startsWith('data:image/')) {
+        if (editingQuestion && editingQuestion.image_url &&
+          !editingQuestion.image_url.startsWith('http://') &&
+          !editingQuestion.image_url.startsWith('https://') &&
+          !editingQuestion.image_url.startsWith('data:image/')) {
           await deleteImageFromStorage(editingQuestion.image_url);
         }
       } catch (e) {
@@ -5479,13 +5479,13 @@ function App() {
         // Загружаем изображение в Storage
         const uploadedUrl = await uploadImageToStorage(questionForm.imageFile, editingQuestion?.id);
         imageUrl = uploadedUrl;
-        
+
         // Если обновляем вопрос и было старое изображение, удаляем его
         if (editingQuestion && editingQuestion.image_url && editingQuestion.image_url !== imageUrl) {
           // Удаляем только если старое изображение было из Storage (не URL и не base64)
-          if (!editingQuestion.image_url.startsWith('http://') && 
-              !editingQuestion.image_url.startsWith('https://') &&
-              !editingQuestion.image_url.startsWith('data:image/')) {
+          if (!editingQuestion.image_url.startsWith('http://') &&
+            !editingQuestion.image_url.startsWith('https://') &&
+            !editingQuestion.image_url.startsWith('data:image/')) {
             await deleteImageFromStorage(editingQuestion.image_url);
           }
         }
@@ -5500,14 +5500,14 @@ function App() {
       imageUrl = questionForm.imageUrl;
     }
     // Если удалили изображение при редактировании, удаляем из Storage
-    else if (editingQuestion && editingQuestion.image_url && 
-             !editingQuestion.image_url.startsWith('http://') && 
-             !editingQuestion.image_url.startsWith('https://') &&
-             !editingQuestion.image_url.startsWith('data:image/')) {
+    else if (editingQuestion && editingQuestion.image_url &&
+      !editingQuestion.image_url.startsWith('http://') &&
+      !editingQuestion.image_url.startsWith('https://') &&
+      !editingQuestion.image_url.startsWith('data:image/')) {
       await deleteImageFromStorage(editingQuestion.image_url);
       imageUrl = null;
     }
-    
+
     // Сохраняем вопрос с URL изображения из Storage
     saveQuestion(imageUrl);
   };
@@ -5529,7 +5529,7 @@ function App() {
         answersMap[`answer_${key}`] = answerText;
       }
     });
-    
+
     const questionData = {
       question: questionForm.text.trim(),
       ...answersMap,
@@ -5538,14 +5538,14 @@ function App() {
       topic_id: questionForm.topicId,
       answers_count: questionForm.answers.filter(a => a.text && a.text.trim()).length
     };
-    
+
     console.log('buildQuestionData: созданы данные вопроса:', {
       question: questionData.question,
       answersMap: answersMap,
       correct: questionData.correct,
       answers_count: questionData.answers_count
     });
-    
+
     return questionData;
   };
 
@@ -5556,7 +5556,7 @@ function App() {
     try {
       // Проверяем и преобразуем topic_id
       let quizId = questionData.topic_id;
-      
+
       // Если topic_id это число, но база ожидает UUID, нужно найти UUID темы
       if (typeof quizId === 'number' || (typeof quizId === 'string' && /^\d+$/.test(quizId))) {
         console.warn('⚠️ topic_id это число, но база может ожидать UUID. Ищем тему...');
@@ -5571,7 +5571,7 @@ function App() {
           return;
         }
       }
-      
+
       // Подготавливаем данные для таблицы questions
       const questionSupabaseData = {
         quiz_id: quizId, // Используем правильный ID (UUID или число)
@@ -5579,7 +5579,7 @@ function App() {
         image_url: questionData.image_url || null,
         explanation: null // Можно добавить позже
       };
-      
+
       console.log('Данные для сохранения вопроса:', questionSupabaseData);
 
       let questionId;
@@ -5598,7 +5598,7 @@ function App() {
           return;
         }
         questionId = data.id;
-        
+
         // Удаляем старые опции
         await supabase
           .from('options')
@@ -5623,7 +5623,7 @@ function App() {
       // Сохраняем опции (ответы)
       const optionsToInsert = [];
       const answerKeys = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
-      
+
       console.log('🔍 Проверка данных вопроса для сохранения опций:', {
         questionId: questionId,
         questionDataKeys: Object.keys(questionData),
@@ -5634,7 +5634,7 @@ function App() {
           isCorrect: questionData.correct === key
         }))
       });
-      
+
       answerKeys.forEach((key, index) => {
         const answerText = questionData[`answer_${key}`];
         if (answerText && String(answerText).trim() !== '') {
@@ -5678,14 +5678,14 @@ function App() {
               option_text: opt.option_text,
               is_correct: opt.is_correct
             })));
-            
+
             // Проверяем, что опции действительно сохранены в базе
             const { data: verifyOptions, error: verifyError } = await supabase
               .from('options')
               .select('*')
               .eq('question_id', questionId)
               .limit(100); // Лимит для опций одного вопроса (обычно не больше 8)
-            
+
             if (verifyError) {
               console.error('❌ Ошибка проверки сохраненных опций:', verifyError);
             } else {
@@ -5714,19 +5714,19 @@ function App() {
       }
 
       console.log('✅ Вопрос успешно сохранен в Supabase:', questionId);
-      
+
       // Небольшая задержка, чтобы база данных успела обработать запрос
       await new Promise(resolve => setTimeout(resolve, 500));
-      
+
       // Перезагружаем вопросы из Supabase БЕЗ кэша, чтобы получить свежие данные
       console.log('🔄 Перезагрузка вопросов из Supabase (без кэша)...');
       await loadQuestionsFromSupabase(false);
-      
+
       // Обновляем количество вопросов в квизе
       await updateTopicQuestionCount(quizId);
-      
+
       alert(editingQuestion ? 'Вопрос успешно обновлен!' : 'Вопрос успешно добавлен!');
-      
+
       // Если редактировали вопрос, возвращаемся к списку и остаёмся у этого вопроса
       if (editingQuestion) {
         const questionIdToScroll = editingQuestionId;
@@ -5768,7 +5768,7 @@ function App() {
     try {
       // Нормализуем quizId для запроса
       const normalizedQuizId = String(quizId).trim();
-      
+
       const { count, error } = await supabase
         .from('questions')
         .select('id', { count: 'exact', head: true })
@@ -5777,7 +5777,7 @@ function App() {
       if (!error && count !== null && count !== undefined) {
         // Обновляем локальное состояние (в таблице quizzes нет поля question_count, но мы обновляем локально)
         // Нормализуем ID для сравнения
-        setTopics(prevTopics => 
+        setTopics(prevTopics =>
           prevTopics.map(t => {
             const normalizedTopicId = String(t.id).trim();
             return normalizedTopicId === normalizedQuizId ? { ...t, questionCount: count } : t;
@@ -5794,7 +5794,7 @@ function App() {
       ...prev,
       [field]: value
     }));
-    
+
     // Сохраняем последнюю выбранную тему в localStorage
     if (field === 'topicId') {
       try {
@@ -5831,7 +5831,7 @@ function App() {
       alert('Минимум должно быть 2 варианта ответа!');
       return;
     }
-    
+
     setQuestionForm(prev => {
       const newAnswers = prev.answers.filter((_, i) => i !== index);
       // Обновляем ID ответов
@@ -5839,7 +5839,7 @@ function App() {
         ...answer,
         id: String.fromCharCode(97 + i)
       }));
-      
+
       // Если удалили правильный ответ, выбираем первый
       let newCorrect = prev.correct;
       if (prev.correct === prev.answers[index].id) {
@@ -5853,7 +5853,7 @@ function App() {
           newCorrect = updatedAnswers[oldIndex].id;
         }
       }
-      
+
       return {
         ...prev,
         answers: updatedAnswers,
@@ -5937,15 +5937,15 @@ function App() {
     try {
       // Оптимизируем изображение перед загрузкой
       const optimizedBlob = await optimizeImage(file);
-      
+
       // Определяем расширение файла на основе типа blob
       const fileExt = optimizedBlob.type === 'image/webp' ? 'webp' : 'jpg';
-      
+
       // Генерируем уникальное имя файла
-      const fileName = questionId 
+      const fileName = questionId
         ? `questions/${questionId}.${fileExt}`
         : `questions/${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
-      
+
       // Загружаем в Supabase Storage (bucket: 'question-images')
       const { data, error } = await supabase.storage
         .from('question-images')
@@ -6026,21 +6026,21 @@ function App() {
         alert('Пожалуйста, выберите файл изображения!');
         return;
       }
-      
+
       // Проверяем размер файла (макс 10MB до оптимизации)
       if (file.size > 10 * 1024 * 1024) {
         alert('Размер файла не должен превышать 10MB!');
         return;
       }
-      
+
       // Освобождаем предыдущий blob URL, если он был
       if (questionForm.imageUrl && questionForm.imageUrl.startsWith('blob:')) {
         URL.revokeObjectURL(questionForm.imageUrl);
       }
-      
+
       // Создаем URL для предпросмотра нового файла
       const imageUrl = URL.createObjectURL(file);
-      
+
       setQuestionForm(prev => ({
         ...prev,
         imageFile: file,
@@ -6048,7 +6048,7 @@ function App() {
         imageUrlInput: '', // Очищаем введенный URL при загрузке файла
         imageInputMode: 'file' // Переключаем на режим файла
       }));
-      
+
       // Сбрасываем значение input, чтобы можно было выбрать тот же файл снова
       e.target.value = '';
     }
@@ -6084,7 +6084,7 @@ function App() {
     if (questionForm.imageUrl && questionForm.imageUrl.startsWith('blob:')) {
       URL.revokeObjectURL(questionForm.imageUrl);
     }
-    
+
     // Загружаем последнюю выбранную тему из localStorage
     let savedTopicId = null;
     try {
@@ -6099,12 +6099,12 @@ function App() {
     } catch (e) {
       console.error('Ошибка чтения последней темы:', e);
     }
-    
+
     // Используем сохраненную тему или первую доступную
-    const defaultTopicId = savedTopicId 
+    const defaultTopicId = savedTopicId
       ? (typeof savedTopicId === 'string' && /^\d+$/.test(savedTopicId) ? Number(savedTopicId) : savedTopicId)
       : (topics && topics.length > 0 ? topics[0].id : 1);
-    
+
     setQuestionForm({
       text: '',
       answers: [
@@ -6141,12 +6141,12 @@ function App() {
         } catch (e) {
           console.error('Ошибка чтения последней темы:', e);
         }
-        
+
         // Используем сохраненную тему или первую доступную
-        const defaultTopicId = savedTopicId 
+        const defaultTopicId = savedTopicId
           ? (typeof savedTopicId === 'string' && /^\d+$/.test(savedTopicId) ? Number(savedTopicId) : savedTopicId)
           : (topics && topics.length > 0 ? topics[0].id : 1);
-        
+
         setQuestionForm({
           text: '',
           answers: [
@@ -6177,10 +6177,10 @@ function App() {
         } catch (e) {
           console.error('Ошибка чтения последней темы:', e);
         }
-        
+
         if (savedTopicId) {
-          const topicId = typeof savedTopicId === 'string' && /^\d+$/.test(savedTopicId) 
-            ? Number(savedTopicId) 
+          const topicId = typeof savedTopicId === 'string' && /^\d+$/.test(savedTopicId)
+            ? Number(savedTopicId)
             : savedTopicId;
           setQuestionForm(prev => ({
             ...prev,
@@ -6318,14 +6318,14 @@ function App() {
       // Переключаем между light и dark
       newTheme = manualTheme === 'dark' ? 'light' : 'dark';
     }
-    
+
     // Сохраняем выбранную тему в localStorage
     try {
       localStorage.setItem('app_theme', newTheme);
     } catch (e) {
       console.error('Ошибка сохранения темы в localStorage:', e);
     }
-    
+
     setManualTheme(newTheme);
     document.body.setAttribute('data-theme', newTheme);
     setIsDarkMode(newTheme === 'dark');
@@ -6388,12 +6388,12 @@ function App() {
         </div>
       </button>
     );
-    
+
     // Рендерим кнопку напрямую в body через Portal, чтобы она была закреплена относительно viewport
     if (typeof document !== 'undefined' && document.body) {
       return createPortal(buttonElement, document.body);
     }
-    
+
     return buttonElement;
   };
 
@@ -6449,12 +6449,12 @@ function App() {
     if (isUserAdmin) {
       return tariffs.find(t => t.id === 'pro') || null;
     }
-    
+
     // Проверяем активную подписку и определяем тариф
     if (!subscriptionInfo || !subscriptionInfo.active) {
       return null; // Нет активной подписки
     }
-    
+
     // Получаем информацию о подписке из payment_requests для определения тарифа
     // Пока используем дефолтный тариф "test" если не можем определить
     // TODO: Добавить поле tariff_id в таблицу subscriptions
@@ -6468,15 +6468,15 @@ function App() {
     if (isUserAdmin) {
       return false;
     }
-    
+
     if (!subscriptionInfo || !subscriptionInfo.active || !subscriptionInfo.subscriptionExpiresAt) {
       return false;
     }
-    
+
     const endDate = new Date(subscriptionInfo.subscriptionExpiresAt);
     const now = new Date();
     const daysDiff = Math.ceil((endDate - now) / (1000 * 60 * 60 * 24));
-    
+
     // Пробная подписка: 3 дня и создана недавно (в течение последних 3 дней)
     // Проверяем, что до окончания подписки осталось примерно 3 дня или меньше
     return daysDiff <= 3 && daysDiff > 0;
@@ -6495,11 +6495,11 @@ function App() {
           // Проверяем: если used >= total, блокируем кнопку
           // Админы и PRO тарифы имеют remaining: -1, поэтому проверяем > 0
           const exhausted = limitCheck.remaining !== -1 && limitCheck.remaining <= 0;
-          console.log('[AI_TRAINER_BUTTON] Проверка лимита:', { 
-            used: limitCheck.used, 
-            total: limitCheck.total, 
-            remaining: limitCheck.remaining, 
-            exhausted 
+          console.log('[AI_TRAINER_BUTTON] Проверка лимита:', {
+            used: limitCheck.used,
+            total: limitCheck.total,
+            remaining: limitCheck.remaining,
+            exhausted
           });
           setIsLimitExhausted(exhausted);
         } catch (error) {
@@ -6525,11 +6525,11 @@ function App() {
     return (
       <div>
         <p style={{ margin: '0 0 16px 0', fontSize: '15px', lineHeight: '1.6', opacity: 0.9 }}>
-          {isLimitExhausted 
+          {isLimitExhausted
             ? 'Лимит использования ИИ исчерпан'
             : 'Получи персональный совет на основе твоих ошибок'}
         </p>
-        <button 
+        <button
           onClick={() => {
             if (!isLimitExhausted && latestResult) {
               getAITrainerAdvice(latestResult);
@@ -6538,14 +6538,14 @@ function App() {
           disabled={isLimitExhausted}
           style={{
             width: '100%',
-            background: isLimitExhausted 
-              ? 'rgba(128, 128, 128, 0.3)' 
+            background: isLimitExhausted
+              ? 'rgba(128, 128, 128, 0.3)'
               : 'rgba(255, 255, 255, 0.2)',
             border: 'none',
             borderRadius: '10px',
             padding: '14px 20px',
-            color: isLimitExhausted 
-              ? 'rgba(255, 255, 255, 0.5)' 
+            color: isLimitExhausted
+              ? 'rgba(255, 255, 255, 0.5)'
               : '#ffffff',
             fontSize: '16px',
             fontWeight: '600',
@@ -6571,16 +6571,16 @@ function App() {
           }}
         >
           {isLimitExhausted ? (
-          <>
-            <span>🚫</span>
-            <span>Лимит исчерпан. Перейдите на тариф PRO для безлимита</span>
-          </>
-        ) : (
-          <>
-            <span>✨</span>
-            <span>Получить совет</span>
-          </>
-        )}
+            <>
+              <span>🚫</span>
+              <span>Лимит исчерпан. Перейдите на тариф PRO для безлимита</span>
+            </>
+          ) : (
+            <>
+              <span>✨</span>
+              <span>Получить совет</span>
+            </>
+          )}
         </button>
       </div>
     );
@@ -6591,7 +6591,7 @@ function App() {
     const limits = getAILimits();
     const aiQueriesCount = userProfile.ai_queries_count || 0;
     const aiLimitTotal = userProfile.ai_limit_total || 0;
-    
+
     if (limits.unlimited) {
       return (
         <div className="subscription-detail-item">
@@ -6602,11 +6602,11 @@ function App() {
         </div>
       );
     }
-    
+
     // Используем данные из userProfile
     const remaining = aiLimitTotal > 0 ? Math.max(0, aiLimitTotal - aiQueriesCount) : 0;
     const displayLimit = aiLimitTotal > 0 ? aiLimitTotal : (isTrialSubscription() ? 4 : (limits.hintsInTests === -1 ? limits.otherUsage : limits.hintsInTests));
-    
+
     return (
       <div className="subscription-detail-item">
         <span className="subscription-detail-label">ИИ запросы:</span>
@@ -6624,13 +6624,13 @@ function App() {
     if (isUserAdmin) {
       return { hintsInTests: -1, otherUsage: -1, unlimited: true };
     }
-    
+
     // Сначала проверяем, является ли подписка пробной
     if (isTrialSubscription()) {
       // Для пробного периода: 4 запроса ИИ в любом режиме
       return { hintsInTests: 4, otherUsage: 4, unlimited: false };
     }
-    
+
     const tariff = getCurrentTariff();
     if (!tariff || !tariff.aiLimits) {
       // Если нет подписки, лимиты очень строгие
@@ -6648,66 +6648,66 @@ function App() {
       console.log('[AI_LIMIT] ✅ Администратор - безлимитный доступ');
       return { allowed: true, remaining: -1 };
     }
-    
+
     // Используем данные напрямую из userProfile (ai_queries_count и ai_limit_total)
     const used = userProfile.ai_queries_count || 0;
     const total = userProfile.ai_limit_total || 0;
-    
+
     console.log('[AI_LIMIT] Проверка лимита из userProfile:', { used, total, isHintInTest });
-    
+
     // Если total = 0, значит лимит не установлен - используем старую логику как fallback
     if (total === 0) {
       console.log('[AI_LIMIT] Лимит не установлен в profiles, используем fallback логику');
       const limits = getAILimits();
-      
+
       // PRO Максимум - без ограничений
       if (limits.unlimited) {
         console.log('[AI_LIMIT] Без ограничений (PRO)');
         return { allowed: true, remaining: -1, used, total };
       }
-      
+
       // Для пробной подписки: общий лимит 4 запроса
       if (isTrialSubscription()) {
         const remaining = 4 - used;
-        
+
         if (remaining <= 0) {
           return { allowed: false, remaining: 0, used, total: 4 };
         }
         return { allowed: true, remaining, used, total: 4 };
       }
-      
+
       // Для других тарифов используем старую логику
       if (isHintInTest) {
         if (limits.hintsInTests === -1) {
           return { allowed: true, remaining: -1, used, total: -1 };
         }
         const remaining = limits.hintsInTests - used;
-        return { 
-          allowed: remaining > 0, 
-          remaining: Math.max(0, remaining), 
-          used, 
-          total: limits.hintsInTests 
+        return {
+          allowed: remaining > 0,
+          remaining: Math.max(0, remaining),
+          used,
+          total: limits.hintsInTests
         };
       } else {
         if (limits.otherUsage === -1) {
           return { allowed: true, remaining: -1, used, total: -1 };
         }
         const remaining = limits.otherUsage - used;
-        return { 
-          allowed: remaining > 0, 
-          remaining: Math.max(0, remaining), 
-          used, 
-          total: limits.otherUsage 
+        return {
+          allowed: remaining > 0,
+          remaining: Math.max(0, remaining),
+          used,
+          total: limits.otherUsage
         };
       }
     }
-    
+
     // Проверяем: если used >= total, блокируем
     if (used >= total) {
       console.log('[AI_LIMIT] ⛔ ЛИМИТ ИСЧЕРПАН! used >= total:', { used, total });
       return { allowed: false, remaining: 0, used, total };
     }
-    
+
     const remaining = total - used;
     console.log('[AI_LIMIT] Лимит позволяет:', { used, total, remaining });
     return { allowed: true, remaining, used, total };
@@ -6724,14 +6724,14 @@ function App() {
         console.log('[AI_PROFILE] Админ - пропускаем обновление счетчика');
         return;
       }
-      
+
       if (!userId) {
         console.log('[AI_PROFILE] Нет userId, пропускаем обновление ai_queries_count в profiles');
         return;
       }
 
       const userIdNumber = Number(userId);
-      
+
       // Загружаем текущее значение ai_queries_count из profiles
       // Используем id, который является числом (telegram_id)
       const { data: currentProfile, error: fetchError } = await supabase
@@ -6771,13 +6771,13 @@ function App() {
       // Используем значение из ответа Supabase, а не из localStorage
       const updatedCount = Number(data?.ai_queries_count) || 0;
       console.log('[AI_PROFILE] ✅ ai_queries_count успешно обновлен в profiles:', updatedCount);
-      
+
       // Обновляем состояние userProfile из ответа Supabase
       setUserProfile(prev => ({
         ...prev,
         ai_queries_count: updatedCount
       }));
-      
+
       return updatedCount;
     } catch (e) {
       console.error('[AI_PROFILE] Исключение при обновлении ai_queries_count:', e);
@@ -6790,7 +6790,7 @@ function App() {
     ai_queries_count: 0,
     ai_limit_total: 0
   });
-  
+
   // Загрузка лимитов ИИ из таблицы profiles
   // ВАЖНО: Эта функция ВСЕГДА загружает актуальные данные из БД, не используя кэш
   const loadAILimitsFromProfile = async () => {
@@ -6799,7 +6799,7 @@ function App() {
         console.log('[AI_LIMITS] Нет userId, пропускаем загрузку лимитов');
         return { used: 0, total: 0 };
       }
-      
+
       // АДМИНЫ ИМЕЮТ БЕЗЛИМИТНЫЙ ДОСТУП
       const isUserAdmin = isAdmin || userRole === 'admin';
       if (isUserAdmin) {
@@ -6810,14 +6810,14 @@ function App() {
         });
         return { used: 0, total: 999999 };
       }
-      
+
       const userIdNumber = Number(userId);
-      
+
       if (!Number.isFinite(userIdNumber) || userIdNumber <= 0) {
         console.error('[AI_LIMITS] Невалидный userId:', userId);
         return { used: 0, total: 0 };
       }
-      
+
       // ВАЖНО: Всегда загружаем актуальные данные из БД, не используя кэш
       // Используем id, который является числом (telegram_id)
       const { data: profile, error } = await supabase
@@ -6825,19 +6825,19 @@ function App() {
         .select('ai_queries_count, ai_limit_total')
         .eq('id', userIdNumber)
         .maybeSingle();
-      
+
       if (error) {
         console.error('[AI_LIMITS] Ошибка загрузки лимитов из profiles:', error);
         // Не сбрасываем значения при ошибке, оставляем текущие
         return { used: userProfile.ai_queries_count || 0, total: userProfile.ai_limit_total || 0 };
       }
-      
+
       if (profile) {
         // ВАЖНО: Используем ?? вместо ||, чтобы не заменять 0 на 0
         const used = Number(profile.ai_queries_count) ?? 0;
         const total = Number(profile.ai_limit_total) ?? 0;
-        console.log('[AI_LIMITS] ✅ Загружено из profiles (актуальные данные из БД):', { 
-          used, 
+        console.log('[AI_LIMITS] ✅ Загружено из profiles (актуальные данные из БД):', {
+          used,
           total,
           userId: userIdNumber
         });
@@ -6848,7 +6848,7 @@ function App() {
         });
         return { used, total };
       }
-      
+
       console.warn('[AI_LIMITS] Профиль не найден для userId:', userIdNumber);
       return { used: 0, total: 0 };
     } catch (e) {
@@ -6857,13 +6857,13 @@ function App() {
       return { used: userProfile.ai_queries_count || 0, total: userProfile.ai_limit_total || 0 };
     }
   };
-  
+
   // Обновление ai_queries_count в profiles после успешного запроса (объединенная функция)
   const incrementAIQueriesUsed = async () => {
     // Используем единую функцию updateAIQueriesCountInProfile
     return await updateAIQueriesCountInProfile();
   };
-  
+
   // Загружаем лимиты из profiles при изменении userId (один раз)
   // ВАЖНО: Эта функция всегда загружает актуальные данные из БД, не используя кэш
   useEffect(() => {
@@ -6906,7 +6906,7 @@ function App() {
       setUserProfile({ ai_queries_count: 0, ai_limit_total: 0 });
     }
   }, [userId]); // Убрали subscriptionInfo?.subscriptionExpiresAt из зависимостей, чтобы избежать повторных вызовов
-  
+
   // Принудительная синхронизация лимитов при открытии экрана topics (при входе пользователя)
   // ВАЖНО: Это гарантирует, что лимиты всегда актуальны при обновлении страницы
   useEffect(() => {
@@ -6940,7 +6940,7 @@ function App() {
         });
     }
   }, [screen, userId, loading]); // Загружаем при открытии экрана topics
-  
+
   // Принудительная загрузка результатов при открытии экранов с результатами
   useEffect(() => {
     if ((screen === 'topicDetail' || screen === 'fullReview') && userId && !loading && selectedTopic?.id) {
@@ -6952,7 +6952,7 @@ function App() {
         currentResultsKeys: Object.keys(results),
         currentResultsCount: Object.values(results).reduce((sum, arr) => sum + (arr?.length || 0), 0)
       });
-      
+
       loadResultsFromDatabase()
         .then(dbResults => {
           console.log('[RESULTS] Загружено из БД при открытии экрана:', {
@@ -6960,7 +6960,7 @@ function App() {
             dbResultsCount: Object.values(dbResults).reduce((sum, arr) => sum + (arr?.length || 0), 0),
             selectedTopicId: selectedTopic?.id
           });
-          
+
           const currentResults = results;
           const localResults = loadResultsFromLocalStorage();
           const mergedResults = { ...localResults, ...currentResults };
@@ -7000,11 +7000,11 @@ function App() {
             });
             mergedResults[topicId] = uniqueResults.slice(0, 5);
           });
-          
+
           // ВСЕГДА обновляем состояние, даже если результаты не изменились
           setResults(mergedResults);
           saveResultsToLocalStorage(mergedResults);
-          
+
           console.log('[RESULTS] ✅ Результаты обновлены при открытии экрана:', {
             screen,
             totalTopics: Object.keys(mergedResults).length,
@@ -7088,75 +7088,83 @@ function App() {
       setPaymentReceiptPreview(null);
       setPaymentReceiptUploading(false);
 
-      // Вставляем запись; если нет колонки receipt_url — повторяем без неё
+      // Вставляем запись в новую таблицу payments
       const insertPayload = {
         user_id: userId,
         tariff_name: tariff.name,
         amount: String(tariff.price),
         sender_info: senderInfo,
         status: 'pending',
-        ...(receiptUrl ? { receipt_url: receiptUrl } : {})
+        ...(receiptUrl ? { screenshot_url: receiptUrl } : {})
       };
 
-      let { error } = await supabase.from('payment_requests').insert(insertPayload);
-
-      if (error && error.code === 'PGRST204') {
-        const { error: error2 } = await supabase.from('payment_requests').insert({
-          user_id: userId,
-          tariff_name: tariff.name,
-          amount: String(tariff.price),
-          sender_info: senderInfo,
-          status: 'pending'
-        });
-        error = error2;
+      // Если нет чека, все равно нужна какая-то заглушка или можно передавать пустую строку
+      // но в SQL screenshot_url NOT NULL, поэтому отправляем дефолтную или проверяем
+      if (!insertPayload.screenshot_url) {
+        insertPayload.screenshot_url = 'no_receipt';
       }
 
+      let { error } = await supabase.from('payments').insert(insertPayload);
+
       if (error) {
-        console.error('Ошибка сохранения запроса на оплату:', error);
+        console.error('Ошибка сохранения запроса на оплату в БД:', error);
         alert('Ошибка при сохранении запроса на оплату: ' + error.message);
         setIsPaymentProcessing(false);
-        try { localStorage.removeItem('payment_processing'); } catch (e) {}
+        try { localStorage.removeItem('payment_processing'); } catch (e) { }
         return;
       }
 
-      // Отправляем уведомление в Telegram с фото (пробуем основной URL, при ошибке — fallback)
+      // Отправляем уведомление в Telegram с фото
+      // Используем серверлесс функцию Vercel /api/payment-notify
       let notifyOk = false;
       const requestBody = {
         amount: tariff.price,
         tariffName: tariff.name,
         userInfo: senderInfo,
         userId: userId,
-        receiptUrl: receiptUrl || null,
-        receiptDataUrl: receiptDataUrl || null
+        receiptUrl: receiptUrl || null
       };
 
-      for (const baseUrl of [BACKEND_URL, BACKEND_FALLBACK_URL]) {
-        if (notifyOk) break;
-        const notifyUrl = `${baseUrl}/api/notify/payment`;
+      const notifyUrl = '/api/payment-notify';
+      try {
+        console.log('📤 Отправка уведомления на серверлесс Vercel:', notifyUrl);
+        const notifyResponse = await fetch(notifyUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(requestBody)
+        });
+        if (notifyResponse.ok) {
+          const result = await notifyResponse.json();
+          console.log('✅ Уведомление отправлено:', result);
+          notifyOk = true;
+        } else {
+          const text = await notifyResponse.text();
+          console.warn('⚠️ Ответ не OK:', notifyResponse.status, text?.slice(0, 100));
+        }
+      } catch (e) {
+        console.warn('⚠️ Не удалось отправить на Vercel API, пробуем fallback.', e?.message);
+        // Fallback на Railway бэкенд, если Vercel API не отвечает
         try {
-          console.log('📤 Отправка уведомления:', notifyUrl);
-          const notifyResponse = await fetch(notifyUrl, {
+          const fallbackUrl = `${BACKEND_FALLBACK_URL}/api/notify/payment`;
+          console.log('📤 Отправка на Fallback:', fallbackUrl);
+          const notifyResponseFallback = await fetch(fallbackUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(requestBody)
+            body: JSON.stringify({ ...requestBody, receiptDataUrl: receiptDataUrl || null })
           });
-          if (notifyResponse.ok) {
-            const result = await notifyResponse.json();
-            console.log('✅ Уведомление отправлено:', result);
+          if (notifyResponseFallback.ok) {
+            console.log('✅ Уведомление отправлено (Fallback)');
             notifyOk = true;
-          } else {
-            const text = await notifyResponse.text();
-            console.warn('⚠️ Ответ не OK:', notifyResponse.status, text?.slice(0, 100));
           }
-        } catch (e) {
-          console.warn('⚠️ Не удалось отправить на', notifyUrl, e?.message);
+        } catch (fbErr) {
+          console.warn('⚠️ Не удалось отправить даже на Fallback:', fbErr?.message);
         }
       }
 
       if (notifyOk) {
         alert('Запрос на оплату успешно отправлен! Мы проверим платеж и активируем подписку в ближайшее время.');
       } else {
-        alert('Запрос на оплату сохранён. Уведомление админу не дошло — запустите бэкенд (npm start в папке backend) или проверьте интернет.');
+        alert('Запрос на оплату сохранён. Уведомление админу не дошло — обратитесь в поддержку или администратору напрямую.');
       }
       setSelectedTariff(null);
       setPaymentSenderInfo('');
@@ -7165,7 +7173,7 @@ function App() {
       alert('Произошла ошибка при отправке запроса на оплату');
       setIsPaymentProcessing(false);
       setPaymentReceiptUploading(false);
-      try { localStorage.removeItem('payment_processing'); } catch (e) {}
+      try { localStorage.removeItem('payment_processing'); } catch (e) { }
     }
   };
 
@@ -7220,14 +7228,14 @@ function App() {
         setSelectedTariff(null);
         setPaymentSenderInfo('');
         setShowPaymentModal(false);
-      setPaymentModalAnimated(false); // Сбрасываем флаг анимации при закрытии
+        setPaymentModalAnimated(false); // Сбрасываем флаг анимации при закрытии
       }
     }, []);
 
     return (
-      <div 
+      <div
         ref={overlayRef}
-        className="payment-modal-overlay" 
+        className="payment-modal-overlay"
         onClick={handleOverlayClick}
         onMouseDown={(e) => {
           // Предотвращаем закрытие при клике на overlay во время ввода
@@ -7237,7 +7245,7 @@ function App() {
           }
         }}
       >
-        <div 
+        <div
           className="payment-modal-content"
           onClick={(e) => e.stopPropagation()}
           onMouseDown={(e) => e.stopPropagation()}
@@ -7257,7 +7265,7 @@ function App() {
             <p className="payment-modal-text">
               Переведите <strong>{(selectedTariff.price / 1000).toFixed(0)} 000 сум</strong> на карту:
             </p>
-            
+
             <div className="payment-card-number-container">
               <div className="payment-card-number" onClick={handleCopyCardNumber}>
                 9860 3501 4622 7235
@@ -7376,7 +7384,7 @@ function App() {
                   setSelectedTariff(null);
                   setPaymentSenderInfo('');
                   setShowPaymentModal(false);
-      setPaymentModalAnimated(false); // Сбрасываем флаг анимации при закрытии
+                  setPaymentModalAnimated(false); // Сбрасываем флаг анимации при закрытии
                 }}
               >
                 Отмена
@@ -7442,12 +7450,12 @@ function App() {
     // Используем данные напрямую из userProfile (ai_queries_count и ai_limit_total)
     const aiQueriesCount = userProfile.ai_queries_count || 0;
     const aiLimitTotal = userProfile.ai_limit_total || 0;
-    
+
     // Вычисляем оставшиеся запросы из userProfile
     const limits = getAILimits();
     const isUnlimited = limits.unlimited;
     const remaining = aiLimitTotal > 0 ? Math.max(0, aiLimitTotal - aiQueriesCount) : 0;
-    
+
     // Определяем, что показывать: корона, часы или замок
     const showCrown = isActive;
     const showClock = !isActive && isPaymentProcessing;
@@ -7567,7 +7575,7 @@ function App() {
               <div className="subscription-modal-body">
                 {showTariffSelection ? (
                   <>
-                    <button 
+                    <button
                       className="tariff-back-button"
                       onClick={(e) => {
                         e.stopPropagation();
@@ -7629,10 +7637,10 @@ function App() {
                           <span className="subscription-detail-value">
                             {subscriptionInfo?.subscriptionExpiresAt
                               ? new Date(subscriptionInfo.subscriptionExpiresAt).toLocaleDateString('ru-RU', {
-                                  day: '2-digit',
-                                  month: 'long',
-                                  year: 'numeric'
-                                })
+                                day: '2-digit',
+                                month: 'long',
+                                year: 'numeric'
+                              })
                               : '—'}
                           </span>
                         </div>
@@ -7644,7 +7652,7 @@ function App() {
                             </span>
                           </div>
                         )}
-                        <AIUsageDisplay 
+                        <AIUsageDisplay
                           getAILimits={getAILimits}
                           isTrialSubscription={isTrialSubscription}
                         />
@@ -7679,12 +7687,12 @@ function App() {
         <PaymentModal />
       </>
     );
-    
+
     // Рендерим бейдж напрямую в body через Portal, чтобы он был закреплен относительно viewport
     if (typeof document !== 'undefined' && document.body) {
       return createPortal(fullElement, document.body);
     }
-    
+
     return fullElement;
   };
 
@@ -7694,7 +7702,7 @@ function App() {
     if (typeof document === 'undefined' || !document.body) {
       return null;
     }
-    
+
     // Всегда рендерим через Portal, чтобы окно было доступно на всех экранах
     try {
       return createPortal(
@@ -7713,7 +7721,7 @@ function App() {
                   }}>
                     ✕
                   </button>
-        </div>
+                </div>
                 <div className="welcome-modal-body">
                   <div className="welcome-icon">🎊</div>
                   <h3 className="welcome-subtitle">Регистрация успешна!</h3>
@@ -7723,7 +7731,7 @@ function App() {
                   <p className="welcome-description">
                     Начните изучать правила дорожного движения прямо сейчас!
                   </p>
-                  <button 
+                  <button
                     className="welcome-button"
                     onClick={() => {
                       console.log('Закрываем окно поздравления через кнопку "Начать обучение"');
@@ -7732,7 +7740,7 @@ function App() {
                   >
                     Начать обучение
                   </button>
-      </div>
+                </div>
               </div>
             </div>
           )}
@@ -7750,10 +7758,10 @@ function App() {
   const Confetti = () => {
     useEffect(() => {
       if (!showConfetti) return;
-      
+
       // Проверяем, что document и window доступны
       if (typeof document === 'undefined' || typeof window === 'undefined') return;
-      
+
       const canvas = document.createElement('canvas');
       canvas.style.position = 'fixed';
       canvas.style.top = '0';
@@ -7762,23 +7770,23 @@ function App() {
       canvas.style.height = '100%';
       canvas.style.pointerEvents = 'none';
       canvas.style.zIndex = '10000';
-      
+
       if (!document.body) return;
-      
+
       document.body.appendChild(canvas);
-      
+
       const ctx = canvas.getContext('2d');
       if (!ctx) {
         document.body.removeChild(canvas);
         return;
       }
-      
+
       canvas.width = window.innerWidth;
       canvas.height = window.innerHeight;
-      
+
       const confetti = [];
       const colors = ['#FFD700', '#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A', '#98D8C8', '#F7DC6F', '#BB8FCE'];
-      
+
       // Создаем конфетти с двух сторон
       for (let i = 0; i < 100; i++) {
         confetti.push({
@@ -7792,14 +7800,14 @@ function App() {
           tiltAngle: 0
         });
       }
-      
+
       let animationId;
       const animate = () => {
         if (!ctx || !canvas) return;
-        
+
         try {
           ctx.clearRect(0, 0, canvas.width, canvas.height);
-          
+
           confetti.forEach((c, i) => {
             ctx.beginPath();
             ctx.lineWidth = c.r / 2;
@@ -7807,12 +7815,12 @@ function App() {
             ctx.moveTo(c.x + c.tilt + c.r, c.y);
             ctx.lineTo(c.x + c.tilt, c.y + c.tilt + c.r);
             ctx.stroke();
-            
+
             c.tiltAngle += c.tiltAngleIncrement;
             c.y += (Math.cos(c.d) + 1 + c.r / 2) / 2;
             c.x += Math.sin(c.d);
             c.tilt = Math.sin(c.tiltAngle) * 15;
-            
+
             if (c.y > canvas.height) {
               confetti[i] = {
                 x: Math.random() < 0.5 ? Math.random() * 200 : window.innerWidth - Math.random() * 200,
@@ -7826,7 +7834,7 @@ function App() {
               };
             }
           });
-          
+
           animationId = requestAnimationFrame(animate);
         } catch (error) {
           console.error('Ошибка в анимации конфетти:', error);
@@ -7835,9 +7843,9 @@ function App() {
           }
         }
       };
-      
+
       animate();
-      
+
       return () => {
         if (animationId) {
           cancelAnimationFrame(animationId);
@@ -7851,7 +7859,7 @@ function App() {
         }
       };
     }, [showConfetti]);
-    
+
     return null;
   };
 
@@ -7867,7 +7875,7 @@ function App() {
         <div className="admin-container">
           <div className="admin-content">
             <div className="admin-header">
-              <button 
+              <button
                 className="back-button"
                 onClick={() => {
                   setAdminScreen('list');
@@ -7928,14 +7936,14 @@ function App() {
                             autoFocus
                           />
                           <div className="topic-edit-actions">
-                            <button 
+                            <button
                               className="topic-action-button topic-save-button"
                               onClick={handleSaveEditTopic}
                               title="Сохранить"
                             >
                               ✓
                             </button>
-                            <button 
+                            <button
                               className="topic-action-button topic-cancel-button"
                               onClick={handleCancelEditTopic}
                               title="Отмена"
@@ -7958,39 +7966,39 @@ function App() {
                           <div className="topic-management-info">
                             <div className="topic-drag-handle">
                               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                <circle cx="9" cy="5" r="1" fill="currentColor"/>
-                                <circle cx="9" cy="12" r="1" fill="currentColor"/>
-                                <circle cx="9" cy="19" r="1" fill="currentColor"/>
-                                <circle cx="15" cy="5" r="1" fill="currentColor"/>
-                                <circle cx="15" cy="12" r="1" fill="currentColor"/>
-                                <circle cx="15" cy="19" r="1" fill="currentColor"/>
+                                <circle cx="9" cy="5" r="1" fill="currentColor" />
+                                <circle cx="9" cy="12" r="1" fill="currentColor" />
+                                <circle cx="9" cy="19" r="1" fill="currentColor" />
+                                <circle cx="15" cy="5" r="1" fill="currentColor" />
+                                <circle cx="15" cy="12" r="1" fill="currentColor" />
+                                <circle cx="15" cy="19" r="1" fill="currentColor" />
                               </svg>
                             </div>
                             <span className="topic-management-number">{index + 1}.</span>
                             <span className="topic-management-name">{topic.name}</span>
                           </div>
                           <div className="topic-management-actions">
-                            <button 
+                            <button
                               className="topic-action-button topic-edit-button"
                               onClick={() => handleStartEditTopic(topic)}
                               title="Редактировать"
                               onMouseDown={(e) => e.stopPropagation()}
                             >
                               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
                               </svg>
                             </button>
-                            <button 
+                            <button
                               className="topic-action-button topic-delete-button"
                               onClick={() => handleDeleteTopic(topic)}
                               title="Удалить"
                               onMouseDown={(e) => e.stopPropagation()}
                             >
                               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                                <line x1="10" y1="11" x2="10" y2="17" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-                                <line x1="14" y1="11" x2="14" y2="17" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                                <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                                <line x1="10" y1="11" x2="10" y2="17" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                                <line x1="14" y1="11" x2="14" y2="17" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
                               </svg>
                             </button>
                           </div>
@@ -8005,7 +8013,7 @@ function App() {
         </div>
       );
     }
-    
+
     // Admin topic questions screen
     if (adminScreen === 'topicQuestions' && adminSelectedTopic) {
       const staticQuestions = questionsData[adminSelectedTopic.id] || [];
@@ -8053,15 +8061,15 @@ function App() {
         <div className="admin-container">
           <div className="admin-content">
             <div className="admin-header">
-              <button 
+              <button
                 className="back-button"
                 onClick={() => {
                   // Если редактировали вопрос из темы, возвращаемся к списку вопросов темы
-        if (adminSelectedTopic && editingQuestion) {
-          setAdminScreen('topicQuestions');
-        } else {
-          setAdminScreen('list');
-        }
+                  if (adminSelectedTopic && editingQuestion) {
+                    setAdminScreen('topicQuestions');
+                  } else {
+                    setAdminScreen('list');
+                  }
                   setAdminSelectedTopic(null);
                 }}
               >
@@ -8084,12 +8092,12 @@ function App() {
                 </p>
               ) : (
                 allQuestions.map((question, index) => (
-                  <div 
-                    key={question.id} 
+                  <div
+                    key={question.id}
                     id={`question-${question.id}`}
-                    className="admin-topic-item" 
-                    style={{ 
-                      backgroundColor: question.isStatic ? '#f5f5f5' : '#fff3cd', 
+                    className="admin-topic-item"
+                    style={{
+                      backgroundColor: question.isStatic ? '#f5f5f5' : '#fff3cd',
                       borderColor: question.isStatic ? '#e0e0e0' : '#ffc107',
                       marginBottom: '10px'
                     }}
@@ -8111,21 +8119,21 @@ function App() {
                           </div>
                         </div>
                       </div>
-                      
+
                       <div style={{ display: 'flex', gap: '10px', width: '100%', marginTop: '10px' }}>
                         {!question.isStatic && (
                           <>
                             <button
                               onClick={() => {
                                 const savedQ = question.savedData;
-                                
+
                                 // Сохраняем позицию прокрутки перед открытием формы редактирования
                                 setSavedScrollPosition(window.scrollY || document.documentElement.scrollTop);
                                 // Сохраняем ID редактируемого вопроса
                                 setEditingQuestionId(question.id);
-                                
+
                                 setEditingQuestion(savedQ);
-                                
+
                                 // Преобразуем старый формат в новый (массив answers)
                                 const answers = [];
                                 const answerKeys = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
@@ -8139,7 +8147,7 @@ function App() {
                                     });
                                   }
                                 });
-                                
+
                                 // Если нет ответов в старом формате, создаем пустые
                                 if (answers.length === 0) {
                                   answers.push(
@@ -8149,15 +8157,15 @@ function App() {
                                     { id: 'd', text: '', correct: false }
                                   );
                                 }
-                                
+
                                 const existingImageUrl = savedQ.image_url || '';
                                 // Определяем режим ввода: если это URL (http/https) или base64, используем режим URL
                                 const isUrlMode = existingImageUrl && (
-                                  existingImageUrl.startsWith('http://') || 
+                                  existingImageUrl.startsWith('http://') ||
                                   existingImageUrl.startsWith('https://') ||
                                   existingImageUrl.startsWith('data:image/')
                                 );
-                                
+
                                 setQuestionForm({
                                   text: savedQ.question || '',
                                   answers: answers,
@@ -8201,7 +8209,7 @@ function App() {
 
                                     // Перезагружаем вопросы из Supabase
                                     await loadQuestionsFromSupabase();
-                                    
+
                                     // Обновляем количество вопросов в теме
                                     if (adminSelectedTopic) {
                                       await updateTopicQuestionCount(adminSelectedTopic.id);
@@ -8276,14 +8284,14 @@ function App() {
       // Убеждаемся, что questionForm.answers существует и является массивом
       const safeQuestionForm = {
         ...questionForm,
-        answers: Array.isArray(questionForm.answers) && questionForm.answers.length > 0 
-          ? questionForm.answers 
+        answers: Array.isArray(questionForm.answers) && questionForm.answers.length > 0
+          ? questionForm.answers
           : [
-              { id: 'a', text: '', correct: false },
-              { id: 'b', text: '', correct: false },
-              { id: 'c', text: '', correct: false },
-              { id: 'd', text: '', correct: false }
-            ],
+            { id: 'a', text: '', correct: false },
+            { id: 'b', text: '', correct: false },
+            { id: 'c', text: '', correct: false },
+            { id: 'd', text: '', correct: false }
+          ],
         correct: questionForm.correct || 'a',
         text: questionForm.text || '',
         imageUrl: questionForm.imageUrl || '',
@@ -8351,34 +8359,34 @@ function App() {
                     <div key={answer.id} className="answer-item-form">
                       <div className="answer-letter">{String.fromCharCode(65 + index)}.</div>
                       <div className="answer-content">
-                          <input
-                            type="text"
-                            value={answer.text}
-                            onChange={(e) => handleAnswerChange(index, 'text', e.target.value)}
+                        <input
+                          type="text"
+                          value={answer.text}
+                          onChange={(e) => handleAnswerChange(index, 'text', e.target.value)}
                           className="answer-input"
-                            placeholder={`Вариант ответа ${String.fromCharCode(65 + index)}`}
-                            required
+                          placeholder={`Вариант ответа ${String.fromCharCode(65 + index)}`}
+                          required
+                        />
+                        <label className="correct-answer-checkbox">
+                          <input
+                            type="radio"
+                            name="correctAnswer"
+                            checked={safeQuestionForm.correct === answer.id}
+                            onChange={() => handleFormChange('correct', answer.id)}
                           />
-                          <label className="correct-answer-checkbox">
-                            <input
-                              type="radio"
-                              name="correctAnswer"
-                              checked={safeQuestionForm.correct === answer.id}
-                              onChange={() => handleFormChange('correct', answer.id)}
-                            />
-                            <span>Правильный</span>
-                          </label>
+                          <span>Правильный</span>
+                        </label>
                       </div>
-                          {safeQuestionForm.answers.length > 2 && (
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveAnswer(index)}
-                              className="remove-answer-button"
-                              title="Удалить вариант ответа"
-                            >
-                              ✕
-                            </button>
-                          )}
+                      {safeQuestionForm.answers.length > 2 && (
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveAnswer(index)}
+                          className="remove-answer-button"
+                          title="Удалить вариант ответа"
+                        >
+                          ✕
+                        </button>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -8404,9 +8412,9 @@ function App() {
                         if (questionForm.imageUrl && questionForm.imageUrl.startsWith('blob:')) {
                           URL.revokeObjectURL(questionForm.imageUrl);
                         }
-                        setQuestionForm(prev => ({ 
-                          ...prev, 
-                          imageInputMode: 'file', 
+                        setQuestionForm(prev => ({
+                          ...prev,
+                          imageInputMode: 'file',
                           imageUrlInput: '',
                           // Сохраняем существующее изображение, если оно не blob
                           imageUrl: prev.imageUrl && !prev.imageUrl.startsWith('blob:') ? prev.imageUrl : ''
@@ -8425,10 +8433,10 @@ function App() {
                         }
                         setQuestionForm(prev => {
                           // Если есть сохраненное изображение и это URL/base64, используем его
-                          const existingUrl = prev.imageUrl && !prev.imageUrl.startsWith('blob:') 
-                            ? (prev.imageUrl.startsWith('http://') || prev.imageUrl.startsWith('https://') || prev.imageUrl.startsWith('data:image/') 
-                                ? prev.imageUrl 
-                                : '')
+                          const existingUrl = prev.imageUrl && !prev.imageUrl.startsWith('blob:')
+                            ? (prev.imageUrl.startsWith('http://') || prev.imageUrl.startsWith('https://') || prev.imageUrl.startsWith('data:image/')
+                              ? prev.imageUrl
+                              : '')
                             : '';
                           return {
                             ...prev,
@@ -8447,9 +8455,9 @@ function App() {
                   {/* Предпросмотр изображения, если оно есть */}
                   {safeQuestionForm.imageUrl && !safeQuestionForm.imageUrl.startsWith('blob:') && (
                     <div className="image-preview-container">
-                      <img 
-                        src={resolveImage(safeQuestionForm.imageUrl)} 
-                        alt="Текущее изображение" 
+                      <img
+                        src={resolveImage(safeQuestionForm.imageUrl)}
+                        alt="Текущее изображение"
                         className="image-preview"
                         onError={(e) => {
                           console.warn('⚠️ [IMAGE] Ошибка загрузки изображения для предпросмотра:', safeQuestionForm.imageUrl);
@@ -8464,9 +8472,9 @@ function App() {
                     <div className="image-upload-container">
                       {safeQuestionForm.imageUrl && safeQuestionForm.imageUrl.startsWith('blob:') && (
                         <div className="image-preview-container">
-                          <img 
-                            src={safeQuestionForm.imageUrl} 
-                            alt="Предпросмотр" 
+                          <img
+                            src={safeQuestionForm.imageUrl}
+                            alt="Предпросмотр"
                             className="image-preview"
                             onError={(e) => {
                               e.target.style.display = 'none';
@@ -8510,9 +8518,9 @@ function App() {
                       />
                       {safeQuestionForm.imageUrlInput && (
                         <div className="image-preview-container" style={{ marginTop: '10px' }}>
-                          <img 
-                            src={resolveImage(safeQuestionForm.imageUrlInput)} 
-                            alt="Предпросмотр" 
+                          <img
+                            src={resolveImage(safeQuestionForm.imageUrlInput)}
+                            alt="Предпросмотр"
                             className="image-preview"
                             onError={(e) => {
                               console.warn('⚠️ [IMAGE] Ошибка загрузки изображения по URL:', safeQuestionForm.imageUrlInput);
@@ -8538,18 +8546,18 @@ function App() {
 
               <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
                 <button type="submit" className="admin-submit-button" style={{ flex: 1 }}>
-                {adminScreen === 'add' ? 'Добавить вопрос' : 'Сохранить изменения'}
-              </button>
+                  {adminScreen === 'add' ? 'Добавить вопрос' : 'Сохранить изменения'}
+                </button>
                 {adminScreen === 'add' && (
-                  <button 
-                    type="button" 
-                    className="admin-submit-button" 
+                  <button
+                    type="button"
+                    className="admin-submit-button"
                     onClick={() => {
                       resetQuestionForm();
                       setAdminScreen('list');
                     }}
-                    style={{ 
-                      flex: 1, 
+                    style={{
+                      flex: 1,
                       backgroundColor: '#9E9E9E',
                       minWidth: '120px'
                     }}
@@ -8620,12 +8628,12 @@ function App() {
       // Функция для выдачи подписки из модального окна
       const handleGrantFromModal = async () => {
         if (!selectedUser) return;
-        
+
         // Показываем диалог выбора тарифа
         const tariffOptions = tariffs.map(t => `${t.id}: ${t.name} (${t.days} дней)`).join('\n');
         const tariffChoice = prompt(`Выберите тариф (введите id):\n${tariffOptions}\n\nИли введите количество дней для стандартной подписки:`, '30');
         if (!tariffChoice) return;
-        
+
         // Проверяем, это ID тарифа или количество дней
         const selectedTariff = tariffs.find(t => t.id === tariffChoice);
         if (selectedTariff) {
@@ -8638,18 +8646,18 @@ function App() {
           }
           setGrantForm({ telegramId: selectedUser.userId, days: String(days), tariffId: 'pro' });
         }
-        
+
         // Имитируем отправку формы
-        const fakeEvent = { preventDefault: () => {} };
+        const fakeEvent = { preventDefault: () => { } };
         await handleGrantSubscription(fakeEvent);
         setShowUserModal(false);
       };
-      
+
       return (
         <div className="admin-container">
           <div className="admin-content">
             <div className="admin-header">
-              <button 
+              <button
                 className="back-button"
                 onClick={() => setAdminScreen('list')}
               >
@@ -8683,8 +8691,8 @@ function App() {
                     value={grantForm.tariffId}
                     onChange={(ev) => {
                       const selectedTariff = tariffs.find(t => t.id === ev.target.value);
-                      setGrantForm({ 
-                        ...grantForm, 
+                      setGrantForm({
+                        ...grantForm,
                         tariffId: ev.target.value,
                         days: selectedTariff ? String(selectedTariff.days) : grantForm.days
                       });
@@ -8801,8 +8809,8 @@ function App() {
                 </div>
               ) : (
                 filteredUsers.map((user) => {
-                  const hasActiveSubscription = user.subscription?.active && 
-                    user.subscription.endDate && 
+                  const hasActiveSubscription = user.subscription?.active &&
+                    user.subscription.endDate &&
                     new Date(user.subscription.endDate) > new Date();
                   const avatarColor = getAvatarColor(user.userId);
                   const initials = getInitials(user.name);
@@ -8815,7 +8823,7 @@ function App() {
                     >
                       <div className="user-avatar" style={{ backgroundColor: avatarColor }}>
                         {initials}
-                        </div>
+                      </div>
                       <div className="user-info">
                         <div className="user-name">{user.name || 'Без имени'}</div>
                         <div className="user-id">ID: {user.userId}</div>
@@ -8831,16 +8839,16 @@ function App() {
                                 })}
                               </span>
                               {user.subscription.tier && (
-                                <span style={{ 
-                                  display: 'block', 
-                                  marginTop: '4px', 
-                                  color: '#2196F3', 
+                                <span style={{
+                                  display: 'block',
+                                  marginTop: '4px',
+                                  color: '#2196F3',
                                   fontSize: '12px',
                                   fontWeight: '500'
                                 }}>
-                                  Тариф: {user.subscription.tier === 'pro' ? 'PRO Максимум' : 
-                                         user.subscription.tier === 'test' ? 'Тест' : 
-                                         user.subscription.tier === 'standard' ? 'Базовый' : user.subscription.tier}
+                                  Тариф: {user.subscription.tier === 'pro' ? 'PRO Максимум' :
+                                    user.subscription.tier === 'test' ? 'Тест' :
+                                      user.subscription.tier === 'standard' ? 'Базовый' : user.subscription.tier}
                                 </span>
                               )}
                             </>
@@ -8853,11 +8861,11 @@ function App() {
                       </div>
                       <div className="user-status">
                         {hasActiveSubscription ? (
-                            <>
+                          <>
                             <span className="subscription-badge active">
-                              {user.subscription.tier === 'pro' ? 'PRO' : 
-                               user.subscription.tier === 'test' ? 'Тест' : 
-                               user.subscription.tier === 'standard' ? 'Базовый' : 'PRO'}
+                              {user.subscription.tier === 'pro' ? 'PRO' :
+                                user.subscription.tier === 'test' ? 'Тест' :
+                                  user.subscription.tier === 'standard' ? 'Базовый' : 'PRO'}
                             </span>
                             <button
                               className="user-revoke-button"
@@ -8880,17 +8888,17 @@ function App() {
                             >
                               🗑️ Забрать
                             </button>
-                            </>
-                          ) : (
+                          </>
+                        ) : (
                           <span className="subscription-badge inactive">—</span>
-                          )}
+                        )}
                       </div>
                     </div>
                   );
                 })
               )}
             </div>
-            
+
             {/* Кнопка "Загрузить еще" для курсорной пагинации */}
             {!usersLoading && hasMoreUsers && filteredUsers.length > 0 && (
               <div style={{ padding: '20px', textAlign: 'center' }}>
@@ -8926,21 +8934,21 @@ function App() {
                   <div className="user-modal-header">
                     <div className="user-modal-avatar-large" style={{ backgroundColor: getAvatarColor(selectedUser.userId) }}>
                       {getInitials(selectedUser.name)}
-              </div>
+                    </div>
                     <h2 className="user-modal-name">{selectedUser.name || 'Без имени'}</h2>
                     <button className="user-modal-close" onClick={() => setShowUserModal(false)}>✕</button>
-              </div>
+                  </div>
 
                   <div className="user-modal-body">
                     <div className="user-detail-grid">
                       <div className="user-detail-item">
                         <span className="user-detail-label">Telegram ID</span>
                         <span className="user-detail-value">{selectedUser.userId}</span>
-                        </div>
+                      </div>
                       <div className="user-detail-item">
                         <span className="user-detail-label">Телефон</span>
                         <span className="user-detail-value">{selectedUser.phone || 'Не указан'}</span>
-                        </div>
+                      </div>
                       <div className="user-detail-item">
                         <span className="user-detail-label">Дата регистрации</span>
                         <span className="user-detail-value">
@@ -8954,23 +8962,23 @@ function App() {
                       <div className="user-detail-item">
                         <span className="user-detail-label">Последний визит</span>
                         <span className="user-detail-value">
-                          {selectedUser.lastVisit 
+                          {selectedUser.lastVisit
                             ? new Date(selectedUser.lastVisit).toLocaleDateString('ru-RU', {
-                                day: '2-digit',
-                                month: '2-digit',
-                                year: 'numeric',
-                                hour: '2-digit',
-                                minute: '2-digit'
-                              })
+                              day: '2-digit',
+                              month: '2-digit',
+                              year: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            })
                             : 'Не заходил'}
                         </span>
-                    </div>
+                      </div>
                       <div className="user-detail-item">
                         <span className="user-detail-label">Статус подписки</span>
                         <span className="user-detail-value">
-                          {selectedUser.subscription?.active && 
-                           selectedUser.subscription.endDate && 
-                           new Date(selectedUser.subscription.endDate) > new Date() ? (
+                          {selectedUser.subscription?.active &&
+                            selectedUser.subscription.endDate &&
+                            new Date(selectedUser.subscription.endDate) > new Date() ? (
                             <div>
                               <span style={{ color: '#4CAF50', fontWeight: '600' }}>
                                 Активна до {new Date(selectedUser.subscription.endDate).toLocaleDateString('ru-RU', {
@@ -8981,18 +8989,18 @@ function App() {
                               </span>
                               {selectedUser.subscription.tier && (
                                 <div style={{ marginTop: '6px', color: '#2196F3', fontSize: '14px' }}>
-                                  Тариф: <strong>{selectedUser.subscription.tier === 'pro' ? 'PRO Максимум' : 
-                                         selectedUser.subscription.tier === 'test' ? 'Тест' : 
-                                         selectedUser.subscription.tier === 'standard' ? 'Базовый' : selectedUser.subscription.tier}</strong>
-                </div>
-              )}
-                  </div>
+                                  Тариф: <strong>{selectedUser.subscription.tier === 'pro' ? 'PRO Максимум' :
+                                    selectedUser.subscription.tier === 'test' ? 'Тест' :
+                                      selectedUser.subscription.tier === 'standard' ? 'Базовый' : selectedUser.subscription.tier}</strong>
+                                </div>
+                              )}
+                            </div>
                           ) : (
                             <span style={{ color: 'var(--text-secondary)' }}>Неактивна</span>
                           )}
                         </span>
-                  </div>
-                  </div>
+                      </div>
+                    </div>
                   </div>
 
                   <div className="user-modal-actions">
@@ -9001,30 +9009,30 @@ function App() {
                       onClick={() => handleCopyId(selectedUser.userId)}
                     >
                       📋 Копировать ID
-                  </button>
+                    </button>
                     <button
                       className="user-action-button primary"
                       onClick={handleGrantFromModal}
                     >
                       ✨ Выдать подписку
                     </button>
-                    {selectedUser.subscription?.active && 
-                     selectedUser.subscription.endDate && 
-                     new Date(selectedUser.subscription.endDate) > new Date() && (
-                      <button
-                        className="user-action-button danger"
-                        onClick={() => {
-                          if (confirm('Забрать подписку у этого пользователя?')) {
-                            handleRevokeSubscription(selectedUser.userId);
-                            setShowUserModal(false);
-                          }
-                        }}
-                      >
-                        🗑️ Забрать подписку
-                      </button>
-                    )}
-              </div>
-            </div>
+                    {selectedUser.subscription?.active &&
+                      selectedUser.subscription.endDate &&
+                      new Date(selectedUser.subscription.endDate) > new Date() && (
+                        <button
+                          className="user-action-button danger"
+                          onClick={() => {
+                            if (confirm('Забрать подписку у этого пользователя?')) {
+                              handleRevokeSubscription(selectedUser.userId);
+                              setShowUserModal(false);
+                            }
+                          }}
+                        >
+                          🗑️ Забрать подписку
+                        </button>
+                      )}
+                  </div>
+                </div>
               </div>
             )}
 
@@ -9043,7 +9051,7 @@ function App() {
         <div className="admin-container">
           <div className="admin-content">
             <div className="admin-header">
-              <button 
+              <button
                 className="back-button"
                 onClick={() => setAdminScreen('list')}
               >
@@ -9073,22 +9081,22 @@ function App() {
               )}
             </div>
 
-            <div style={{ 
-              marginBottom: '32px', 
-              padding: '24px', 
-              backgroundColor: 'var(--card-bg, #ffffff)', 
-              borderRadius: '16px', 
+            <div style={{
+              marginBottom: '32px',
+              padding: '24px',
+              backgroundColor: 'var(--card-bg, #ffffff)',
+              borderRadius: '16px',
               border: '2px solid var(--border-color, #e0e0e0)',
               boxShadow: '0 4px 12px rgba(0, 0, 0, 0.08)'
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
-                <div style={{ 
-                  width: '48px', 
-                  height: '48px', 
-                  borderRadius: '12px', 
-                  backgroundColor: '#2196F3', 
-                  display: 'flex', 
-                  alignItems: 'center', 
+                <div style={{
+                  width: '48px',
+                  height: '48px',
+                  borderRadius: '12px',
+                  backgroundColor: '#2196F3',
+                  display: 'flex',
+                  alignItems: 'center',
                   justifyContent: 'center',
                   fontSize: '24px'
                 }}>
@@ -9133,9 +9141,9 @@ function App() {
                     }}
                   />
                 </div>
-                <button 
-                  type="submit" 
-                  className="admin-submit-button" 
+                <button
+                  type="submit"
+                  className="admin-submit-button"
                   disabled={adminFormLoading}
                   style={{
                     marginTop: '16px',
@@ -9155,9 +9163,9 @@ function App() {
                   {adminFormLoading ? '⏳ Добавление...' : '✨ Добавить администратора'}
                 </button>
                 {adminFormMessage && (
-                  <div style={{ 
-                    marginTop: '16px', 
-                    padding: '12px 16px', 
+                  <div style={{
+                    marginTop: '16px',
+                    padding: '12px 16px',
                     borderRadius: '10px',
                     backgroundColor: adminFormMessage.startsWith('Администратор успешно') ? '#E8F5E9' : '#FFEBEE',
                     border: `2px solid ${adminFormMessage.startsWith('Администратор успешно') ? '#4CAF50' : '#f44336'}`,
@@ -9186,23 +9194,23 @@ function App() {
                   const canDelete = !isMainAdminUser && !isCurrentUser;
 
                   return (
-                    <div 
-                      key={admin.telegramId} 
+                    <div
+                      key={admin.telegramId}
                       style={{
                         padding: '20px',
-                        backgroundColor: isMainAdminUser 
-                          ? 'linear-gradient(135deg, #FFD700 0%, #FFA500 100%)' 
+                        backgroundColor: isMainAdminUser
+                          ? 'linear-gradient(135deg, #FFD700 0%, #FFA500 100%)'
                           : isCurrentUser
-                          ? 'var(--card-bg, #ffffff)'
+                            ? 'var(--card-bg, #ffffff)'
+                            : 'var(--card-bg, #ffffff)',
+                        background: isMainAdminUser
+                          ? 'linear-gradient(135deg, rgba(255, 215, 0, 0.15) 0%, rgba(255, 165, 0, 0.15) 100%)'
                           : 'var(--card-bg, #ffffff)',
-                        background: isMainAdminUser 
-                          ? 'linear-gradient(135deg, rgba(255, 215, 0, 0.15) 0%, rgba(255, 165, 0, 0.15) 100%)' 
-                          : 'var(--card-bg, #ffffff)',
-                        border: isMainAdminUser 
-                          ? '2px solid #FFD700' 
+                        border: isMainAdminUser
+                          ? '2px solid #FFD700'
                           : isCurrentUser
-                          ? '2px solid #2196F3'
-                          : '2px solid var(--border-color, #e0e0e0)',
+                            ? '2px solid #2196F3'
+                            : '2px solid var(--border-color, #e0e0e0)',
                         borderRadius: '16px',
                         boxShadow: '0 4px 12px rgba(0, 0, 0, 0.08)',
                         transition: 'all 0.3s ease'
@@ -9213,11 +9221,11 @@ function App() {
                           width: '56px',
                           height: '56px',
                           borderRadius: '14px',
-                          backgroundColor: isMainAdminUser 
-                            ? '#FFD700' 
+                          backgroundColor: isMainAdminUser
+                            ? '#FFD700'
                             : isCurrentUser
-                            ? '#2196F3'
-                            : '#9E9E9E',
+                              ? '#2196F3'
+                              : '#9E9E9E',
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'center',
@@ -9228,23 +9236,23 @@ function App() {
                           {isMainAdminUser ? '👑' : isCurrentUser ? '👤' : '🛡️'}
                         </div>
                         <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ 
-                            display: 'flex', 
-                            alignItems: 'center', 
-                            gap: '12px', 
+                          <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '12px',
                             marginBottom: '12px',
                             flexWrap: 'wrap'
                           }}>
-                            <h3 style={{ 
-                              margin: 0, 
-                              fontSize: '18px', 
-                              fontWeight: '700', 
+                            <h3 style={{
+                              margin: 0,
+                              fontSize: '18px',
+                              fontWeight: '700',
                               color: 'var(--text-color, #1a1a1a)',
                               display: 'flex',
                               alignItems: 'center',
                               gap: '8px'
                             }}>
-                            ID: {String(admin.telegramId)}
+                              ID: {String(admin.telegramId)}
                               {isMainAdminUser && (
                                 <span style={{
                                   padding: '4px 10px',
@@ -9255,7 +9263,7 @@ function App() {
                                   fontWeight: '700'
                                 }}>
                                   👑 Главный админ
-                          </span>
+                                </span>
                               )}
                               {isCurrentUser && (
                                 <span style={{
@@ -9270,16 +9278,16 @@ function App() {
                                 </span>
                               )}
                             </h3>
-                        </div>
-                          <div style={{ 
-                            display: 'flex', 
-                            flexDirection: 'column', 
+                          </div>
+                          <div style={{
+                            display: 'flex',
+                            flexDirection: 'column',
                             gap: '8px',
                             marginBottom: '12px'
                           }}>
-                            <div style={{ 
-                              display: 'flex', 
-                              alignItems: 'center', 
+                            <div style={{
+                              display: 'flex',
+                              alignItems: 'center',
                               gap: '8px',
                               fontSize: '14px',
                               color: 'var(--text-secondary, #666)'
@@ -9287,18 +9295,18 @@ function App() {
                               <span style={{ fontWeight: '600', color: 'var(--text-color, #1a1a1a)' }}>📅 Добавлен:</span>
                               <span>{admin.createdAt
                                 ? new Date(admin.createdAt).toLocaleString('ru-RU', {
-                                    day: '2-digit',
-                                    month: '2-digit',
-                                    year: 'numeric',
-                                    hour: '2-digit',
-                                    minute: '2-digit'
-                                  })
+                                  day: '2-digit',
+                                  month: '2-digit',
+                                  year: 'numeric',
+                                  hour: '2-digit',
+                                  minute: '2-digit'
+                                })
                                 : '—'}</span>
                             </div>
-                          {admin.createdBy && (
-                              <div style={{ 
-                                display: 'flex', 
-                                alignItems: 'center', 
+                            {admin.createdBy && (
+                              <div style={{
+                                display: 'flex',
+                                alignItems: 'center',
                                 gap: '8px',
                                 fontSize: '14px',
                                 color: 'var(--text-secondary, #666)'
@@ -9315,12 +9323,12 @@ function App() {
                                   ID {String(admin.createdBy)}
                                 </span>
                               </div>
-                          )}
-                        </div>
-                        {canDelete && (
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveAdmin(admin.telegramId)}
+                            )}
+                          </div>
+                          {canDelete && (
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveAdmin(admin.telegramId)}
                               style={{
                                 padding: '10px 16px',
                                 fontSize: '14px',
@@ -9346,10 +9354,10 @@ function App() {
                                 e.target.style.transform = 'translateY(0)';
                                 e.target.style.boxShadow = 'none';
                               }}
-                          >
-                            🗑️ Удалить
-                          </button>
-                        )}
+                            >
+                              🗑️ Удалить
+                            </button>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -9512,7 +9520,7 @@ function App() {
       <div className="admin-container">
         <div className="admin-content">
           <div className="admin-header">
-            <button 
+            <button
               className="back-button"
               onClick={() => {
                 setScreen('topics');
@@ -9522,7 +9530,7 @@ function App() {
             </button>
             <h1 className="admin-title">Панель администратора</h1>
             <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-              <button 
+              <button
                 className="admin-add-topic-button"
                 onClick={handleOpenAddTopic}
                 type="button"
@@ -9583,10 +9591,10 @@ function App() {
               const savedCount = savedQuestions.filter(q => q.quiz_id === topic.id).length;
               const questionCount = staticCount + savedCount;
               const topicSavedQuestions = savedQuestions.filter(q => q.quiz_id === topic.id);
-              
+
               return (
                 <div key={topic.id}>
-                  <div 
+                  <div
                     className="admin-topic-item"
                     onClick={() => {
                       setAdminSelectedTopic(topic);
@@ -9616,100 +9624,100 @@ function App() {
     return (
       <>
         <WelcomeModal />
-      <div className="registration-screen-container">
-        <div className="registration-card">
-          <div className="registration-icon-wrapper">
-            <div className="registration-icon">👤</div>
-          </div>
-          
-          <h1 className="registration-title">Добро пожаловать!<br />avto_GO</h1>
-
-          <form onSubmit={handleRegistration} className="registration-form">
-            <div className="registration-form-group">
-              <label className="registration-label">
-                <span className="registration-label-icon">✏️</span>
-                Имя
-              </label>
-              <input
-                type="text"
-                className="registration-input"
-                value={registrationForm.name}
-                onChange={(e) => setRegistrationForm({ ...registrationForm, name: e.target.value })}
-                placeholder="Введите ваше имя"
-                required
-              />
+        <div className="registration-screen-container">
+          <div className="registration-card">
+            <div className="registration-icon-wrapper">
+              <div className="registration-icon">👤</div>
             </div>
-            
-            <div className="registration-form-group">
-              <label className="registration-label">
-                <span className="registration-label-icon">📱</span>
-                Телефон
-              </label>
-              <input
-                type="tel"
-                className="registration-input"
-                value={registrationForm.phone}
-                onChange={(e) => {
-                  let value = e.target.value;
-                  
-                  // Разрешаем только цифры и + в начале
-                  if (value.startsWith('+')) {
-                    // Если начинается с +, разрешаем цифры после него
-                    const digits = value.slice(1).replace(/\D/g, '');
-                    value = '+' + digits;
-                  } else {
-                    // Если не начинается с +, разрешаем только цифры
-                    value = value.replace(/\D/g, '');
-                  }
-                  
-                  // Форматируем номер с разделителями
-                  let formatted = value;
-                  if (value.startsWith('+')) {
-                    const digits = value.slice(1);
-                    if (digits.length > 0) {
-                      // Формат: +998 90 123 45 67
-                      if (digits.length <= 3) {
-                        formatted = '+' + digits;
-                      } else if (digits.length <= 5) {
-                        formatted = '+' + digits.slice(0, 3) + ' ' + digits.slice(3);
-                      } else if (digits.length <= 8) {
-                        formatted = '+' + digits.slice(0, 3) + ' ' + digits.slice(3, 5) + ' ' + digits.slice(5);
-                      } else if (digits.length <= 10) {
-                        formatted = '+' + digits.slice(0, 3) + ' ' + digits.slice(3, 5) + ' ' + digits.slice(5, 8) + ' ' + digits.slice(8);
+
+            <h1 className="registration-title">Добро пожаловать!<br />avto_GO</h1>
+
+            <form onSubmit={handleRegistration} className="registration-form">
+              <div className="registration-form-group">
+                <label className="registration-label">
+                  <span className="registration-label-icon">✏️</span>
+                  Имя
+                </label>
+                <input
+                  type="text"
+                  className="registration-input"
+                  value={registrationForm.name}
+                  onChange={(e) => setRegistrationForm({ ...registrationForm, name: e.target.value })}
+                  placeholder="Введите ваше имя"
+                  required
+                />
+              </div>
+
+              <div className="registration-form-group">
+                <label className="registration-label">
+                  <span className="registration-label-icon">📱</span>
+                  Телефон
+                </label>
+                <input
+                  type="tel"
+                  className="registration-input"
+                  value={registrationForm.phone}
+                  onChange={(e) => {
+                    let value = e.target.value;
+
+                    // Разрешаем только цифры и + в начале
+                    if (value.startsWith('+')) {
+                      // Если начинается с +, разрешаем цифры после него
+                      const digits = value.slice(1).replace(/\D/g, '');
+                      value = '+' + digits;
+                    } else {
+                      // Если не начинается с +, разрешаем только цифры
+                      value = value.replace(/\D/g, '');
+                    }
+
+                    // Форматируем номер с разделителями
+                    let formatted = value;
+                    if (value.startsWith('+')) {
+                      const digits = value.slice(1);
+                      if (digits.length > 0) {
+                        // Формат: +998 90 123 45 67
+                        if (digits.length <= 3) {
+                          formatted = '+' + digits;
+                        } else if (digits.length <= 5) {
+                          formatted = '+' + digits.slice(0, 3) + ' ' + digits.slice(3);
+                        } else if (digits.length <= 8) {
+                          formatted = '+' + digits.slice(0, 3) + ' ' + digits.slice(3, 5) + ' ' + digits.slice(5);
+                        } else if (digits.length <= 10) {
+                          formatted = '+' + digits.slice(0, 3) + ' ' + digits.slice(3, 5) + ' ' + digits.slice(5, 8) + ' ' + digits.slice(8);
+                        } else {
+                          formatted = '+' + digits.slice(0, 3) + ' ' + digits.slice(3, 5) + ' ' + digits.slice(5, 8) + ' ' + digits.slice(8, 10) + ' ' + digits.slice(10, 12);
+                        }
+                      }
+                    } else if (value.length > 0) {
+                      // Формат без +: 998 90 123 45 67
+                      if (value.length <= 3) {
+                        formatted = value;
+                      } else if (value.length <= 5) {
+                        formatted = value.slice(0, 3) + ' ' + value.slice(3);
+                      } else if (value.length <= 8) {
+                        formatted = value.slice(0, 3) + ' ' + value.slice(3, 5) + ' ' + value.slice(5);
+                      } else if (value.length <= 10) {
+                        formatted = value.slice(0, 3) + ' ' + value.slice(3, 5) + ' ' + value.slice(5, 8) + ' ' + value.slice(8);
                       } else {
-                        formatted = '+' + digits.slice(0, 3) + ' ' + digits.slice(3, 5) + ' ' + digits.slice(5, 8) + ' ' + digits.slice(8, 10) + ' ' + digits.slice(10, 12);
+                        formatted = value.slice(0, 3) + ' ' + value.slice(3, 5) + ' ' + value.slice(5, 8) + ' ' + value.slice(8, 10) + ' ' + value.slice(10, 12);
                       }
                     }
-                  } else if (value.length > 0) {
-                    // Формат без +: 998 90 123 45 67
-                    if (value.length <= 3) {
-                      formatted = value;
-                    } else if (value.length <= 5) {
-                      formatted = value.slice(0, 3) + ' ' + value.slice(3);
-                    } else if (value.length <= 8) {
-                      formatted = value.slice(0, 3) + ' ' + value.slice(3, 5) + ' ' + value.slice(5);
-                    } else if (value.length <= 10) {
-                      formatted = value.slice(0, 3) + ' ' + value.slice(3, 5) + ' ' + value.slice(5, 8) + ' ' + value.slice(8);
-                    } else {
-                      formatted = value.slice(0, 3) + ' ' + value.slice(3, 5) + ' ' + value.slice(5, 8) + ' ' + value.slice(8, 10) + ' ' + value.slice(10, 12);
-                    }
-                  }
-                  
-                  setRegistrationForm({ ...registrationForm, phone: formatted });
-                }}
-                inputMode="tel"
-                placeholder="+998 90 123 45 67"
-                required
-              />
-            </div>
-            
-            <button type="submit" className="registration-submit-button">
-              <span>Продолжить</span>
-              <span className="registration-button-arrow">→</span>
-            </button>
-          </form>
+
+                    setRegistrationForm({ ...registrationForm, phone: formatted });
+                  }}
+                  inputMode="tel"
+                  placeholder="+998 90 123 45 67"
+                  required
+                />
+              </div>
+
+              <button type="submit" className="registration-submit-button">
+                <span>Продолжить</span>
+                <span className="registration-button-arrow">→</span>
+              </button>
+            </form>
+          </div>
         </div>
-      </div>
       </>
     );
   }
@@ -9718,7 +9726,7 @@ function App() {
   if (screen === 'examSelect') {
     const allQuestions = getAllQuestions();
     const totalQuestionsAvailable = allQuestions.length;
-    
+
     return (
       <>
         <ThemeToggleButton />
@@ -9732,76 +9740,76 @@ function App() {
                 <span className="app-logo-go">GO</span>
               </div>
             </div>
-            
-        {/* Панель переключения между Тема и Экзамен */}
-        <div className="mode-switch-panel">
-          <button
-            className={`mode-switch-button ${activeMode === 'topic' ? 'active' : ''}`}
-            onClick={() => handleModeSwitch('topic')}
-          >
-            Тема
-          </button>
-          <button
-            className={`mode-switch-button ${activeMode === 'exam' ? 'active' : ''}`}
-            onClick={() => handleModeSwitch('exam')}
-          >
-            Экзамен
-          </button>
-        </div>
-        
-            <h1 className="exam-title">Экзамен</h1>
-        
-          <p className="exam-description">
-            Выберите количество вопросов для экзамена. Вопросы будут выбраны случайным образом из всех тем.
-          </p>
-          {totalQuestionsAvailable > 0 && (
-            <p className="exam-available-questions">
-              Доступно вопросов: {totalQuestionsAvailable}
-            </p>
-          )}
-          
-          <div className="exam-options-list">
-            <button
-              className="exam-option-button"
-              onClick={() => handleExamQuestionCountSelect(20)}
-              disabled={totalQuestionsAvailable < 20}
-            >
-              <span className="exam-option-count">20 вопросов</span>
-              {totalQuestionsAvailable < 20 && (
-                <span className="exam-option-disabled">(недостаточно вопросов)</span>
-              )}
-            </button>
-            
-            <button
-              className="exam-option-button"
-              onClick={() => handleExamQuestionCountSelect(50)}
-              disabled={totalQuestionsAvailable < 50}
-            >
-              <span className="exam-option-count">50 вопросов</span>
-              {totalQuestionsAvailable < 50 && (
-                <span className="exam-option-disabled">(недостаточно вопросов)</span>
-              )}
-            </button>
-            
-            <button
-              className="exam-option-button"
-              onClick={() => handleExamQuestionCountSelect(100)}
-              disabled={totalQuestionsAvailable < 100}
-            >
-              <span className="exam-option-count">100 вопросов</span>
-              {totalQuestionsAvailable < 100 && (
-                <span className="exam-option-disabled">(недостаточно вопросов)</span>
-              )}
-            </button>
-          </div>
-          
-          {totalQuestionsAvailable === 0 && (
-            <div className="exam-no-questions">
-              <p>Нет доступных вопросов для экзамена.</p>
-              <p>Пожалуйста, добавьте вопросы в разделе "Тема".</p>
+
+            {/* Панель переключения между Тема и Экзамен */}
+            <div className="mode-switch-panel">
+              <button
+                className={`mode-switch-button ${activeMode === 'topic' ? 'active' : ''}`}
+                onClick={() => handleModeSwitch('topic')}
+              >
+                Тема
+              </button>
+              <button
+                className={`mode-switch-button ${activeMode === 'exam' ? 'active' : ''}`}
+                onClick={() => handleModeSwitch('exam')}
+              >
+                Экзамен
+              </button>
             </div>
-          )}
-        </div>
+
+            <h1 className="exam-title">Экзамен</h1>
+
+            <p className="exam-description">
+              Выберите количество вопросов для экзамена. Вопросы будут выбраны случайным образом из всех тем.
+            </p>
+            {totalQuestionsAvailable > 0 && (
+              <p className="exam-available-questions">
+                Доступно вопросов: {totalQuestionsAvailable}
+              </p>
+            )}
+
+            <div className="exam-options-list">
+              <button
+                className="exam-option-button"
+                onClick={() => handleExamQuestionCountSelect(20)}
+                disabled={totalQuestionsAvailable < 20}
+              >
+                <span className="exam-option-count">20 вопросов</span>
+                {totalQuestionsAvailable < 20 && (
+                  <span className="exam-option-disabled">(недостаточно вопросов)</span>
+                )}
+              </button>
+
+              <button
+                className="exam-option-button"
+                onClick={() => handleExamQuestionCountSelect(50)}
+                disabled={totalQuestionsAvailable < 50}
+              >
+                <span className="exam-option-count">50 вопросов</span>
+                {totalQuestionsAvailable < 50 && (
+                  <span className="exam-option-disabled">(недостаточно вопросов)</span>
+                )}
+              </button>
+
+              <button
+                className="exam-option-button"
+                onClick={() => handleExamQuestionCountSelect(100)}
+                disabled={totalQuestionsAvailable < 100}
+              >
+                <span className="exam-option-count">100 вопросов</span>
+                {totalQuestionsAvailable < 100 && (
+                  <span className="exam-option-disabled">(недостаточно вопросов)</span>
+                )}
+              </button>
+            </div>
+
+            {totalQuestionsAvailable === 0 && (
+              <div className="exam-no-questions">
+                <p>Нет доступных вопросов для экзамена.</p>
+                <p>Пожалуйста, добавьте вопросы в разделе "Тема".</p>
+              </div>
+            )}
+          </div>
         </div>
       </>
     );
@@ -9822,95 +9830,95 @@ function App() {
               <span className="app-logo-go">GO</span>
             </div>
           </div>
-          
-        {/* Панель переключения между Тема и Экзамен */}
-        <div className="mode-switch-panel">
-          <button
-            className={`mode-switch-button ${activeMode === 'topic' ? 'active' : ''}`}
-            onClick={() => handleModeSwitch('topic')}
-          >
-            Тема
-          </button>
-          <button
-            className={`mode-switch-button ${activeMode === 'exam' ? 'active' : ''}`}
-            onClick={() => handleModeSwitch('exam')}
-          >
-            Экзамен
-          </button>
-        </div>
-        
-        <div className="topics-header">
-          <div className="topics-header-top">
-          <h1 className="topics-title">Темы</h1>
+
+          {/* Панель переключения между Тема и Экзамен */}
+          <div className="mode-switch-panel">
             <button
-              onClick={() => {
-                setScreen('statistics');
-              }}
-              className="analytics-button"
-              title="Статистика"
+              className={`mode-switch-button ${activeMode === 'topic' ? 'active' : ''}`}
+              onClick={() => handleModeSwitch('topic')}
             >
-              📊 Статистика
+              Тема
+            </button>
+            <button
+              className={`mode-switch-button ${activeMode === 'exam' ? 'active' : ''}`}
+              onClick={() => handleModeSwitch('exam')}
+            >
+              Экзамен
             </button>
           </div>
-          {(userRole === 'admin' || isAdmin) && (
-            <button
-              onClick={() => {
-                setScreen('admin');
-                // Если редактировали вопрос из темы, возвращаемся к списку вопросов темы
-        if (adminSelectedTopic && editingQuestion) {
-          setAdminScreen('topicQuestions');
-        } else {
-          setAdminScreen('list');
-        }
-              }}
-              className="admin-access-button"
-              style={{
-                marginTop: '10px',
-                padding: '8px 16px',
-                fontSize: '14px',
-                background: '#18ec23',
-                color: '#fff',
-                border: 'none',
-                borderRadius: '8px',
-                cursor: 'pointer',
-                fontWeight: '600'
-              }}
-            >
-              🔧 Админ-панель
-            </button>
-          )}
-        </div>
-        <div className="topics-list">
-          {topics.map((topic, index) => {
-            // Используем questionCount из темы (загружено из Supabase)
-            let questionCount = topic.questionCount || 0;
-            
-            // Если questionCount не установлен, вычисляем из savedQuestions
-            if (!questionCount || questionCount === 0) {
-            const staticCount = questionsData[topic.id]?.length || 0;
-              // Нормализуем ID темы для сравнения
-              const normalizedTopicId = String(topic.id).trim();
-              const savedCount = savedQuestions.filter(q => {
-                // Используем quiz_id как основной идентификатор (синхронизация с БД)
-                const qQuizId = String(q.quiz_id || q.topic_id || '').trim();
-                return qQuizId === normalizedTopicId;
-              }).length;
-              questionCount = staticCount + savedCount;
-            }
-            
-            return (
+
+          <div className="topics-header">
+            <div className="topics-header-top">
+              <h1 className="topics-title">Темы</h1>
               <button
-                key={topic.id}
-                className="topic-item"
-                onClick={() => handleTopicClick(topic)}
+                onClick={() => {
+                  setScreen('statistics');
+                }}
+                className="analytics-button"
+                title="Статистика"
               >
-                <span className="topic-number">{index + 1}.</span>
-                <span className="topic-name">{topic.name}</span>
-                <span className="topic-count">{questionCount}</span>
+                📊 Статистика
               </button>
-            )
-          })}
-        </div>
+            </div>
+            {(userRole === 'admin' || isAdmin) && (
+              <button
+                onClick={() => {
+                  setScreen('admin');
+                  // Если редактировали вопрос из темы, возвращаемся к списку вопросов темы
+                  if (adminSelectedTopic && editingQuestion) {
+                    setAdminScreen('topicQuestions');
+                  } else {
+                    setAdminScreen('list');
+                  }
+                }}
+                className="admin-access-button"
+                style={{
+                  marginTop: '10px',
+                  padding: '8px 16px',
+                  fontSize: '14px',
+                  background: '#18ec23',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  fontWeight: '600'
+                }}
+              >
+                🔧 Админ-панель
+              </button>
+            )}
+          </div>
+          <div className="topics-list">
+            {topics.map((topic, index) => {
+              // Используем questionCount из темы (загружено из Supabase)
+              let questionCount = topic.questionCount || 0;
+
+              // Если questionCount не установлен, вычисляем из savedQuestions
+              if (!questionCount || questionCount === 0) {
+                const staticCount = questionsData[topic.id]?.length || 0;
+                // Нормализуем ID темы для сравнения
+                const normalizedTopicId = String(topic.id).trim();
+                const savedCount = savedQuestions.filter(q => {
+                  // Используем quiz_id как основной идентификатор (синхронизация с БД)
+                  const qQuizId = String(q.quiz_id || q.topic_id || '').trim();
+                  return qQuizId === normalizedTopicId;
+                }).length;
+                questionCount = staticCount + savedCount;
+              }
+
+              return (
+                <button
+                  key={topic.id}
+                  className="topic-item"
+                  onClick={() => handleTopicClick(topic)}
+                >
+                  <span className="topic-number">{index + 1}.</span>
+                  <span className="topic-name">{topic.name}</span>
+                  <span className="topic-count">{questionCount}</span>
+                </button>
+              )
+            })}
+          </div>
         </div>
       </>
     )
@@ -9920,7 +9928,7 @@ function App() {
     // Проверяем подписку для не-админов - блокируем доступ к деталям темы без подписки
     const isUserAdmin = isAdmin || userRole === 'admin';
     const hasSubscription = hasActiveSubscription();
-    
+
     if (!isUserAdmin && !hasSubscription) {
       // Если пользователь попал на экран topicDetail без подписки, перенаправляем обратно
       alert('Для решения тестов необходима активная подписка. Пожалуйста, оформите подписку.');
@@ -9928,11 +9936,11 @@ function App() {
       setScreen('topics');
       return null;
     }
-    
+
     // ВАЖНО: Нормализуем ID темы для поиска результатов
     // topic_id в БД может быть строкой, а selectedTopic.id - UUID или числом
     const normalizedTopicId = String(selectedTopic.id || '').trim();
-    
+
     // Детальное логирование для отладки
     console.log('[RESULTS] 🔍 Поиск результатов для темы:', {
       selectedTopicId: selectedTopic.id,
@@ -9947,16 +9955,16 @@ function App() {
         count: results[key]?.length || 0
       }))
     });
-    
+
     // Ищем результаты по нормализованному ID
     // Проверяем все возможные варианты ключей в results
     let topicResults = results[normalizedTopicId] || [];
-    
+
     // Если результатов нет, пробуем найти по другим вариантам ключа
     if (topicResults.length === 0) {
       // Пробуем найти по исходному ID (без нормализации)
       topicResults = results[selectedTopic.id] || [];
-      
+
       // Если все еще нет, ищем по всем ключам, сравнивая нормализованные значения
       if (topicResults.length === 0) {
         Object.keys(results).forEach(key => {
@@ -9972,7 +9980,7 @@ function App() {
     } else {
       console.log('[RESULTS] ✅ Найдено результатов по нормализованному ID:', normalizedTopicId, topicResults.length);
     }
-    
+
     // Если результатов все еще нет, выводим предупреждение
     if (topicResults.length === 0) {
       console.warn('[RESULTS] ⚠️ Результаты не найдены для темы:', {
@@ -9982,7 +9990,7 @@ function App() {
         suggestion: 'Проверьте, что topic_id в БД совпадает с selectedTopic.id'
       });
     }
-    
+
     const latestResult = topicResults[0];
     const questions = getMergedQuestions(selectedTopic.id);
     const totalQuestions = questions.length;
@@ -9990,291 +9998,291 @@ function App() {
     return (
       <>
         <div className="topic-detail-container">
-        {/* Панель переключения между Тема и Экзамен */}
-        <div className="mode-switch-panel">
-          <button
-            className={`mode-switch-button ${activeMode === 'topic' ? 'active' : ''}`}
-            onClick={() => handleModeSwitch('topic')}
-          >
-            Тема
-          </button>
-          <button
-            className={`mode-switch-button ${activeMode === 'exam' ? 'active' : ''}`}
-            onClick={() => handleModeSwitch('exam')}
-          >
-            Экзамен
-          </button>
-        </div>
-        <div className="topic-detail-header">
-          <button className="back-button" onClick={handleBackToTopics}>← Назад</button>
-          <button 
-            className="start-test-button-header" 
-            onClick={handleStartTest}
-            disabled={!isUserAdmin && !hasSubscription}
-            style={{
-              opacity: (!isUserAdmin && !hasSubscription) ? 0.5 : 1,
-              cursor: (!isUserAdmin && !hasSubscription) ? 'not-allowed' : 'pointer'
-            }}
-          >
-            Начать тест
-          </button>
-        </div>
-        <h2 className="topic-detail-title">{selectedTopic.name}</h2>
-        <p className="topic-total-questions">Общее количество вопросов: {totalQuestions}</p>
-
-        {latestResult ? (
-          <div className="results-section">
-            <div className="result-id"><span>●</span> {userData?.name || 'Пользователь'}</div>
-            <div className="result-header">
-              <h3 className="result-title">результаты теста</h3>
-              <div className="progress-circle">
-                <svg className="progress-ring" width="60" height="60">
-                  <circle
-                    className="progress-ring-circle-bg"
-                    stroke="#e0e0e0"
-                    strokeWidth="6"
-                    fill="transparent"
-                    r="24"
-                    cx="30"
-                    cy="30"
-                  />
-                  <circle
-                    className="progress-ring-circle"
-                    stroke={(() => {
-                      const p = latestResult.percentage || Math.round((latestResult.correct / latestResult.total) * 100);
-                      return p >= 70 ? "#18ec23" : p >= 50 ? "#ff9800" : "#f44336";
-                    })()}
-                    strokeWidth="6"
-                    fill="transparent"
-                    r="24"
-                    cx="30"
-                    cy="30"
-                    strokeDasharray={`${2 * Math.PI * 24}`}
-                    strokeDashoffset={`${2 * Math.PI * 24 * (1 - ((latestResult.percentage || Math.round((latestResult.correct / latestResult.total) * 100)) / 100))}`}
-                    transform="rotate(-90 30 30)"
-                  />
-                </svg>
-                <div 
-                  className="progress-text"
-                  style={{
-                    color: (() => {
-                      const percent = latestResult.percentage || Math.round((latestResult.correct / latestResult.total) * 100);
-                      return percent >= 70 ? "#18ec23" : percent >= 50 ? "#ff9800" : "#f44336";
-                    })()
-                  }}
-                >
-                  {latestResult.percentage || Math.round((latestResult.correct / latestResult.total) * 100)}%
-                </div>
-              </div>
-            </div>
-
-            {/* Блок с советом от ИИ-тренера (вверху, перед результатами) */}
-            <div className="ai-trainer-advice-block" style={{
-              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-              borderRadius: '16px',
-              padding: '20px',
-              marginTop: '20px',
-              marginBottom: '20px',
-              color: '#ffffff',
-              boxShadow: '0 8px 24px rgba(102, 126, 234, 0.3)',
-              animation: showAiAdvice && aiTrainerAdvice ? 'slideIn 0.5s ease-out' : 'none'
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
-                <span style={{ fontSize: '28px' }}>🤖</span>
-                <h3 style={{ margin: 0, fontSize: '18px', fontWeight: '700' }}>
-                  Совет от ИИ-инструктора
-                </h3>
-              </div>
-              
-              {!showAiAdvice || !aiTrainerAdvice ? (
-                <AITrainerButton 
-                  latestResult={latestResult}
-                  getAITrainerAdvice={getAITrainerAdvice}
-                  getAILimits={getAILimits}
-                  checkAILimit={checkAILimit}
-                />
-              ) : aiTrainerAdvice.loading ? (
-                // Показываем загрузку
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                  <div className="loading-spinner-small"></div>
-                  <span style={{ fontSize: '15px' }}>Инструктор анализирует твои ошибки...</span>
-                </div>
-              ) : aiTrainerAdvice.error ? (
-                null // Скрываем блок при ошибке
-              ) : aiTrainerAdvice.text ? (
-                // Показываем совет
-                <div>
-                  <p style={{ margin: 0, fontSize: '15px', lineHeight: '1.6' }}>
-                    {aiTrainerAdvice.text}
-                  </p>
-                  <button 
-                    onClick={() => {
-                      setShowAiAdvice(false);
-                      setAiTrainerAdvice(null);
-                    }}
-                    style={{
-                      marginTop: '16px',
-                      background: 'rgba(255, 255, 255, 0.2)',
-                      border: 'none',
-                      borderRadius: '8px',
-                      padding: '10px 16px',
-                      color: '#ffffff',
-                      fontSize: '14px',
-                      fontWeight: '600',
-                      cursor: 'pointer',
-                      transition: 'all 0.2s ease'
-                    }}
-                    onMouseEnter={(e) => {
-                      e.target.style.background = 'rgba(255, 255, 255, 0.3)';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.target.style.background = 'rgba(255, 255, 255, 0.2)';
-                    }}
-                  >
-                    Понятно ✓
-                  </button>
-                </div>
-              ) : null}
-            </div>
-
-            <div className="result-cards">
-              <div className="result-card">
-                <div className="result-card-icon green">✓</div>
-                <div className="result-card-text">
-                  {latestResult.correct}/{latestResult.total} из вопросов ({latestResult.percentage || Math.round((latestResult.correct / latestResult.total) * 100)}%)
-                </div>
-              </div>
-              <div className="result-card">
-                <div className="result-card-icon yellow">⏱</div>
-                <div className="result-card-text">
-                  {latestResult.timeSpent} потрачено
-                </div>
-              </div>
-              <div className="result-card">
-                <div className="result-card-icon purple">📅</div>
-                <div className="result-card-text">
-                  {latestResult.dateTime}
-                </div>
-              </div>
-            </div>
-
-            {topicResults.length > 1 && (
-              <div className="results-history">
-                <h4 className="history-title">История результатов (последние {topicResults.length - 1}):</h4>
-                {topicResults.slice(1).map((result, index) => (
-                  <div key={result.id} className="history-item">
-                    <div className="history-item-info">
-                      <span className="history-id">{userData?.name || 'Пользователь'}</span>
-                      <span className="history-score">{result.correct}/{result.total} ({result.percentage || Math.round((result.correct / result.total) * 100)}%)</span>
-                      <span className="history-time">{result.timeFormatted}</span>
-                      <span className="history-date">{result.dateTime}</span>
-                    </div>
-                    <button
-                      className="history-review-button"
-                      onClick={() => {
-                        console.log('History Full Review button clicked:', {
-                          result: result ? {
-                            id: result.id,
-                            hasQuestions: !!result.questions,
-                            hasUserAnswers: !!result.userAnswers,
-                            questionsLength: result.questions?.length,
-                            userAnswersLength: result.userAnswers?.length,
-                            correct: result.correct,
-                            total: result.total
-                          } : null,
-                          selectedTopic: selectedTopic ? {
-                            id: selectedTopic.id,
-                            name: selectedTopic.name
-                          } : null
-                        });
-                        
-                        // Проверяем наличие полных данных в result
-                        if (!result) {
-                          console.error('Cannot open full review: result is null');
-                          alert('Ошибка: результаты теста не найдены. Попробуйте пройти тест снова.');
-                          return;
-                        }
-                        
-                        // Если в result нет questions и userAnswers (загружено из БД),
-                        // пытаемся найти полные данные в localStorage
-                        let fullResult = result;
-                        if (!hasFullReviewData(result)) {
-                          console.log('[RESULTS] result не содержит полных данных, ищем в localStorage...');
-                          fullResult = findFullResultForReview(result, selectedTopic?.id);
-                          if (!fullResult) {
-                            console.warn('[RESULTS] ⚠️ Полные данные не найдены в localStorage');
-                            alert('Полные данные результатов недоступны. Для просмотра детального обзора пройдите тест снова.');
-                            return;
-                          }
-                          console.log('[RESULTS] ✅ Найдены полные данные для Full Review');
-                        }
-                        
-                        setSelectedResult(fullResult);
-                        setScreen('fullReview');
-                      }}
-                    >
-                      Полный обзор
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            <button 
-              className="full-review-button"
-              onClick={() => {
-                console.log('Full Review button clicked:', {
-                  latestResult: latestResult ? {
-                    id: latestResult.id,
-                    hasQuestions: !!latestResult.questions,
-                    hasUserAnswers: !!latestResult.userAnswers,
-                    questionsLength: latestResult.questions?.length,
-                    userAnswersLength: latestResult.userAnswers?.length,
-                    correct: latestResult.correct,
-                    total: latestResult.total
-                  } : null,
-                  selectedTopic: selectedTopic ? {
-                    id: selectedTopic.id,
-                    name: selectedTopic.name
-                  } : null
-                });
-                
-                // Проверяем наличие полных данных в latestResult
-                if (!latestResult) {
-                  console.error('Cannot open full review: latestResult is null');
-                  alert('Ошибка: результаты теста не найдены. Попробуйте пройти тест снова.');
-                  return;
-                }
-                
-                // Если в latestResult нет questions и userAnswers (загружено из БД),
-                // пытаемся найти полные данные в localStorage
-                let fullResult = latestResult;
-                if (!hasFullReviewData(latestResult)) {
-                  console.log('[RESULTS] latestResult не содержит полных данных, ищем в localStorage...');
-                  fullResult = findFullResultForReview(latestResult, selectedTopic?.id);
-                  if (!fullResult) {
-                    console.warn('[RESULTS] ⚠️ Полные данные не найдены в localStorage');
-                    alert('Полные данные результатов недоступны. Для просмотра детального обзора пройдите тест снова.');
-                    return;
-                  }
-                  console.log('[RESULTS] ✅ Найдены полные данные для Full Review');
-                }
-                
-                setSelectedResult(fullResult);
-                setScreen('fullReview');
-              }}
+          {/* Панель переключения между Тема и Экзамен */}
+          <div className="mode-switch-panel">
+            <button
+              className={`mode-switch-button ${activeMode === 'topic' ? 'active' : ''}`}
+              onClick={() => handleModeSwitch('topic')}
             >
-              Полный обзор
+              Тема
+            </button>
+            <button
+              className={`mode-switch-button ${activeMode === 'exam' ? 'active' : ''}`}
+              onClick={() => handleModeSwitch('exam')}
+            >
+              Экзамен
             </button>
           </div>
-        ) : (
-          <div className="results-section">
-            <div className="no-results-message">
-              <p>Тест ещё не пройден</p>
-              <p className="no-results-hint">Нажмите "Начать тест" чтобы начать</p>
-            </div>
+          <div className="topic-detail-header">
+            <button className="back-button" onClick={handleBackToTopics}>← Назад</button>
+            <button
+              className="start-test-button-header"
+              onClick={handleStartTest}
+              disabled={!isUserAdmin && !hasSubscription}
+              style={{
+                opacity: (!isUserAdmin && !hasSubscription) ? 0.5 : 1,
+                cursor: (!isUserAdmin && !hasSubscription) ? 'not-allowed' : 'pointer'
+              }}
+            >
+              Начать тест
+            </button>
           </div>
-        )}
+          <h2 className="topic-detail-title">{selectedTopic.name}</h2>
+          <p className="topic-total-questions">Общее количество вопросов: {totalQuestions}</p>
+
+          {latestResult ? (
+            <div className="results-section">
+              <div className="result-id"><span>●</span> {userData?.name || 'Пользователь'}</div>
+              <div className="result-header">
+                <h3 className="result-title">результаты теста</h3>
+                <div className="progress-circle">
+                  <svg className="progress-ring" width="60" height="60">
+                    <circle
+                      className="progress-ring-circle-bg"
+                      stroke="#e0e0e0"
+                      strokeWidth="6"
+                      fill="transparent"
+                      r="24"
+                      cx="30"
+                      cy="30"
+                    />
+                    <circle
+                      className="progress-ring-circle"
+                      stroke={(() => {
+                        const p = latestResult.percentage || Math.round((latestResult.correct / latestResult.total) * 100);
+                        return p >= 70 ? "#18ec23" : p >= 50 ? "#ff9800" : "#f44336";
+                      })()}
+                      strokeWidth="6"
+                      fill="transparent"
+                      r="24"
+                      cx="30"
+                      cy="30"
+                      strokeDasharray={`${2 * Math.PI * 24}`}
+                      strokeDashoffset={`${2 * Math.PI * 24 * (1 - ((latestResult.percentage || Math.round((latestResult.correct / latestResult.total) * 100)) / 100))}`}
+                      transform="rotate(-90 30 30)"
+                    />
+                  </svg>
+                  <div
+                    className="progress-text"
+                    style={{
+                      color: (() => {
+                        const percent = latestResult.percentage || Math.round((latestResult.correct / latestResult.total) * 100);
+                        return percent >= 70 ? "#18ec23" : percent >= 50 ? "#ff9800" : "#f44336";
+                      })()
+                    }}
+                  >
+                    {latestResult.percentage || Math.round((latestResult.correct / latestResult.total) * 100)}%
+                  </div>
+                </div>
+              </div>
+
+              {/* Блок с советом от ИИ-тренера (вверху, перед результатами) */}
+              <div className="ai-trainer-advice-block" style={{
+                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                borderRadius: '16px',
+                padding: '20px',
+                marginTop: '20px',
+                marginBottom: '20px',
+                color: '#ffffff',
+                boxShadow: '0 8px 24px rgba(102, 126, 234, 0.3)',
+                animation: showAiAdvice && aiTrainerAdvice ? 'slideIn 0.5s ease-out' : 'none'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
+                  <span style={{ fontSize: '28px' }}>🤖</span>
+                  <h3 style={{ margin: 0, fontSize: '18px', fontWeight: '700' }}>
+                    Совет от ИИ-инструктора
+                  </h3>
+                </div>
+
+                {!showAiAdvice || !aiTrainerAdvice ? (
+                  <AITrainerButton
+                    latestResult={latestResult}
+                    getAITrainerAdvice={getAITrainerAdvice}
+                    getAILimits={getAILimits}
+                    checkAILimit={checkAILimit}
+                  />
+                ) : aiTrainerAdvice.loading ? (
+                  // Показываем загрузку
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <div className="loading-spinner-small"></div>
+                    <span style={{ fontSize: '15px' }}>Инструктор анализирует твои ошибки...</span>
+                  </div>
+                ) : aiTrainerAdvice.error ? (
+                  null // Скрываем блок при ошибке
+                ) : aiTrainerAdvice.text ? (
+                  // Показываем совет
+                  <div>
+                    <p style={{ margin: 0, fontSize: '15px', lineHeight: '1.6' }}>
+                      {aiTrainerAdvice.text}
+                    </p>
+                    <button
+                      onClick={() => {
+                        setShowAiAdvice(false);
+                        setAiTrainerAdvice(null);
+                      }}
+                      style={{
+                        marginTop: '16px',
+                        background: 'rgba(255, 255, 255, 0.2)',
+                        border: 'none',
+                        borderRadius: '8px',
+                        padding: '10px 16px',
+                        color: '#ffffff',
+                        fontSize: '14px',
+                        fontWeight: '600',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s ease'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.target.style.background = 'rgba(255, 255, 255, 0.3)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.target.style.background = 'rgba(255, 255, 255, 0.2)';
+                      }}
+                    >
+                      Понятно ✓
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="result-cards">
+                <div className="result-card">
+                  <div className="result-card-icon green">✓</div>
+                  <div className="result-card-text">
+                    {latestResult.correct}/{latestResult.total} из вопросов ({latestResult.percentage || Math.round((latestResult.correct / latestResult.total) * 100)}%)
+                  </div>
+                </div>
+                <div className="result-card">
+                  <div className="result-card-icon yellow">⏱</div>
+                  <div className="result-card-text">
+                    {latestResult.timeSpent} потрачено
+                  </div>
+                </div>
+                <div className="result-card">
+                  <div className="result-card-icon purple">📅</div>
+                  <div className="result-card-text">
+                    {latestResult.dateTime}
+                  </div>
+                </div>
+              </div>
+
+              {topicResults.length > 1 && (
+                <div className="results-history">
+                  <h4 className="history-title">История результатов (последние {topicResults.length - 1}):</h4>
+                  {topicResults.slice(1).map((result, index) => (
+                    <div key={result.id} className="history-item">
+                      <div className="history-item-info">
+                        <span className="history-id">{userData?.name || 'Пользователь'}</span>
+                        <span className="history-score">{result.correct}/{result.total} ({result.percentage || Math.round((result.correct / result.total) * 100)}%)</span>
+                        <span className="history-time">{result.timeFormatted}</span>
+                        <span className="history-date">{result.dateTime}</span>
+                      </div>
+                      <button
+                        className="history-review-button"
+                        onClick={() => {
+                          console.log('History Full Review button clicked:', {
+                            result: result ? {
+                              id: result.id,
+                              hasQuestions: !!result.questions,
+                              hasUserAnswers: !!result.userAnswers,
+                              questionsLength: result.questions?.length,
+                              userAnswersLength: result.userAnswers?.length,
+                              correct: result.correct,
+                              total: result.total
+                            } : null,
+                            selectedTopic: selectedTopic ? {
+                              id: selectedTopic.id,
+                              name: selectedTopic.name
+                            } : null
+                          });
+
+                          // Проверяем наличие полных данных в result
+                          if (!result) {
+                            console.error('Cannot open full review: result is null');
+                            alert('Ошибка: результаты теста не найдены. Попробуйте пройти тест снова.');
+                            return;
+                          }
+
+                          // Если в result нет questions и userAnswers (загружено из БД),
+                          // пытаемся найти полные данные в localStorage
+                          let fullResult = result;
+                          if (!hasFullReviewData(result)) {
+                            console.log('[RESULTS] result не содержит полных данных, ищем в localStorage...');
+                            fullResult = findFullResultForReview(result, selectedTopic?.id);
+                            if (!fullResult) {
+                              console.warn('[RESULTS] ⚠️ Полные данные не найдены в localStorage');
+                              alert('Полные данные результатов недоступны. Для просмотра детального обзора пройдите тест снова.');
+                              return;
+                            }
+                            console.log('[RESULTS] ✅ Найдены полные данные для Full Review');
+                          }
+
+                          setSelectedResult(fullResult);
+                          setScreen('fullReview');
+                        }}
+                      >
+                        Полный обзор
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <button
+                className="full-review-button"
+                onClick={() => {
+                  console.log('Full Review button clicked:', {
+                    latestResult: latestResult ? {
+                      id: latestResult.id,
+                      hasQuestions: !!latestResult.questions,
+                      hasUserAnswers: !!latestResult.userAnswers,
+                      questionsLength: latestResult.questions?.length,
+                      userAnswersLength: latestResult.userAnswers?.length,
+                      correct: latestResult.correct,
+                      total: latestResult.total
+                    } : null,
+                    selectedTopic: selectedTopic ? {
+                      id: selectedTopic.id,
+                      name: selectedTopic.name
+                    } : null
+                  });
+
+                  // Проверяем наличие полных данных в latestResult
+                  if (!latestResult) {
+                    console.error('Cannot open full review: latestResult is null');
+                    alert('Ошибка: результаты теста не найдены. Попробуйте пройти тест снова.');
+                    return;
+                  }
+
+                  // Если в latestResult нет questions и userAnswers (загружено из БД),
+                  // пытаемся найти полные данные в localStorage
+                  let fullResult = latestResult;
+                  if (!hasFullReviewData(latestResult)) {
+                    console.log('[RESULTS] latestResult не содержит полных данных, ищем в localStorage...');
+                    fullResult = findFullResultForReview(latestResult, selectedTopic?.id);
+                    if (!fullResult) {
+                      console.warn('[RESULTS] ⚠️ Полные данные не найдены в localStorage');
+                      alert('Полные данные результатов недоступны. Для просмотра детального обзора пройдите тест снова.');
+                      return;
+                    }
+                    console.log('[RESULTS] ✅ Найдены полные данные для Full Review');
+                  }
+
+                  setSelectedResult(fullResult);
+                  setScreen('fullReview');
+                }}
+              >
+                Полный обзор
+              </button>
+            </div>
+          ) : (
+            <div className="results-section">
+              <div className="no-results-message">
+                <p>Тест ещё не пройден</p>
+                <p className="no-results-hint">Нажмите "Начать тест" чтобы начать</p>
+              </div>
+            </div>
+          )}
         </div>
       </>
     )
@@ -10284,11 +10292,11 @@ function App() {
   if (screen === 'fullReview') {
     // Получаем результат: сначала из selectedResult, затем из results по selectedTopic, затем из всех results
     let reviewResult = selectedResult;
-    
+
     if (!reviewResult && selectedTopic && selectedTopic.id) {
       reviewResult = (results[selectedTopic.id] || [])[0];
     }
-    
+
     // Если все еще нет результата, ищем в всех results
     if (!reviewResult) {
       for (const topicId in results) {
@@ -10298,7 +10306,7 @@ function App() {
         }
       }
     }
-    
+
     if (!hasFullReviewData(reviewResult)) {
       const fallbackResult = findFullResultForReview(reviewResult, selectedTopic?.id);
       if (fallbackResult) {
@@ -10320,14 +10328,14 @@ function App() {
           userAnswersLength: reviewResult.userAnswers?.length
         } : null
       });
-      
+
       return (
         <div className="topic-detail-container">
           <div className="topic-detail-header">
             <button className="back-button" onClick={() => {
               setSelectedResult(null);
               if (selectedTopic) {
-              setScreen('topicDetail');
+                setScreen('topicDetail');
               } else {
                 setScreen('topics');
               }
@@ -10350,7 +10358,7 @@ function App() {
 
     const questions = reviewResult.questions;
     const userAnswers = reviewResult.userAnswers;
-    
+
     // Отладочная информация - проверяем структуру данных
     console.log('Full Review - Data structure:', {
       reviewResultId: reviewResult.id,
@@ -10372,261 +10380,261 @@ function App() {
 
     return (
       <>
-      <div className="full-review-container">
-        <div className="full-review-header">
-          <button className="back-button" onClick={() => {
-            setSelectedResult(null);
-            if (selectedTopic) {
-            setScreen('topicDetail');
-            } else {
-              setScreen('topics');
-            }
-          }}>
-            ← Назад
-          </button>
-        </div>
+        <div className="full-review-container">
+          <div className="full-review-header">
+            <button className="back-button" onClick={() => {
+              setSelectedResult(null);
+              if (selectedTopic) {
+                setScreen('topicDetail');
+              } else {
+                setScreen('topics');
+              }
+            }}>
+              ← Назад
+            </button>
+          </div>
           <h2 className="full-review-title">{selectedTopic?.name || 'Полный обзор результатов'}</h2>
-        
-        <div className="full-review-result-info">
-          {userData?.name && (
-            <div className="review-result-id">{userData.name}</div>
-          )}
-          <div className="review-result-stats">
-            <div className="review-stat-item">
-              <span className="review-stat-label">Правильных ответов:</span>
-              <span className="review-stat-value">{reviewResult.correct}/{reviewResult.total}</span>
-            </div>
-            <div className="review-stat-item">
-              <span className="review-stat-label">Процент:</span>
-              <span className="review-stat-value">{reviewResult.percentage || Math.round((reviewResult.correct / reviewResult.total) * 100)}%</span>
-            </div>
-            {reviewResult.timeSpent && (
-              <div className="review-stat-item">
-                <span className="review-stat-label">Время:</span>
-                <span className="review-stat-value">{reviewResult.timeSpent}</span>
-              </div>
+
+          <div className="full-review-result-info">
+            {userData?.name && (
+              <div className="review-result-id">{userData.name}</div>
             )}
-            {reviewResult.dateTime && (
+            <div className="review-result-stats">
               <div className="review-stat-item">
-                <span className="review-stat-label">Дата:</span>
-                <span className="review-stat-value">{reviewResult.dateTime}</span>
+                <span className="review-stat-label">Правильных ответов:</span>
+                <span className="review-stat-value">{reviewResult.correct}/{reviewResult.total}</span>
               </div>
-            )}
+              <div className="review-stat-item">
+                <span className="review-stat-label">Процент:</span>
+                <span className="review-stat-value">{reviewResult.percentage || Math.round((reviewResult.correct / reviewResult.total) * 100)}%</span>
+              </div>
+              {reviewResult.timeSpent && (
+                <div className="review-stat-item">
+                  <span className="review-stat-label">Время:</span>
+                  <span className="review-stat-value">{reviewResult.timeSpent}</span>
+                </div>
+              )}
+              {reviewResult.dateTime && (
+                <div className="review-stat-item">
+                  <span className="review-stat-label">Дата:</span>
+                  <span className="review-stat-value">{reviewResult.dateTime}</span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="full-review-content">
+            {questions.map((question, index) => {
+              const userAnswer = userAnswers[index];
+
+              // Определяем, был ли ответ неправильным
+              const userSelectedId = userAnswer?.selectedAnswerId;
+              const correctAnswer = question.answers.find(a => a.correct === true);
+              const userSelectedAnswer = question.answers.find(a => {
+                const normalizeId = (id) => {
+                  if (id === null || id === undefined) return null;
+                  const num = Number(id);
+                  if (!isNaN(num)) return num;
+                  return String(id);
+                };
+                return normalizeId(a.id) === normalizeId(userSelectedId);
+              });
+              const isIncorrect = userSelectedAnswer && !userSelectedAnswer.correct;
+              const questionId = question.id || `q-${index}`;
+
+              // Отладочная информация для первого вопроса
+              if (index === 0) {
+                console.log('Full Review - Question 1:', {
+                  questionId: question.id,
+                  questionText: question.text.substring(0, 30),
+                  questionAnswers: question.answers.map(a => ({
+                    id: a.id,
+                    idType: typeof a.id,
+                    text: a.text.substring(0, 20),
+                    correct: a.correct
+                  })),
+                  userAnswer: userAnswer,
+                  userSelectedId: userAnswer?.selectedAnswerId,
+                  userSelectedIdType: typeof userAnswer?.selectedAnswerId
+                });
+              }
+
+              const resolvedImage = question.image ? resolveImage(question.image) : null;
+
+              return (
+                <div key={question.id || index} className="review-question-block">
+                  <div className="review-question-number">
+                    Вопрос {index + 1} из {questions.length}
+                  </div>
+                  {/* TODO: Ensure this image is compressed (WebP or compressed PNG under 50kb) */}
+                  {resolvedImage && (
+                    <img
+                      src={resolvedImage}
+                      alt="question"
+                      className="review-question-image"
+                      onError={(e) => {
+                        console.warn('⚠️ [IMAGE] Ошибка загрузки изображения (404 или другая):', resolvedImage);
+                        e.target.style.display = 'none';
+                      }}
+                    />
+                  )}
+                  <h3 className="review-question-text">{question.text}</h3>
+
+                  <div className="review-answers">
+                    {question.answers.map((answer, answerIndex) => {
+                      // Проверяем, был ли выбран этот ответ
+                      const userSelectedId = userAnswer?.selectedAnswerId;
+                      const answerId = answer.id;
+
+                      // Используем ту же функцию нормализации, что и в saveTestResults
+                      const normalizeId = (id) => {
+                        if (id === null || id === undefined) return null;
+                        const num = Number(id);
+                        if (!isNaN(num)) return num;
+                        return String(id);
+                      };
+
+                      const normalizedUser = normalizeId(userSelectedId);
+                      const normalizedAnswer = normalizeId(answerId);
+
+                      // Сравниваем нормализованные значения (та же логика, что в saveTestResults)
+                      const isSelected = normalizedUser !== null &&
+                        normalizedAnswer !== null &&
+                        normalizedUser === normalizedAnswer;
+
+                      // Отладочная информация для всех ответов первого вопроса
+                      if (index === 0) {
+                        console.log(`Full Review - Answer ${answerIndex + 1} comparison:`, {
+                          questionIndex: index,
+                          answerIndex: answerIndex,
+                          userSelectedId: userSelectedId,
+                          userSelectedIdType: typeof userSelectedId,
+                          normalizedUser: normalizedUser,
+                          answerId: answerId,
+                          answerIdType: typeof answerId,
+                          normalizedAnswer: normalizedAnswer,
+                          isSelected: isSelected,
+                          directMatch: userSelectedId === answerId,
+                          stringMatch: String(userSelectedId) === String(answerId),
+                          normalizedMatch: normalizedUser === normalizedAnswer,
+                          userAnswerObject: userAnswer
+                        });
+                      }
+
+                      // Проверяем, правильный ли это ответ
+                      const isCorrect = answer.correct === true;
+
+                      // Проверяем, был ли вопрос отвечен
+                      // Вопрос считается неотвеченным, если userAnswer отсутствует или selectedAnswerId равен null/undefined
+                      const isQuestionAnswered = userAnswer &&
+                        userAnswer.selectedAnswerId !== null &&
+                        userAnswer.selectedAnswerId !== undefined &&
+                        normalizedUser !== null;
+
+                      let answerClass = 'review-answer';
+                      let showMarker = false;
+                      let markerText = '';
+
+                      // Определяем стиль и маркер
+                      if (isCorrect) {
+                        if (!isQuestionAnswered) {
+                          // Если вопрос не был отвечен, используем специальный класс для желтого стиля
+                          answerClass += ' review-answer-unanswered';
+                          markerText = 'Правильный ответ (не отвечен)';
+                          showMarker = true;
+                        } else {
+                          // Обычный правильный ответ (зеленый)
+                          answerClass += ' review-answer-correct';
+                          if (isSelected) {
+                            markerText = 'Ваш ответ (правильно)';
+                          } else {
+                            markerText = 'Правильный ответ';
+                          }
+                          showMarker = true;
+                        }
+                      } else if (isSelected) {
+                        answerClass += ' review-answer-incorrect';
+                        markerText = 'Ваш ответ (неправильно)';
+                        showMarker = true;
+                      }
+
+                      return (
+                        <div key={answer.id || answerIndex} className={answerClass}>
+                          {showMarker && (
+                            <span className={`answer-marker ${isCorrect ? 'correct' : ''}`}>
+                              {markerText}:
+                            </span>
+                          )}
+                          {answerIndex + 1}. {answer.text}
+                          {isCorrect && <span className="correct-icon"> ✓</span>}
+                          {isSelected && !isCorrect && <span className="incorrect-icon"> ✗</span>}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Блок с объяснением ИИ для неправильных ответов */}
+                  {isIncorrect && (
+                    <div className="ai-explanation-block">
+                      <div className="ai-explanation-header">
+                        <span className="ai-explanation-icon">🤖</span>
+                        <span className="ai-explanation-title">Объяснение ИИ:</span>
+                      </div>
+                      <div className="ai-explanation-content">
+                        {!explanations[questionId]?.explanation && !explanations[questionId]?.loading && !explanations[questionId]?.error ? (
+                          // Показываем кнопку, если объяснение еще не загружено
+                          <button
+                            className="explanation-button"
+                            onClick={() => {
+                              const wrongAnswerText = userSelectedAnswer?.text || userSelectedAnswer?.option_text || 'Выбранный ответ';
+                              const correctAnswerText = correctAnswer?.text || correctAnswer?.option_text || 'Правильный ответ';
+                              const questionImage = question.image || question.image_url || null;
+                              getExplanation(questionId, question.text || question.question_text, wrongAnswerText, correctAnswerText, questionImage);
+                            }}
+                            style={{
+                              padding: '10px 20px',
+                              backgroundColor: '#4CAF50',
+                              color: 'white',
+                              border: 'none',
+                              borderRadius: '5px',
+                              cursor: 'pointer',
+                              fontSize: '14px',
+                              fontWeight: 'bold',
+                              marginTop: '10px'
+                            }}
+                          >
+                            🤖 Получить объяснение
+                          </button>
+                        ) : explanations[questionId]?.loading ? (
+                          <div className="ai-explanation-loading">
+                            <span>ИИ анализирует ваш ответ...</span>
+                          </div>
+                        ) : explanations[questionId]?.error ? (
+                          <div className="ai-explanation-error">
+                            {explanations[questionId].error}
+                          </div>
+                        ) : explanations[questionId]?.explanation ? (
+                          explanations[questionId]?.streaming ? (
+                            // Показываем текст напрямую с курсором во время печатания
+                            <div className="ai-explanation-text">
+                              <span>{explanations[questionId].explanation}</span>
+                              <span className="typewriter-cursor">|</span>
+                            </div>
+                          ) : (
+                            // После завершения печатания показываем финальный текст
+                            <div className="ai-explanation-text">
+                              <span>{explanations[questionId].explanation}</span>
+                            </div>
+                          )
+                        ) : null}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
-        
-        <div className="full-review-content">
-          {questions.map((question, index) => {
-            const userAnswer = userAnswers[index];
-            
-            // Определяем, был ли ответ неправильным
-            const userSelectedId = userAnswer?.selectedAnswerId;
-            const correctAnswer = question.answers.find(a => a.correct === true);
-            const userSelectedAnswer = question.answers.find(a => {
-              const normalizeId = (id) => {
-                if (id === null || id === undefined) return null;
-                const num = Number(id);
-                if (!isNaN(num)) return num;
-                return String(id);
-              };
-              return normalizeId(a.id) === normalizeId(userSelectedId);
-            });
-            const isIncorrect = userSelectedAnswer && !userSelectedAnswer.correct;
-            const questionId = question.id || `q-${index}`;
-            
-            // Отладочная информация для первого вопроса
-            if (index === 0) {
-              console.log('Full Review - Question 1:', {
-                questionId: question.id,
-                questionText: question.text.substring(0, 30),
-                questionAnswers: question.answers.map(a => ({ 
-                  id: a.id, 
-                  idType: typeof a.id, 
-                  text: a.text.substring(0, 20),
-                  correct: a.correct 
-                })),
-                userAnswer: userAnswer,
-                userSelectedId: userAnswer?.selectedAnswerId,
-                userSelectedIdType: typeof userAnswer?.selectedAnswerId
-              });
-            }
-            
-            const resolvedImage = question.image ? resolveImage(question.image) : null;
-            
-            return (
-              <div key={question.id || index} className="review-question-block">
-                <div className="review-question-number">
-                  Вопрос {index + 1} из {questions.length}
-                </div>
-            {/* TODO: Ensure this image is compressed (WebP or compressed PNG under 50kb) */}
-                {resolvedImage && (
-                  <img
-                    src={resolvedImage}
-                    alt="question"
-                    className="review-question-image"
-                    onError={(e) => {
-                      console.warn('⚠️ [IMAGE] Ошибка загрузки изображения (404 или другая):', resolvedImage);
-                      e.target.style.display = 'none';
-                    }}
-                  />
-                )}
-                <h3 className="review-question-text">{question.text}</h3>
-                
-                <div className="review-answers">
-                  {question.answers.map((answer, answerIndex) => {
-                    // Проверяем, был ли выбран этот ответ
-                    const userSelectedId = userAnswer?.selectedAnswerId;
-                    const answerId = answer.id;
-                    
-                    // Используем ту же функцию нормализации, что и в saveTestResults
-                    const normalizeId = (id) => {
-                      if (id === null || id === undefined) return null;
-                      const num = Number(id);
-                      if (!isNaN(num)) return num;
-                      return String(id);
-                    };
-                    
-                    const normalizedUser = normalizeId(userSelectedId);
-                    const normalizedAnswer = normalizeId(answerId);
-                    
-                    // Сравниваем нормализованные значения (та же логика, что в saveTestResults)
-                    const isSelected = normalizedUser !== null && 
-                                     normalizedAnswer !== null &&
-                                     normalizedUser === normalizedAnswer;
-                    
-                    // Отладочная информация для всех ответов первого вопроса
-                    if (index === 0) {
-                      console.log(`Full Review - Answer ${answerIndex + 1} comparison:`, {
-                        questionIndex: index,
-                        answerIndex: answerIndex,
-                        userSelectedId: userSelectedId,
-                        userSelectedIdType: typeof userSelectedId,
-                        normalizedUser: normalizedUser,
-                        answerId: answerId,
-                        answerIdType: typeof answerId,
-                        normalizedAnswer: normalizedAnswer,
-                        isSelected: isSelected,
-                        directMatch: userSelectedId === answerId,
-                        stringMatch: String(userSelectedId) === String(answerId),
-                        normalizedMatch: normalizedUser === normalizedAnswer,
-                        userAnswerObject: userAnswer
-                      });
-                    }
-                    
-                    // Проверяем, правильный ли это ответ
-                    const isCorrect = answer.correct === true;
-                    
-                    // Проверяем, был ли вопрос отвечен
-                    // Вопрос считается неотвеченным, если userAnswer отсутствует или selectedAnswerId равен null/undefined
-                    const isQuestionAnswered = userAnswer && 
-                                             userAnswer.selectedAnswerId !== null && 
-                                             userAnswer.selectedAnswerId !== undefined &&
-                                             normalizedUser !== null;
-                    
-                    let answerClass = 'review-answer';
-                    let showMarker = false;
-                    let markerText = '';
-                    
-                    // Определяем стиль и маркер
-                    if (isCorrect) {
-                      if (!isQuestionAnswered) {
-                        // Если вопрос не был отвечен, используем специальный класс для желтого стиля
-                        answerClass += ' review-answer-unanswered';
-                        markerText = 'Правильный ответ (не отвечен)';
-                        showMarker = true;
-                      } else {
-                        // Обычный правильный ответ (зеленый)
-                      answerClass += ' review-answer-correct';
-                      if (isSelected) {
-                        markerText = 'Ваш ответ (правильно)';
-                      } else {
-                        markerText = 'Правильный ответ';
-                      }
-                      showMarker = true;
-                      }
-                    } else if (isSelected) {
-                      answerClass += ' review-answer-incorrect';
-                      markerText = 'Ваш ответ (неправильно)';
-                      showMarker = true;
-                    }
-                    
-                    return (
-                      <div key={answer.id || answerIndex} className={answerClass}>
-                        {showMarker && (
-                          <span className={`answer-marker ${isCorrect ? 'correct' : ''}`}>
-                            {markerText}: 
-                          </span>
-                        )}
-                        {answerIndex + 1}. {answer.text}
-                        {isCorrect && <span className="correct-icon"> ✓</span>}
-                        {isSelected && !isCorrect && <span className="incorrect-icon"> ✗</span>}
-                      </div>
-                    );
-                  })}
-                </div>
-                
-                {/* Блок с объяснением ИИ для неправильных ответов */}
-                {isIncorrect && (
-                  <div className="ai-explanation-block">
-                    <div className="ai-explanation-header">
-                      <span className="ai-explanation-icon">🤖</span>
-                      <span className="ai-explanation-title">Объяснение ИИ:</span>
-                    </div>
-                    <div className="ai-explanation-content">
-                      {!explanations[questionId]?.explanation && !explanations[questionId]?.loading && !explanations[questionId]?.error ? (
-                        // Показываем кнопку, если объяснение еще не загружено
-                        <button
-                          className="explanation-button"
-                          onClick={() => {
-                            const wrongAnswerText = userSelectedAnswer?.text || userSelectedAnswer?.option_text || 'Выбранный ответ';
-                            const correctAnswerText = correctAnswer?.text || correctAnswer?.option_text || 'Правильный ответ';
-                            const questionImage = question.image || question.image_url || null;
-                            getExplanation(questionId, question.text || question.question_text, wrongAnswerText, correctAnswerText, questionImage);
-                          }}
-                          style={{
-                            padding: '10px 20px',
-                            backgroundColor: '#4CAF50',
-                            color: 'white',
-                            border: 'none',
-                            borderRadius: '5px',
-                            cursor: 'pointer',
-                            fontSize: '14px',
-                            fontWeight: 'bold',
-                            marginTop: '10px'
-                          }}
-                        >
-                          🤖 Получить объяснение
-                        </button>
-                      ) : explanations[questionId]?.loading ? (
-                        <div className="ai-explanation-loading">
-                          <span>ИИ анализирует ваш ответ...</span>
-                        </div>
-                      ) : explanations[questionId]?.error ? (
-                        <div className="ai-explanation-error">
-                          {explanations[questionId].error}
-                        </div>
-                      ) : explanations[questionId]?.explanation ? (
-                        explanations[questionId]?.streaming ? (
-                          // Показываем текст напрямую с курсором во время печатания
-                          <div className="ai-explanation-text">
-                            <span>{explanations[questionId].explanation}</span>
-                            <span className="typewriter-cursor">|</span>
-                          </div>
-                        ) : (
-                          // После завершения печатания показываем финальный текст
-                          <div className="ai-explanation-text">
-                            <span>{explanations[questionId].explanation}</span>
-                          </div>
-                        )
-                      ) : null}
-                    </div>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </div>
         {showScrollToTopResults && (
           <button
             type="button"
@@ -10651,114 +10659,114 @@ function App() {
   // ========== ЭКЗАМЕН: Экран результатов экзамена ==========
   if (screen === 'examResult') {
     const examResult = selectedExamResult || (results['exam'] || [])[0];
-    
+
     if (!examResult) {
       return (
         <>
-        <div className="topics-container">
-          <div className="topics-header">
-            <button className="back-button" onClick={() => {
-              setSelectedExamResult(null);
-              setScreen('examSelect');
-            }}>
-              ← Назад
-            </button>
-            <h1 className="topics-title">Результаты экзамена</h1>
+          <div className="topics-container">
+            <div className="topics-header">
+              <button className="back-button" onClick={() => {
+                setSelectedExamResult(null);
+                setScreen('examSelect');
+              }}>
+                ← Назад
+              </button>
+              <h1 className="topics-title">Результаты экзамена</h1>
+            </div>
+            <p>Нет данных для отображения</p>
           </div>
-          <p>Нет данных для отображения</p>
-        </div>
         </>
       );
     }
 
     return (
       <>
-      <div className="topic-detail-container">
-        {/* Панель переключения между Тема и Экзамен */}
-        <div className="mode-switch-panel">
-          <button
-            className={`mode-switch-button ${activeMode === 'topic' ? 'active' : ''}`}
-            onClick={() => handleModeSwitch('topic')}
-          >
-            Тема
-          </button>
-          <button
-            className={`mode-switch-button ${activeMode === 'exam' ? 'active' : ''}`}
-            onClick={() => handleModeSwitch('exam')}
-          >
-            Экзамен
-          </button>
-        </div>
-        
-        <div className="topic-detail-header">
-          <div className="topic-detail-buttons">
-            <button className="back-button" onClick={() => {
-              setSelectedExamResult(null);
-              setScreen('examSelect');
-            }}>← Назад</button>
-          </div>
-          <h2 className="topic-detail-title">Результаты экзамена</h2>
-        </div>
-
-        <div className="results-section">
-          <div className="result-id"><span>●</span> {userData?.name || 'Пользователь'}</div>
-          <div className="result-header">
-            <h3 className="result-title">результаты экзамена</h3>
-            <div className="progress-circle">
-              <svg className="progress-ring" width="60" height="60">
-                <circle
-                  className="progress-ring-circle-bg"
-                  stroke="#e0e0e0"
-                  strokeWidth="6"
-                  fill="transparent"
-                  r="24"
-                  cx="30"
-                  cy="30"
-                />
-                <circle
-                  className="progress-ring-circle"
-                  stroke={examResult.percentage >= 70 ? "#18ec23" : examResult.percentage >= 50 ? "#ff9800" : "#f44336"}
-                  strokeWidth="6"
-                  fill="transparent"
-                  r="24"
-                  cx="30"
-                  cy="30"
-                  strokeDasharray={`${2 * Math.PI * 24}`}
-                  strokeDashoffset={`${2 * Math.PI * 24 * (1 - (examResult.percentage / 100))}`}
-                  transform="rotate(-90 30 30)"
-                />
-              </svg>
-              <div 
-                className="progress-text"
-                style={{
-                  color: examResult.percentage >= 70 ? "#18ec23" : examResult.percentage >= 50 ? "#ff9800" : "#f44336"
-                }}
-              >
-                {examResult.percentage}%
-              </div>
-            </div>
+        <div className="topic-detail-container">
+          {/* Панель переключения между Тема и Экзамен */}
+          <div className="mode-switch-panel">
+            <button
+              className={`mode-switch-button ${activeMode === 'topic' ? 'active' : ''}`}
+              onClick={() => handleModeSwitch('topic')}
+            >
+              Тема
+            </button>
+            <button
+              className={`mode-switch-button ${activeMode === 'exam' ? 'active' : ''}`}
+              onClick={() => handleModeSwitch('exam')}
+            >
+              Экзамен
+            </button>
           </div>
 
-          <div className="result-cards">
-            <div className="result-card">
-              <div className="result-card-icon green">✓</div>
-              <div className="result-card-text">
-                {examResult.correct}/{examResult.total} правильных ответов ({examResult.percentage}%)
-              </div>
+          <div className="topic-detail-header">
+            <div className="topic-detail-buttons">
+              <button className="back-button" onClick={() => {
+                setSelectedExamResult(null);
+                setScreen('examSelect');
+              }}>← Назад</button>
             </div>
-            <div className="result-card">
-              <div className="result-card-icon yellow">⏱</div>
-              <div className="result-card-text">
-                {examResult.timeSpent} потрачено
-              </div>
-            </div>
-            <div className="result-card">
-              <div className="result-card-icon purple">📅</div>
-              <div className="result-card-text">
-                {examResult.dateTime}
-              </div>
-            </div>
+            <h2 className="topic-detail-title">Результаты экзамена</h2>
           </div>
+
+          <div className="results-section">
+            <div className="result-id"><span>●</span> {userData?.name || 'Пользователь'}</div>
+            <div className="result-header">
+              <h3 className="result-title">результаты экзамена</h3>
+              <div className="progress-circle">
+                <svg className="progress-ring" width="60" height="60">
+                  <circle
+                    className="progress-ring-circle-bg"
+                    stroke="#e0e0e0"
+                    strokeWidth="6"
+                    fill="transparent"
+                    r="24"
+                    cx="30"
+                    cy="30"
+                  />
+                  <circle
+                    className="progress-ring-circle"
+                    stroke={examResult.percentage >= 70 ? "#18ec23" : examResult.percentage >= 50 ? "#ff9800" : "#f44336"}
+                    strokeWidth="6"
+                    fill="transparent"
+                    r="24"
+                    cx="30"
+                    cy="30"
+                    strokeDasharray={`${2 * Math.PI * 24}`}
+                    strokeDashoffset={`${2 * Math.PI * 24 * (1 - (examResult.percentage / 100))}`}
+                    transform="rotate(-90 30 30)"
+                  />
+                </svg>
+                <div
+                  className="progress-text"
+                  style={{
+                    color: examResult.percentage >= 70 ? "#18ec23" : examResult.percentage >= 50 ? "#ff9800" : "#f44336"
+                  }}
+                >
+                  {examResult.percentage}%
+                </div>
+              </div>
+            </div>
+
+            <div className="result-cards">
+              <div className="result-card">
+                <div className="result-card-icon green">✓</div>
+                <div className="result-card-text">
+                  {examResult.correct}/{examResult.total} правильных ответов ({examResult.percentage}%)
+                </div>
+              </div>
+              <div className="result-card">
+                <div className="result-card-icon yellow">⏱</div>
+                <div className="result-card-text">
+                  {examResult.timeSpent} потрачено
+                </div>
+              </div>
+              <div className="result-card">
+                <div className="result-card-icon purple">📅</div>
+                <div className="result-card-text">
+                  {examResult.dateTime}
+                </div>
+              </div>
+            </div>
 
             {/* Блок с советом от ИИ-тренера */}
             {showAiAdvice && aiTrainerAdvice && (
@@ -10777,7 +10785,7 @@ function App() {
                     Совет от ИИ-инструктора
                   </h3>
                 </div>
-                
+
                 {aiTrainerAdvice.loading ? (
                   <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                     <div className="loading-spinner-small"></div>
@@ -10790,9 +10798,9 @@ function App() {
                     {aiTrainerAdvice.text}
                   </p>
                 ) : null}
-                
+
                 {!aiTrainerAdvice.loading && aiTrainerAdvice.text && (
-                  <button 
+                  <button
                     onClick={() => setShowAiAdvice(false)}
                     style={{
                       marginTop: '16px',
@@ -10819,17 +10827,17 @@ function App() {
               </div>
             )}
 
-          <button 
-            className="full-review-button"
-            onClick={() => {
-              setSelectedExamResult(examResult);
-              setScreen('examFullReview');
-            }}
-          >
-            Полный обзор
-          </button>
+            <button
+              className="full-review-button"
+              onClick={() => {
+                setSelectedExamResult(examResult);
+                setScreen('examFullReview');
+              }}
+            >
+              Полный обзор
+            </button>
+          </div>
         </div>
-      </div>
       </>
     );
   }
@@ -10837,22 +10845,22 @@ function App() {
   // ========== ЭКЗАМЕН: Экран полного обзора результатов экзамена ==========
   if (screen === 'examFullReview') {
     const reviewResult = selectedExamResult || (results['exam'] || [])[0];
-    
+
     if (!reviewResult || !reviewResult.questions || !reviewResult.userAnswers) {
       return (
         <>
-        <div className="topic-detail-container">
-          <div className="topic-detail-header">
-            <button className="back-button" onClick={() => {
-              setSelectedExamResult(null);
-              setScreen('examResult');
-            }}>
-              ← Назад
-            </button>
-            <h2 className="topic-detail-title">Результаты экзамена</h2>
+          <div className="topic-detail-container">
+            <div className="topic-detail-header">
+              <button className="back-button" onClick={() => {
+                setSelectedExamResult(null);
+                setScreen('examResult');
+              }}>
+                ← Назад
+              </button>
+              <h2 className="topic-detail-title">Результаты экзамена</h2>
+            </div>
+            <p>Нет данных для просмотра</p>
           </div>
-          <p>Нет данных для просмотра</p>
-        </div>
         </>
       );
     }
@@ -10862,203 +10870,203 @@ function App() {
 
     return (
       <>
-      <div className="full-review-container">
-        <div className="full-review-header">
-          <button className="back-button" onClick={() => {
-            setSelectedExamResult(null);
-            setScreen('examResult');
-          }}>
-            ← Назад
-          </button>
-          <h2 className="full-review-title">Результаты экзамена</h2>
-        </div>
-        
-        <div className="full-review-result-info">
-          {userData?.name && (
-            <div className="review-result-id">{userData.name}</div>
-          )}
-          <div className="review-result-stats">
-            <div className="review-stat-item">
-              <span className="review-stat-label">Правильных ответов:</span>
-              <span className="review-stat-value">{reviewResult.correct}/{reviewResult.total}</span>
-            </div>
-            <div className="review-stat-item">
-              <span className="review-stat-label">Процент:</span>
-              <span className="review-stat-value">{reviewResult.percentage}%</span>
-            </div>
-            {reviewResult.timeSpent && (
-              <div className="review-stat-item">
-                <span className="review-stat-label">Время:</span>
-                <span className="review-stat-value">{reviewResult.timeSpent}</span>
-              </div>
-            )}
-            {reviewResult.dateTime && (
-              <div className="review-stat-item">
-                <span className="review-stat-label">Дата:</span>
-                <span className="review-stat-value">{reviewResult.dateTime}</span>
-              </div>
-            )}
+        <div className="full-review-container">
+          <div className="full-review-header">
+            <button className="back-button" onClick={() => {
+              setSelectedExamResult(null);
+              setScreen('examResult');
+            }}>
+              ← Назад
+            </button>
+            <h2 className="full-review-title">Результаты экзамена</h2>
           </div>
-        </div>
-        
-        <div className="full-review-content">
-          {questions.map((question, index) => {
-            const userAnswer = userAnswers[index];
-            const resolvedImage = question.image ? resolveImage(question.image) : null;
-            
-            return (
-              <div key={question.id || index} className="review-question-block">
-                <div className="review-question-number">
-                  Вопрос {index + 1} из {questions.length}
+
+          <div className="full-review-result-info">
+            {userData?.name && (
+              <div className="review-result-id">{userData.name}</div>
+            )}
+            <div className="review-result-stats">
+              <div className="review-stat-item">
+                <span className="review-stat-label">Правильных ответов:</span>
+                <span className="review-stat-value">{reviewResult.correct}/{reviewResult.total}</span>
+              </div>
+              <div className="review-stat-item">
+                <span className="review-stat-label">Процент:</span>
+                <span className="review-stat-value">{reviewResult.percentage}%</span>
+              </div>
+              {reviewResult.timeSpent && (
+                <div className="review-stat-item">
+                  <span className="review-stat-label">Время:</span>
+                  <span className="review-stat-value">{reviewResult.timeSpent}</span>
                 </div>
-            {/* TODO: Ensure this image is compressed (WebP or compressed PNG under 50kb) */}
-                {resolvedImage && (
-                  <img
-                    src={resolvedImage}
-                    alt="question"
-                    className="review-question-image"
-                    onError={(e) => {
-                      console.warn('⚠️ [IMAGE] Ошибка загрузки изображения (404 или другая):', resolvedImage);
-                      e.target.style.display = 'none';
-                    }}
-                  />
-                )}
-                <h3 className="review-question-text">{question.text}</h3>
-                
-                <div className="review-answers">
-                  {question.answers.map((answer, answerIndex) => {
-                    const userSelectedId = userAnswer?.selectedAnswerId;
-                    const answerId = answer.id;
-                    
-                    const normalizeId = (id) => {
-                      if (id === null || id === undefined) return null;
-                      const num = Number(id);
-                      if (!isNaN(num)) return num;
-                      return String(id);
-                    };
-                    
-                    const normalizedUser = normalizeId(userSelectedId);
-                    const normalizedAnswer = normalizeId(answerId);
-                    
-                    const isSelected = normalizedUser !== null && 
-                                     normalizedAnswer !== null &&
-                                     normalizedUser === normalizedAnswer;
-                    
-                    const isCorrect = answer.correct === true;
-                    
-                    let answerClass = 'review-answer';
-                    let showMarker = false;
-                    let markerText = '';
-                    
-                    if (isCorrect) {
-                      answerClass += ' review-answer-correct';
-                      if (isSelected) {
-                        markerText = 'Ваш ответ (правильно)';
-                      } else {
-                        markerText = 'Правильный ответ';
+              )}
+              {reviewResult.dateTime && (
+                <div className="review-stat-item">
+                  <span className="review-stat-label">Дата:</span>
+                  <span className="review-stat-value">{reviewResult.dateTime}</span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="full-review-content">
+            {questions.map((question, index) => {
+              const userAnswer = userAnswers[index];
+              const resolvedImage = question.image ? resolveImage(question.image) : null;
+
+              return (
+                <div key={question.id || index} className="review-question-block">
+                  <div className="review-question-number">
+                    Вопрос {index + 1} из {questions.length}
+                  </div>
+                  {/* TODO: Ensure this image is compressed (WebP or compressed PNG under 50kb) */}
+                  {resolvedImage && (
+                    <img
+                      src={resolvedImage}
+                      alt="question"
+                      className="review-question-image"
+                      onError={(e) => {
+                        console.warn('⚠️ [IMAGE] Ошибка загрузки изображения (404 или другая):', resolvedImage);
+                        e.target.style.display = 'none';
+                      }}
+                    />
+                  )}
+                  <h3 className="review-question-text">{question.text}</h3>
+
+                  <div className="review-answers">
+                    {question.answers.map((answer, answerIndex) => {
+                      const userSelectedId = userAnswer?.selectedAnswerId;
+                      const answerId = answer.id;
+
+                      const normalizeId = (id) => {
+                        if (id === null || id === undefined) return null;
+                        const num = Number(id);
+                        if (!isNaN(num)) return num;
+                        return String(id);
+                      };
+
+                      const normalizedUser = normalizeId(userSelectedId);
+                      const normalizedAnswer = normalizeId(answerId);
+
+                      const isSelected = normalizedUser !== null &&
+                        normalizedAnswer !== null &&
+                        normalizedUser === normalizedAnswer;
+
+                      const isCorrect = answer.correct === true;
+
+                      let answerClass = 'review-answer';
+                      let showMarker = false;
+                      let markerText = '';
+
+                      if (isCorrect) {
+                        answerClass += ' review-answer-correct';
+                        if (isSelected) {
+                          markerText = 'Ваш ответ (правильно)';
+                        } else {
+                          markerText = 'Правильный ответ';
+                        }
+                        showMarker = true;
+                      } else if (isSelected) {
+                        answerClass += ' review-answer-incorrect';
+                        markerText = 'Ваш ответ (неправильно)';
+                        showMarker = true;
                       }
-                      showMarker = true;
-                    } else if (isSelected) {
-                      answerClass += ' review-answer-incorrect';
-                      markerText = 'Ваш ответ (неправильно)';
-                      showMarker = true;
-                    }
-                    
-                    // Определяем правильный ответ для объяснения
-                    const correctAnswerObj = question.answers.find(a => a.correct === true);
-                    const wrongAnswerText = isSelected && !isCorrect ? answer.text : null;
-                    const correctAnswerText = correctAnswerObj ? correctAnswerObj.text : null;
-                    const questionId = question.id || `q-${index}`;
-                    const explanationData = explanations[questionId];
-                    // ИИ-объяснение отключено для экзаменов (examFullReview - это экран просмотра результатов экзамена)
-                    const showExplanationButton = false; // Отключено для экзаменов
-                    
-                    return (
-                      <div key={answer.id || answerIndex}>
-                        <div className={answerClass}>
-                        {showMarker && <span className={`answer-marker ${isCorrect ? 'correct' : ''}`}>{markerText}: </span>}
-                        {answerIndex + 1}. {answer.text}
-                        {isCorrect && <span className="correct-icon"> ✓</span>}
-                        {isSelected && !isCorrect && <span className="incorrect-icon"> ✗</span>}
-                        </div>
-                        {/* Кнопка и блок объяснения для неправильного ответа */}
-                        {showExplanationButton && (
-                          <div className="explanation-block">
-                            {!explanationData && (
-                              <button
-                                className="explanation-button"
-                                onClick={() => {
-                                  const questionImage = question.image || question.image_url || null;
-                                  getExplanation(questionId, question.text, wrongAnswerText, correctAnswerText, questionImage);
-                                }}
-                              >
-                                🤖 Почему это неправильно?
-                              </button>
-                            )}
-                            {explanationData?.loading && (
-                              <div className="explanation-loading">Загрузка объяснения...</div>
-                            )}
-                            {explanationData?.error && (
-                              <div className="explanation-error">{explanationData.error}</div>
-                            )}
-                            {explanationData?.explanation && (
-                              <div className="explanation-text">{explanationData.explanation}</div>
-                            )}
+
+                      // Определяем правильный ответ для объяснения
+                      const correctAnswerObj = question.answers.find(a => a.correct === true);
+                      const wrongAnswerText = isSelected && !isCorrect ? answer.text : null;
+                      const correctAnswerText = correctAnswerObj ? correctAnswerObj.text : null;
+                      const questionId = question.id || `q-${index}`;
+                      const explanationData = explanations[questionId];
+                      // ИИ-объяснение отключено для экзаменов (examFullReview - это экран просмотра результатов экзамена)
+                      const showExplanationButton = false; // Отключено для экзаменов
+
+                      return (
+                        <div key={answer.id || answerIndex}>
+                          <div className={answerClass}>
+                            {showMarker && <span className={`answer-marker ${isCorrect ? 'correct' : ''}`}>{markerText}: </span>}
+                            {answerIndex + 1}. {answer.text}
+                            {isCorrect && <span className="correct-icon"> ✓</span>}
+                            {isSelected && !isCorrect && <span className="incorrect-icon"> ✗</span>}
                           </div>
-                        )}
+                          {/* Кнопка и блок объяснения для неправильного ответа */}
+                          {showExplanationButton && (
+                            <div className="explanation-block">
+                              {!explanationData && (
+                                <button
+                                  className="explanation-button"
+                                  onClick={() => {
+                                    const questionImage = question.image || question.image_url || null;
+                                    getExplanation(questionId, question.text, wrongAnswerText, correctAnswerText, questionImage);
+                                  }}
+                                >
+                                  🤖 Почему это неправильно?
+                                </button>
+                              )}
+                              {explanationData?.loading && (
+                                <div className="explanation-loading">Загрузка объяснения...</div>
+                              )}
+                              {explanationData?.error && (
+                                <div className="explanation-error">{explanationData.error}</div>
+                              )}
+                              {explanationData?.explanation && (
+                                <div className="explanation-text">{explanationData.explanation}</div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Блок с объяснением ИИ для неправильных ответов */}
+                  {(() => {
+                    const userSelectedId = userAnswer?.selectedAnswerId;
+                    const correctAnswer = question.answers.find(a => a.correct === true);
+                    const userSelectedAnswer = question.answers.find(a => {
+                      const normalizeId = (id) => {
+                        if (id === null || id === undefined) return null;
+                        const num = Number(id);
+                        if (!isNaN(num)) return num;
+                        return String(id);
+                      };
+                      return normalizeId(a.id) === normalizeId(userSelectedId);
+                    });
+                    const isIncorrect = userSelectedAnswer && !userSelectedAnswer.correct;
+                    const questionId = question.id || `q-${index}`;
+
+                    if (!isIncorrect) return null;
+
+                    return (
+                      <div className="ai-explanation-block">
+                        <div className="ai-explanation-header">
+                          <span className="ai-explanation-icon">🤖</span>
+                          <span className="ai-explanation-title">Объяснение ИИ:</span>
+                        </div>
+                        <div className="ai-explanation-content">
+                          {explanations[questionId]?.loading ? (
+                            <div className="ai-explanation-loading">
+                              <span>ИИ анализирует ваш ответ...</span>
+                            </div>
+                          ) : explanations[questionId]?.error ? (
+                            <div className="ai-explanation-error">
+                              {explanations[questionId].error}
+                            </div>
+                          ) : explanations[questionId]?.explanation ? (
+                            <Typewriter
+                              key={explanations[questionId].explanation}
+                              text={explanations[questionId].explanation || ''}
+                            />
+                          ) : null}
+                        </div>
                       </div>
                     );
-                  })}
+                  })()}
                 </div>
-                
-                {/* Блок с объяснением ИИ для неправильных ответов */}
-                {(() => {
-                  const userSelectedId = userAnswer?.selectedAnswerId;
-                  const correctAnswer = question.answers.find(a => a.correct === true);
-                  const userSelectedAnswer = question.answers.find(a => {
-                    const normalizeId = (id) => {
-                      if (id === null || id === undefined) return null;
-                      const num = Number(id);
-                      if (!isNaN(num)) return num;
-                      return String(id);
-                    };
-                    return normalizeId(a.id) === normalizeId(userSelectedId);
-                  });
-                  const isIncorrect = userSelectedAnswer && !userSelectedAnswer.correct;
-                  const questionId = question.id || `q-${index}`;
-                  
-                  if (!isIncorrect) return null;
-                  
-                  return (
-                    <div className="ai-explanation-block">
-                      <div className="ai-explanation-header">
-                        <span className="ai-explanation-icon">🤖</span>
-                        <span className="ai-explanation-title">Объяснение ИИ:</span>
-                      </div>
-                      <div className="ai-explanation-content">
-                        {explanations[questionId]?.loading ? (
-                          <div className="ai-explanation-loading">
-                            <span>ИИ анализирует ваш ответ...</span>
-                          </div>
-                        ) : explanations[questionId]?.error ? (
-                          <div className="ai-explanation-error">
-                            {explanations[questionId].error}
-                          </div>
-                        ) : explanations[questionId]?.explanation ? (
-                          <Typewriter 
-                            key={explanations[questionId].explanation}
-                            text={explanations[questionId].explanation || ''}
-                          />
-                        ) : null}
-                      </div>
-                    </div>
-                  );
-                })()}
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
-      </div>
         {showScrollToTopResults && (
           <button
             type="button"
@@ -11084,7 +11092,7 @@ function App() {
   if (screen === 'statistics') {
     return (
       <>
-        <StatisticsScreen 
+        <StatisticsScreen
           onBack={() => setScreen('topics')}
           topics={topics}
           onTopicSelect={(topic) => {
@@ -11132,7 +11140,7 @@ function App() {
                   ) : analyticsAiVerdict && analyticsAiVerdict.text ? (
                     <p>{analyticsAiVerdict.text}</p>
                   ) : (
-                    <button 
+                    <button
                       className="analytics-ai-button"
                       onClick={loadAnalyticsAiVerdict}
                     >
@@ -11197,7 +11205,7 @@ function App() {
                         </span>
                       </div>
                       <div className="analytics-topic-progress">
-                        <div 
+                        <div
                           className={`analytics-topic-progress-bar analytics-topic-progress-${topic.color}`}
                           style={{ width: `${Math.min(topic.averagePercentage, 100)}%` }}
                         ></div>
@@ -11225,7 +11233,7 @@ function App() {
               <div className="analytics-empty-icon">📊</div>
               <h3>Нет данных для отображения</h3>
               <p>Пройдите тесты, чтобы увидеть свою статистику</p>
-              <button 
+              <button
                 className="analytics-empty-button"
                 onClick={() => setScreen('topics')}
               >
@@ -11248,13 +11256,13 @@ function App() {
       setScreen('topics');
       return null;
     }
-    
+
     // ========== ЭКЗАМЕН: Используем сохраненные вопросы теста ==========
     // Для экзамена используем testQuestions, для теста по теме - из selectedTopic
-    let questions = testQuestions.length > 0 
-      ? testQuestions 
+    let questions = testQuestions.length > 0
+      ? testQuestions
       : (selectedTopic ? getMergedQuestions(selectedTopic.id) : []);
-    
+
     // Преобразуем вопросы, если у них нет массива answers
     questions = questions.map((q, qIndex) => {
       console.log(`Преобразование вопроса ${qIndex + 1}/${questions.length}:`, q.id, {
@@ -11264,25 +11272,25 @@ function App() {
         hasAnswerB: !!q.answer_b,
         question: q.question || q.text
       });
-      
+
       // Если у вопроса уже есть массив answers, возвращаем как есть
       if (q.answers && Array.isArray(q.answers) && q.answers.length > 0) {
         console.log(`  ✅ Вопрос ${q.id} уже имеет ${q.answers.length} ответов`);
         return q;
       }
-      
+
       // Если у вопроса есть answer_a, answer_b и т.д., преобразуем в массив answers
       const answerKeys = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
       const hasAnswerFields = answerKeys.some(key => {
         const value = q[`answer_${key}`];
         return value && String(value).trim() !== '';
       });
-      
+
       console.log(`  Проверка полей answer_*: ${hasAnswerFields ? 'найдены' : 'не найдены'}`);
-      
+
       if (hasAnswerFields) {
         const answers = [];
-        
+
         answerKeys.forEach((key, index) => {
           const answerText = q[`answer_${key}`];
           if (answerText && String(answerText).trim() !== '') {
@@ -11294,7 +11302,7 @@ function App() {
             console.log(`    Ответ ${key}: "${answerText}", правильный: ${q.correct === key}`);
           }
         });
-        
+
         if (answers.length > 0) {
           console.log(`  ✅ Преобразованы ответы для вопроса ${q.id}: ${answers.length} ответов`);
           return {
@@ -11306,7 +11314,7 @@ function App() {
           console.warn(`  ⚠️ Поля answer_* найдены, но все пустые для вопроса ${q.id}`);
         }
       }
-      
+
       // Если ничего не найдено, возвращаем вопрос как есть (может быть ошибка)
       console.error(`  ❌ Вопрос ${q.id} без ответов. Данные вопроса:`, {
         id: q.id,
@@ -11325,7 +11333,7 @@ function App() {
         text: q.question || q.text || ''
       };
     });
-    
+
     const question = questions[currentQuestionIndex]
     const hasQuestionImage = Boolean(question?.image);
 
@@ -11345,286 +11353,286 @@ function App() {
     return (
       <>
         <div className="quiz-container-new">
-        <div className="quiz-header-new">
-          <div className="quiz-header-left">
-            <button 
-              className="back-button-new" 
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                console.log('Назад нажата, isExamMode:', isExamMode);
-                handleExitTest();
-              }}
-              style={{ zIndex: 1000, position: 'relative' }}
-            >
-              ← Назад
-            </button>
-          </div>
-          <div className="quiz-header-right">
-            <button 
-              className="finish-button" 
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                console.log('Финиш нажата, isExamMode:', isExamMode);
-                handleFinishTest();
-              }}
-              style={{ zIndex: 1000, position: 'relative' }}
-            >
-              Финиш
-            </button>
-            {/* ========== ЭКЗАМЕН: Отображение таймера в зависимости от режима ========== */}
-            <div className={`quiz-timer-new ${isExamMode && examTimeRemaining !== null && examTimeRemaining <= 60 ? 'quiz-timer-warning' : ''} ${isExamMode && examTimeRemaining === 0 ? 'quiz-timer-expired' : ''}`}>
-              {isExamMode && examTimeRemaining !== null 
-                ? formatExamTime(examTimeRemaining) 
-                : formatTime(elapsedTime)}
+          <div className="quiz-header-new">
+            <div className="quiz-header-left">
+              <button
+                className="back-button-new"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  console.log('Назад нажата, isExamMode:', isExamMode);
+                  handleExitTest();
+                }}
+                style={{ zIndex: 1000, position: 'relative' }}
+              >
+                ← Назад
+              </button>
+            </div>
+            <div className="quiz-header-right">
+              <button
+                className="finish-button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  console.log('Финиш нажата, isExamMode:', isExamMode);
+                  handleFinishTest();
+                }}
+                style={{ zIndex: 1000, position: 'relative' }}
+              >
+                Финиш
+              </button>
+              {/* ========== ЭКЗАМЕН: Отображение таймера в зависимости от режима ========== */}
+              <div className={`quiz-timer-new ${isExamMode && examTimeRemaining !== null && examTimeRemaining <= 60 ? 'quiz-timer-warning' : ''} ${isExamMode && examTimeRemaining === 0 ? 'quiz-timer-expired' : ''}`}>
+                {isExamMode && examTimeRemaining !== null
+                  ? formatExamTime(examTimeRemaining)
+                  : formatTime(elapsedTime)}
+              </div>
             </div>
           </div>
-        </div>
-        
-        <div className="quiz-content-new">
-          <h2 className="quiz-topic-title">
-            {isExamMode ? `Экзамен (${examQuestionCount} вопросов)` : (selectedTopic?.name || 'Тест')}
-          </h2>
-          
-          <div className="question-box">
-            {hasQuestionImage && (
-              <div className="question-image-wrapper">
-                {!imageLoaded && (
-                  <div className="question-image-skeleton" aria-hidden="true">
-                    <div className="question-image-spinner"></div>
-                  </div>
-                )}
-                {activeQuestionImageSrc && (
-                  <img
-                    src={activeQuestionImageSrc}
-                    alt="question"
-                    className="question-image-new"
-                    onLoad={() => setImageLoaded(true)}
-                    onError={() => {
-                      console.warn('⚠️ [IMAGE] Ошибка загрузки изображения (404 или другая):', activeQuestionImageSrc);
-                      setImageLoaded(true);
-                      setActiveQuestionImageSrc(null);
-                    }}
-                    style={{ display: imageLoaded ? 'block' : 'none' }}
-                  />
-                )}
-              </div>
-            )}
-            <p className="question-text-new">{question.text}</p>
-          </div>
-          
-          <div className="answers-list">
-            {(!question.answers || question.answers.length === 0) ? (
-              <div style={{ padding: '20px', textAlign: 'center', color: '#666' }}>
-                <p>Варианты ответов не найдены для этого вопроса.</p>
-                <p style={{ fontSize: '12px', marginTop: '10px' }}>ID вопроса: {question.id}</p>
-              </div>
-            ) : (
-              question.answers.map((answer, index) => {
-              const answerNumber = index + 1;
-              // Сравниваем с учетом возможных различий типов
-              const isSelected = selectedAnswer !== null && 
-                               (selectedAnswer === answer.id || 
-                                String(selectedAnswer) === String(answer.id) ||
-                                (Number(selectedAnswer) === Number(answer.id) && 
-                                 !isNaN(Number(selectedAnswer)) && 
-                                 !isNaN(Number(answer.id))));
-              const isCorrect = answer.correct === true;
-              let answerClass = 'answer-item';
-              
-              // ========== ЭКЗАМЕН: Блокируем ответы, если время истекло ==========
-              const isTimeExpired = isExamMode && examTimeRemaining !== null && examTimeRemaining === 0;
-              const isDisabled = isAnswered || isTimeExpired;
-              
-              if (isAnswered || isTimeExpired) {
-                if (isCorrect) {
-                  answerClass += ' answer-correct';
-                } else if (isSelected && !isCorrect) {
-                  answerClass += ' answer-incorrect';
-                }
-              } else if (isSelected) {
-                answerClass += ' answer-selected';
-              }
-              
-              // Определяем правильный ответ для объяснения
+
+          <div className="quiz-content-new">
+            <h2 className="quiz-topic-title">
+              {isExamMode ? `Экзамен (${examQuestionCount} вопросов)` : (selectedTopic?.name || 'Тест')}
+            </h2>
+
+            <div className="question-box">
+              {hasQuestionImage && (
+                <div className="question-image-wrapper">
+                  {!imageLoaded && (
+                    <div className="question-image-skeleton" aria-hidden="true">
+                      <div className="question-image-spinner"></div>
+                    </div>
+                  )}
+                  {activeQuestionImageSrc && (
+                    <img
+                      src={activeQuestionImageSrc}
+                      alt="question"
+                      className="question-image-new"
+                      onLoad={() => setImageLoaded(true)}
+                      onError={() => {
+                        console.warn('⚠️ [IMAGE] Ошибка загрузки изображения (404 или другая):', activeQuestionImageSrc);
+                        setImageLoaded(true);
+                        setActiveQuestionImageSrc(null);
+                      }}
+                      style={{ display: imageLoaded ? 'block' : 'none' }}
+                    />
+                  )}
+                </div>
+              )}
+              <p className="question-text-new">{question.text}</p>
+            </div>
+
+            <div className="answers-list">
+              {(!question.answers || question.answers.length === 0) ? (
+                <div style={{ padding: '20px', textAlign: 'center', color: '#666' }}>
+                  <p>Варианты ответов не найдены для этого вопроса.</p>
+                  <p style={{ fontSize: '12px', marginTop: '10px' }}>ID вопроса: {question.id}</p>
+                </div>
+              ) : (
+                question.answers.map((answer, index) => {
+                  const answerNumber = index + 1;
+                  // Сравниваем с учетом возможных различий типов
+                  const isSelected = selectedAnswer !== null &&
+                    (selectedAnswer === answer.id ||
+                      String(selectedAnswer) === String(answer.id) ||
+                      (Number(selectedAnswer) === Number(answer.id) &&
+                        !isNaN(Number(selectedAnswer)) &&
+                        !isNaN(Number(answer.id))));
+                  const isCorrect = answer.correct === true;
+                  let answerClass = 'answer-item';
+
+                  // ========== ЭКЗАМЕН: Блокируем ответы, если время истекло ==========
+                  const isTimeExpired = isExamMode && examTimeRemaining !== null && examTimeRemaining === 0;
+                  const isDisabled = isAnswered || isTimeExpired;
+
+                  if (isAnswered || isTimeExpired) {
+                    if (isCorrect) {
+                      answerClass += ' answer-correct';
+                    } else if (isSelected && !isCorrect) {
+                      answerClass += ' answer-incorrect';
+                    }
+                  } else if (isSelected) {
+                    answerClass += ' answer-selected';
+                  }
+
+                  // Определяем правильный ответ для объяснения
+                  const correctAnswerObj = question.answers.find(a => a.correct === true);
+                  const wrongAnswerText = (isAnswered || isTimeExpired) && isSelected && !isCorrect ? answer.text : null;
+                  const correctAnswerText = correctAnswerObj ? correctAnswerObj.text : null;
+                  const questionId = question.id || `q-${currentQuestionIndex}`;
+                  const explanationData = explanations[questionId];
+                  // ИИ-объяснение отключено в режиме экзамена
+                  const showExplanationButton = !isExamMode && (isAnswered || isTimeExpired) && isSelected && !isCorrect && wrongAnswerText && correctAnswerText;
+
+                  return (
+                    <div key={answer.id}>
+                      <div
+                        className={answerClass}
+                        onClick={() => !isDisabled && handleAnswerClick(answer.id)}
+                        style={{
+                          cursor: isDisabled ? 'not-allowed' : 'pointer',
+                          opacity: isTimeExpired ? 0.6 : 1
+                        }}
+                      >
+                        {answerNumber}. {answer.text}
+                      </div>
+                    </div>
+                  );
+                }))}
+            </div>
+
+            {/* Блок с объяснением ИИ для неправильных ответов - показывается только по нажатию кнопки и остается до завершения теста */}
+            {(() => {
+              // Проверяем, был ли выбран неправильный ответ на текущий вопрос
+              const userAnswer = userAnswers[currentQuestionIndex];
+              if (!userAnswer || !isAnswered) return null;
+
+              const userSelectedId = userAnswer.selectedAnswerId;
               const correctAnswerObj = question.answers.find(a => a.correct === true);
-              const wrongAnswerText = (isAnswered || isTimeExpired) && isSelected && !isCorrect ? answer.text : null;
-              const correctAnswerText = correctAnswerObj ? correctAnswerObj.text : null;
-              const questionId = question.id || `q-${currentQuestionIndex}`;
-              const explanationData = explanations[questionId];
-              // ИИ-объяснение отключено в режиме экзамена
-              const showExplanationButton = !isExamMode && (isAnswered || isTimeExpired) && isSelected && !isCorrect && wrongAnswerText && correctAnswerText;
-              
-              return (
-                <div key={answer.id}>
-                <div
-                  className={answerClass}
-                  onClick={() => !isDisabled && handleAnswerClick(answer.id)}
-                  style={{ 
-                    cursor: isDisabled ? 'not-allowed' : 'pointer',
-                    opacity: isTimeExpired ? 0.6 : 1
-                  }}
-                >
-                  {answerNumber}. {answer.text}
-                  </div>
-                </div>
-              );
-            }))}
-          </div>
-          
-          {/* Блок с объяснением ИИ для неправильных ответов - показывается только по нажатию кнопки и остается до завершения теста */}
-          {(() => {
-            // Проверяем, был ли выбран неправильный ответ на текущий вопрос
-            const userAnswer = userAnswers[currentQuestionIndex];
-            if (!userAnswer || !isAnswered) return null;
-            
-            const userSelectedId = userAnswer.selectedAnswerId;
-            const correctAnswerObj = question.answers.find(a => a.correct === true);
-            const userSelectedAnswer = question.answers.find(a => {
-              const normalizeId = (id) => {
-                if (id === null || id === undefined) return null;
-                const num = Number(id);
-                if (!isNaN(num)) return num;
-                return String(id);
-              };
-              return normalizeId(a.id) === normalizeId(userSelectedId);
-            });
-            
-            const isIncorrect = userSelectedAnswer && !userSelectedAnswer.correct;
-            const questionId = question.id || `q-${currentQuestionIndex}`;
-            
-            // ИИ-объяснение отключено в режиме экзамена
-            if (isExamMode) return null;
-            
-            if (!isIncorrect || !correctAnswerObj) return null;
-            
-            const explanationData = explanations[questionId];
-            
-            return (
-              <div className="ai-explanation-block" style={{ marginTop: '20px' }}>
-                <div className="ai-explanation-header">
-                  <span className="ai-explanation-icon">🤖</span>
-                  <span className="ai-explanation-title">Объяснение ИИ:</span>
-                </div>
-                <div className="ai-explanation-content">
-                  {!explanationData && (
-                    <button
-                      className="explanation-button"
-                      onClick={() => {
-                        const questionImage = question.image || question.image_url || null;
-                        getExplanation(questionId, question.text, userSelectedAnswer.text, correctAnswerObj.text, questionImage);
-                      }}
-                      style={{
-                        padding: '12px 20px',
-                        fontSize: '15px',
-                        fontWeight: '600',
-                        backgroundColor: '#2196F3',
-                        color: '#ffffff',
-                        border: 'none',
-                        borderRadius: '10px',
-                        cursor: 'pointer',
-                        transition: 'all 0.3s ease',
-                        boxShadow: '0 2px 8px rgba(33, 150, 243, 0.3)'
-                      }}
-                      onMouseEnter={(e) => {
-                        e.target.style.backgroundColor = '#1976D2';
-                        e.target.style.transform = 'translateY(-2px)';
-                        e.target.style.boxShadow = '0 4px 12px rgba(33, 150, 243, 0.4)';
-                      }}
-                      onMouseLeave={(e) => {
-                        e.target.style.backgroundColor = '#2196F3';
-                        e.target.style.transform = 'translateY(0)';
-                        e.target.style.boxShadow = '0 2px 8px rgba(33, 150, 243, 0.3)';
-                      }}
-                    >
-                      🤖 Почему это неправильно?
-                    </button>
-                  )}
-                  {explanationData?.loading && (
-                    <div className="ai-explanation-loading">
-                      <span>ИИ анализирует ваш ответ...</span>
-                    </div>
-                  )}
-                  {explanationData?.error && (
-                    <div className="ai-explanation-error">
-                      {explanationData.error}
-                    </div>
-                  )}
-                  {explanationData?.explanation && (
-                    explanationData?.streaming ? (
-                      // Показываем текст напрямую с курсором во время печатания
-                      <div className="ai-explanation-text">
-                        <span>{explanationData.explanation}</span>
-                        <span className="typewriter-cursor">|</span>
-                      </div>
-                    ) : (
-                      // После завершения печатания показываем финальный текст
-                      <div className="ai-explanation-text">
-                        <span>{explanationData.explanation}</span>
-                      </div>
-                    )
-                  )}
-                </div>
-              </div>
-            );
-          })()}
-        </div>
-        
-        <div className="quiz-pagination">
-          {questions.map((q, index) => {
-            // Определяем правильность ответа для этого вопроса
-            const userAnswer = userAnswers[index];
-            let isCorrectAnswer = null; // null = не отвечен, true = правильный, false = неправильный
-            
-            if (userAnswer && userAnswer.selectedAnswerId !== undefined && userAnswer.selectedAnswerId !== null) {
-              // Находим выбранный ответ в вопросе
-              const question = questions[index];
-              const selectedAnswer = question.answers.find(a => {
+              const userSelectedAnswer = question.answers.find(a => {
                 const normalizeId = (id) => {
                   if (id === null || id === undefined) return null;
                   const num = Number(id);
                   if (!isNaN(num)) return num;
                   return String(id);
                 };
-                const normalizedUser = normalizeId(userAnswer.selectedAnswerId);
-                const normalizedAnswer = normalizeId(a.id);
-                return normalizedUser !== null && normalizedAnswer !== null && normalizedUser === normalizedAnswer;
+                return normalizeId(a.id) === normalizeId(userSelectedId);
               });
-              
-              isCorrectAnswer = selectedAnswer ? selectedAnswer.correct === true : false;
-            }
-            
-            // Формируем классы для кнопки пагинации
-            let paginationClass = 'pagination-dot';
-            if (index === currentQuestionIndex) {
-              paginationClass += ' active';
-            }
-            if (isCorrectAnswer === true) {
-              paginationClass += ' pagination-correct';
-            } else if (isCorrectAnswer === false) {
-              paginationClass += ' pagination-incorrect';
-            }
-            
-            return (
-              <button
-                key={index}
-                className={paginationClass}
-                onClick={() => {
-                  // Переходим к другому вопросу
-                  const targetAnswer = userAnswers[index];
-                  setCurrentQuestionIndex(index);
-                  setSelectedAnswer(targetAnswer ? targetAnswer.selectedAnswerId : null);
-                  setIsAnswered(targetAnswer ? true : false);
-                  // НЕ очищаем объяснения - они должны оставаться видимыми до завершения теста
-                }}
-              >
-                {index + 1}
-              </button>
-            );
-          })}
-        </div>
-        
+
+              const isIncorrect = userSelectedAnswer && !userSelectedAnswer.correct;
+              const questionId = question.id || `q-${currentQuestionIndex}`;
+
+              // ИИ-объяснение отключено в режиме экзамена
+              if (isExamMode) return null;
+
+              if (!isIncorrect || !correctAnswerObj) return null;
+
+              const explanationData = explanations[questionId];
+
+              return (
+                <div className="ai-explanation-block" style={{ marginTop: '20px' }}>
+                  <div className="ai-explanation-header">
+                    <span className="ai-explanation-icon">🤖</span>
+                    <span className="ai-explanation-title">Объяснение ИИ:</span>
+                  </div>
+                  <div className="ai-explanation-content">
+                    {!explanationData && (
+                      <button
+                        className="explanation-button"
+                        onClick={() => {
+                          const questionImage = question.image || question.image_url || null;
+                          getExplanation(questionId, question.text, userSelectedAnswer.text, correctAnswerObj.text, questionImage);
+                        }}
+                        style={{
+                          padding: '12px 20px',
+                          fontSize: '15px',
+                          fontWeight: '600',
+                          backgroundColor: '#2196F3',
+                          color: '#ffffff',
+                          border: 'none',
+                          borderRadius: '10px',
+                          cursor: 'pointer',
+                          transition: 'all 0.3s ease',
+                          boxShadow: '0 2px 8px rgba(33, 150, 243, 0.3)'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.target.style.backgroundColor = '#1976D2';
+                          e.target.style.transform = 'translateY(-2px)';
+                          e.target.style.boxShadow = '0 4px 12px rgba(33, 150, 243, 0.4)';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.target.style.backgroundColor = '#2196F3';
+                          e.target.style.transform = 'translateY(0)';
+                          e.target.style.boxShadow = '0 2px 8px rgba(33, 150, 243, 0.3)';
+                        }}
+                      >
+                        🤖 Почему это неправильно?
+                      </button>
+                    )}
+                    {explanationData?.loading && (
+                      <div className="ai-explanation-loading">
+                        <span>ИИ анализирует ваш ответ...</span>
+                      </div>
+                    )}
+                    {explanationData?.error && (
+                      <div className="ai-explanation-error">
+                        {explanationData.error}
+                      </div>
+                    )}
+                    {explanationData?.explanation && (
+                      explanationData?.streaming ? (
+                        // Показываем текст напрямую с курсором во время печатания
+                        <div className="ai-explanation-text">
+                          <span>{explanationData.explanation}</span>
+                          <span className="typewriter-cursor">|</span>
+                        </div>
+                      ) : (
+                        // После завершения печатания показываем финальный текст
+                        <div className="ai-explanation-text">
+                          <span>{explanationData.explanation}</span>
+                        </div>
+                      )
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+
+          <div className="quiz-pagination">
+            {questions.map((q, index) => {
+              // Определяем правильность ответа для этого вопроса
+              const userAnswer = userAnswers[index];
+              let isCorrectAnswer = null; // null = не отвечен, true = правильный, false = неправильный
+
+              if (userAnswer && userAnswer.selectedAnswerId !== undefined && userAnswer.selectedAnswerId !== null) {
+                // Находим выбранный ответ в вопросе
+                const question = questions[index];
+                const selectedAnswer = question.answers.find(a => {
+                  const normalizeId = (id) => {
+                    if (id === null || id === undefined) return null;
+                    const num = Number(id);
+                    if (!isNaN(num)) return num;
+                    return String(id);
+                  };
+                  const normalizedUser = normalizeId(userAnswer.selectedAnswerId);
+                  const normalizedAnswer = normalizeId(a.id);
+                  return normalizedUser !== null && normalizedAnswer !== null && normalizedUser === normalizedAnswer;
+                });
+
+                isCorrectAnswer = selectedAnswer ? selectedAnswer.correct === true : false;
+              }
+
+              // Формируем классы для кнопки пагинации
+              let paginationClass = 'pagination-dot';
+              if (index === currentQuestionIndex) {
+                paginationClass += ' active';
+              }
+              if (isCorrectAnswer === true) {
+                paginationClass += ' pagination-correct';
+              } else if (isCorrectAnswer === false) {
+                paginationClass += ' pagination-incorrect';
+              }
+
+              return (
+                <button
+                  key={index}
+                  className={paginationClass}
+                  onClick={() => {
+                    // Переходим к другому вопросу
+                    const targetAnswer = userAnswers[index];
+                    setCurrentQuestionIndex(index);
+                    setSelectedAnswer(targetAnswer ? targetAnswer.selectedAnswerId : null);
+                    setIsAnswered(targetAnswer ? true : false);
+                    // НЕ очищаем объяснения - они должны оставаться видимыми до завершения теста
+                  }}
+                >
+                  {index + 1}
+                </button>
+              );
+            })}
+          </div>
+
         </div>
       </>
     )
@@ -11633,7 +11641,7 @@ function App() {
   // Fallback - show topics if nothing else matches
   return (
     <>
-    <div className="topics-container">
+      <div className="topics-container">
         {/* Панель переключения между Тема и Экзамен */}
         <div className="mode-switch-panel">
           <button
@@ -11649,49 +11657,49 @@ function App() {
             Экзамен
           </button>
         </div>
-        
-      <div className="topics-header">
-        <h1 className="topics-title">Темы</h1>
-      </div>
-      <div className="topics-list">
-        {topics.map((topic, index) => {
-          // Используем questionCount из темы (загружено из Supabase)
-          let questionCount = topic.questionCount || 0;
-          
-          // Если questionCount не установлен, вычисляем из savedQuestions
-          if (!questionCount || questionCount === 0) {
-            const staticCount = questionsData[topic.id]?.length || 0;
-            // Нормализуем ID темы для сравнения
-            const normalizedTopicId = String(topic.id).trim();
-            const savedCount = savedQuestions.filter(q => {
-              // Используем quiz_id как основной идентификатор (синхронизация с БД)
-              const qQuizId = String(q.quiz_id || q.topic_id || '').trim();
-              return qQuizId === normalizedTopicId;
-            }).length;
-            questionCount = staticCount + savedCount;
-          }
-          
-          return (
-            <button
-              key={topic.id}
-              className="topic-item"
-              onClick={() => handleTopicClick(topic)}
-            >
-              <span className="topic-number">{index + 1}.</span>
-              <span className="topic-name">{topic.name}</span>
-              <span className="topic-count">{questionCount}</span>
-            </button>
-          )
-        })}
-      </div>
-    </div>
-    {/* Модальное окно оплаты */}
-    {showPaymentModal && selectedTariff && (
-      <PaymentModal />
-    )}
 
-    {/* WelcomeModal рендерится через компонент, который использует Portal */}
-    <WelcomeModal />
+        <div className="topics-header">
+          <h1 className="topics-title">Темы</h1>
+        </div>
+        <div className="topics-list">
+          {topics.map((topic, index) => {
+            // Используем questionCount из темы (загружено из Supabase)
+            let questionCount = topic.questionCount || 0;
+
+            // Если questionCount не установлен, вычисляем из savedQuestions
+            if (!questionCount || questionCount === 0) {
+              const staticCount = questionsData[topic.id]?.length || 0;
+              // Нормализуем ID темы для сравнения
+              const normalizedTopicId = String(topic.id).trim();
+              const savedCount = savedQuestions.filter(q => {
+                // Используем quiz_id как основной идентификатор (синхронизация с БД)
+                const qQuizId = String(q.quiz_id || q.topic_id || '').trim();
+                return qQuizId === normalizedTopicId;
+              }).length;
+              questionCount = staticCount + savedCount;
+            }
+
+            return (
+              <button
+                key={topic.id}
+                className="topic-item"
+                onClick={() => handleTopicClick(topic)}
+              >
+                <span className="topic-number">{index + 1}.</span>
+                <span className="topic-name">{topic.name}</span>
+                <span className="topic-count">{questionCount}</span>
+              </button>
+            )
+          })}
+        </div>
+      </div>
+      {/* Модальное окно оплаты */}
+      {showPaymentModal && selectedTariff && (
+        <PaymentModal />
+      )}
+
+      {/* WelcomeModal рендерится через компонент, который использует Portal */}
+      <WelcomeModal />
     </>
   )
 }
