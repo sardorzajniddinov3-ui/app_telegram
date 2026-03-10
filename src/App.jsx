@@ -7088,23 +7088,28 @@ function App() {
       setPaymentReceiptPreview(null);
       setPaymentReceiptUploading(false);
 
-      // Вставляем запись в новую таблицу payments
+      // Вставляем запись в таблицу payment_requests
       const insertPayload = {
         user_id: userId,
         tariff_name: tariff.name,
         amount: String(tariff.price),
         sender_info: senderInfo,
         status: 'pending',
-        ...(receiptUrl ? { screenshot_url: receiptUrl } : {})
+        ...(receiptUrl ? { receipt_url: receiptUrl } : {})
       };
 
-      // Если нет чека, все равно нужна какая-то заглушка или можно передавать пустую строку
-      // но в SQL screenshot_url NOT NULL, поэтому отправляем дефолтную или проверяем
-      if (!insertPayload.screenshot_url) {
-        insertPayload.screenshot_url = 'no_receipt';
-      }
+      let { error } = await supabase.from('payment_requests').insert(insertPayload);
 
-      let { error } = await supabase.from('payments').insert(insertPayload);
+      if (error && error.code === 'PGRST204') {
+        const { error: error2 } = await supabase.from('payment_requests').insert({
+          user_id: userId,
+          tariff_name: tariff.name,
+          amount: String(tariff.price),
+          sender_info: senderInfo,
+          status: 'pending'
+        });
+        error = error2;
+      }
 
       if (error) {
         console.error('Ошибка сохранения запроса на оплату в БД:', error);
