@@ -7147,23 +7147,7 @@ function App() {
           console.warn('⚠️ Ответ не OK:', notifyResponse.status, text?.slice(0, 100));
         }
       } catch (e) {
-        console.warn('⚠️ Не удалось отправить на Vercel API, пробуем fallback.', e?.message);
-        // Fallback на Railway бэкенд, если Vercel API не отвечает
-        try {
-          const fallbackUrl = `${BACKEND_FALLBACK_URL}/api/notify/payment`;
-          console.log('📤 Отправка на Fallback:', fallbackUrl);
-          const notifyResponseFallback = await fetch(fallbackUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ...requestBody, receiptDataUrl: receiptDataUrl || null })
-          });
-          if (notifyResponseFallback.ok) {
-            console.log('✅ Уведомление отправлено (Fallback)');
-            notifyOk = true;
-          }
-        } catch (fbErr) {
-          console.warn('⚠️ Не удалось отправить даже на Fallback:', fbErr?.message);
-        }
+        console.warn('⚠️ Не удалось отправить на Vercel API:', e?.message);
       }
 
       if (notifyOk) {
