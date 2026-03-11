@@ -15,7 +15,11 @@ export default async function handler(req, res) {
     }
 
     try {
-        const { amount, tariffName, userInfo, userId, receiptUrl } = req.body;
+        const { amount, tariffName, userInfo, userId, receiptUrl, planName, senderInfo } = req.body;
+
+        // Поддержка старых (tariffName, userInfo) и новых (planName, senderInfo) переменных
+        const finalPlanName = planName || tariffName || 'Не указан';
+        const finalSenderInfo = senderInfo || userInfo || 'Не указана';
 
         // ID админа из требований
         const ADMIN_TELEGRAM_ID = '473842863';
@@ -27,11 +31,13 @@ export default async function handler(req, res) {
             return res.status(500).json({ error: 'Server configuration error' });
         }
 
-        const messageText = `Новая заявка на оплату!\n` +
-            `👤 Пользователь (ID): ${userId}\n` +
-            `💳 Инфо отправителя: ${userInfo}\n` +
-            `💰 Тариф: ${tariffName} (${amount} сум)\n` +
-            (receiptUrl ? `📎 Чек: Прикреплен к сообщению` : `❌ Чек: Не прикреплен`);
+        const messageText = `💰 Новая заявка на оплату!
+---------------------------
+💵 Сумма: ${amount} сум
+📦 Тариф: ${finalPlanName}
+💳 Реквизиты/Карта: ${finalSenderInfo}
+👤 ID пользователя: ${userId}
+---------------------------`;
 
         let telegramApiUrl = '';
         let payload = {};
