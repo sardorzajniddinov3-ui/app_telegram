@@ -20,7 +20,7 @@ export default async function handler(req, res) {
         // ID админа из требований
         const ADMIN_TELEGRAM_ID = '473842863';
         // Используем токен бота из переменных окружения
-        const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || process.env.VITE_TELEGRAM_BOT_TOKEN;
+        const BOT_TOKEN = process.env.BOT_TOKEN;
 
         if (!BOT_TOKEN) {
             console.error('Bot token is missing in Vercel environment');
